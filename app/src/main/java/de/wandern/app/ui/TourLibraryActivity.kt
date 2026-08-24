@@ -1,18 +1,25 @@
 package de.wandern.app.ui
 
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
 import android.text.format.Formatter
 import android.util.Log
+import android.util.LruCache
 import android.view.MotionEvent
 import android.view.View
 import android.view.MenuItem
+import android.widget.ImageView
 import android.widget.EditText
 import android.widget.PopupMenu
+import android.widget.ProgressBar
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
+import androidx.core.view.doOnLayout
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.lifecycleScope
@@ -34,10 +41,29 @@ import de.wandern.app.model.TrackAnalyzer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.maplibre.android.MapLibre
+import org.maplibre.android.geometry.LatLngBounds
+import org.maplibre.android.maps.Style
+import org.maplibre.android.snapshotter.MapSnapshotter
+import org.maplibre.android.style.layers.LineLayer
+import org.maplibre.android.style.layers.Property.LINE_CAP_ROUND
+import org.maplibre.android.style.layers.Property.LINE_JOIN_ROUND
+import org.maplibre.android.style.layers.PropertyFactory.lineCap
+import org.maplibre.android.style.layers.PropertyFactory.lineColor
+import org.maplibre.android.style.layers.PropertyFactory.lineJoin
+import org.maplibre.android.style.layers.PropertyFactory.lineOpacity
+import org.maplibre.android.style.layers.PropertyFactory.lineWidth
+import org.maplibre.android.style.sources.GeoJsonSource
+import org.maplibre.geojson.Feature
+import org.maplibre.geojson.FeatureCollection
+import org.maplibre.geojson.LineString
+import org.maplibre.geojson.Point
 import java.text.SimpleDateFormat
 import java.io.File
+import java.util.ArrayDeque
 import java.util.Date
 import java.util.Locale
+import kotlin.math.max
 
 class TourLibraryActivity : AppCompatActivity() {
     private lateinit var binding: ActivityTourLibraryBinding
@@ -50,6 +76,9 @@ class TourLibraryActivity : AppCompatActivity() {
     private var swipeStartX = 0f
     private var swipeStartY = 0f
     private var swipeStartTimeMillis = 0L
+    private val thumbnailQueue = ArrayDeque<ThumbnailRequest>()
+    private var activeThumbnailSnapshotter: MapSnapshotter? = null
+    private var thumbnailGeneration = 0
 
     private val multiImportLauncher = registerForActivityResult(
         ActivityResultContracts.OpenMultipleDocuments(),
@@ -67,6 +96,7 @@ class TourLibraryActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        MapLibre.getInstance(this)
         binding = ActivityTourLibraryBinding.inflate(layoutInflater)
         setContentView(binding.root)
         ViewCompat.setOnApplyWindowInsetsListener(binding.root) { view, insets ->
@@ -271,13 +301,22 @@ class TourLibraryActivity : AppCompatActivity() {
         binding.emptyText.setText(
             if (planned) R.string.no_planned_tours else R.string.no_completed_tours,
         )
+        resetThumbnailQueue()
         binding.tourListContainer.removeAllViews()
         binding.emptyText.visibility = if (rows.isEmpty()) View.VISIBLE else View.GONE
         binding.tourScrollView.visibility = if (rows.isEmpty()) View.GONE else View.VISIBLE
         rows.forEach { row ->
             val item = ItemTourBinding.inflate(layoutInflater, binding.tourListContainer, false)
+            item.root.setCardBackgroundColor(
+                ContextCompat.getColor(
+                    this,
+                    if (planned) R.color.planned_tour_card else R.color.recorded_tour_card,
+                ),
+            )
             item.tourNameText.text = row.stored.name
             item.root.contentDescription = getString(R.string.open_tour_accessibility, row.stored.name)
+            item.mapThumbnail.contentDescription = getString(R.string.tour_map_thumbnail, row.stored.name)
+            item.mapThumbnail.tag = row.stored.reference
             val activity = row.track.activityType ?: row.stored.activityType
             val sourceAndDate = buildList {
                 if (row.stored.origin == TrackStore.StoredTourOrigin.IMPORTED) {
@@ -311,8 +350,140 @@ class TourLibraryActivity : AppCompatActivity() {
             item.root.setOnClickListener { openTour(row.stored.reference) }
             item.tourMoreButton.setOnClickListener { showTourActions(it, row) }
             binding.tourListContainer.addView(item.root)
+            item.mapThumbnail.doOnLayout {
+                enqueueThumbnail(
+                    reference = row.stored.reference,
+                    track = row.track,
+                    imageView = item.mapThumbnail,
+                    progress = item.thumbnailProgress,
+                )
+            }
             queryOfflineStatus(row, item)
         }
+    }
+
+    private fun enqueueThumbnail(
+        reference: String,
+        track: GpxTrack,
+        imageView: ImageView,
+        progress: ProgressBar,
+    ) {
+        if (imageView.tag != reference || isDestroyed) return
+        THUMBNAIL_CACHE.get(reference)?.let { bitmap ->
+            imageView.setImageBitmap(bitmap)
+            progress.visibility = View.GONE
+            return
+        }
+        thumbnailQueue.addLast(
+            ThumbnailRequest(
+                generation = thumbnailGeneration,
+                reference = reference,
+                track = track,
+                imageView = imageView,
+                progress = progress,
+            ),
+        )
+        startNextThumbnail()
+    }
+
+    private fun startNextThumbnail() {
+        if (activeThumbnailSnapshotter != null) return
+        val request = thumbnailQueue.pollFirst() ?: return
+        if (request.generation != thumbnailGeneration || request.imageView.tag != request.reference) {
+            startNextThumbnail()
+            return
+        }
+        val bounds = thumbnailBounds(request.track) ?: run {
+            request.progress.visibility = View.GONE
+            startNextThumbnail()
+            return
+        }
+        val features = request.track.segments.filter { it.size >= 2 }.map { segment ->
+            Feature.fromGeometry(
+                LineString.fromLngLats(segment.map { Point.fromLngLat(it.longitude, it.latitude) }),
+            )
+        }
+        val style = Style.Builder()
+            .fromUri(MAP_STYLE_URL)
+            .withSource(
+                GeoJsonSource(
+                    THUMBNAIL_ROUTE_SOURCE,
+                    FeatureCollection.fromFeatures(features),
+                ),
+            )
+            .withLayer(
+                LineLayer(THUMBNAIL_ROUTE_LAYER, THUMBNAIL_ROUTE_SOURCE).withProperties(
+                    lineColor(Color.parseColor("#1677FF")),
+                    lineWidth(5f),
+                    lineOpacity(0.95f),
+                    lineCap(LINE_CAP_ROUND),
+                    lineJoin(LINE_JOIN_ROUND),
+                ),
+            )
+        val snapshotter = MapSnapshotter(
+            applicationContext,
+            MapSnapshotter.Options(
+                request.imageView.width.coerceAtLeast(1),
+                request.imageView.height.coerceAtLeast(1),
+            ).withStyleBuilder(style)
+                .withRegion(bounds)
+                .withPixelRatio(1f)
+                .withLogo(false),
+        )
+        activeThumbnailSnapshotter = snapshotter
+        snapshotter.start(
+            { snapshot ->
+                runOnUiThread {
+                    finishThumbnail(request, snapshotter, snapshot.bitmap)
+                }
+            },
+            {
+                runOnUiThread {
+                    finishThumbnail(request, snapshotter, null)
+                }
+            },
+        )
+    }
+
+    private fun finishThumbnail(
+        request: ThumbnailRequest,
+        snapshotter: MapSnapshotter,
+        bitmap: Bitmap?,
+    ) {
+        if (activeThumbnailSnapshotter !== snapshotter) return
+        activeThumbnailSnapshotter = null
+        if (request.generation == thumbnailGeneration && request.imageView.tag == request.reference) {
+            request.progress.visibility = View.GONE
+            bitmap?.let {
+                THUMBNAIL_CACHE.put(request.reference, it)
+                request.imageView.setImageBitmap(it)
+            }
+        }
+        startNextThumbnail()
+    }
+
+    private fun thumbnailBounds(track: GpxTrack): LatLngBounds? {
+        val points = track.points
+        if (points.isEmpty()) return null
+        val north = points.maxOf { it.latitude }
+        val south = points.minOf { it.latitude }
+        val east = points.maxOf { it.longitude }
+        val west = points.minOf { it.longitude }
+        val latitudePadding = max((north - south) * THUMBNAIL_BOUNDS_PADDING, MIN_THUMBNAIL_PADDING_DEGREES)
+        val longitudePadding = max((east - west) * THUMBNAIL_BOUNDS_PADDING, MIN_THUMBNAIL_PADDING_DEGREES)
+        return LatLngBounds.from(
+            north + latitudePadding,
+            east + longitudePadding,
+            south - latitudePadding,
+            west - longitudePadding,
+        )
+    }
+
+    private fun resetThumbnailQueue() {
+        thumbnailGeneration++
+        thumbnailQueue.clear()
+        activeThumbnailSnapshotter?.cancel()
+        activeThumbnailSnapshotter = null
     }
 
     private fun showTourActions(anchor: View, row: TourRow) {
@@ -589,6 +760,11 @@ class TourLibraryActivity : AppCompatActivity() {
 
     private fun toast(message: String) = Toast.makeText(this, message, Toast.LENGTH_LONG).show()
 
+    override fun onDestroy() {
+        resetThumbnailQueue()
+        super.onDestroy()
+    }
+
     private data class TourRow(
         val stored: TrackStore.StoredTour,
         val track: GpxTrack,
@@ -603,6 +779,14 @@ class TourLibraryActivity : AppCompatActivity() {
         val errors: List<String>,
     )
 
+    private data class ThumbnailRequest(
+        val generation: Int,
+        val reference: String,
+        val track: GpxTrack,
+        val imageView: ImageView,
+        val progress: ProgressBar,
+    )
+
     companion object {
         private const val LOG_TAG = "TourLibraryActivity"
         private const val MAP_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty"
@@ -615,5 +799,12 @@ class TourLibraryActivity : AppCompatActivity() {
         private const val MENU_DELETE = 4
         private const val MENU_PLAN_FROM_RECORDING = 5
         private const val MENU_CREATE_DEMO = 10
+        private const val THUMBNAIL_ROUTE_SOURCE = "tour-thumbnail-route-source"
+        private const val THUMBNAIL_ROUTE_LAYER = "tour-thumbnail-route-layer"
+        private const val THUMBNAIL_BOUNDS_PADDING = 0.12
+        private const val MIN_THUMBNAIL_PADDING_DEGREES = 0.0008
+        private val THUMBNAIL_CACHE = object : LruCache<String, Bitmap>(12 * 1_024) {
+            override fun sizeOf(key: String, value: Bitmap): Int = value.allocationByteCount / 1_024
+        }
     }
 }

@@ -8,4 +8,7 @@
     <color name="warning">#C44431</color>
     <color name="white">#FFFFFF</color>
     <color name="dialog_action">#1E4D3C</color>
+    <color name="planned_tour_card">#E7F0E8</color>
+    <color name="recorded_tour_card">#F2E8DA</color>
+    <color name="tour_thumbnail_placeholder">#D9E3D2</color>
 </resources>

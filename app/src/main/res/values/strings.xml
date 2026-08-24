@@ -62,6 +62,8 @@
     <string name="tour_statistics">Statistiken</string>
     <string name="tour_details_title">Tourdetails</string>
     <string name="route_map_preview">Interaktive Karte der Tour</string>
+    <string name="tour_map_thumbnail">Kartenausschnitt von %1$s</string>
+    <string name="map_thumbnail_attribution">© OpenStreetMap · OpenFreeMap</string>
     <string name="open_interactive_map">Interaktive Karte öffnen</string>
     <string name="interactive_tour_map">Verschiebbare und zoombare Karte der Tour</string>
     <string name="hide_tour_data">Tour-Daten ausblenden</string>

@@ -16,76 +16,114 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:padding="16dp">
+        android:orientation="vertical">
 
-        <TextView
-            android:id="@+id/tourNameText"
+        <FrameLayout
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:ellipsize="end"
-            android:maxLines="2"
-            android:textColor="@color/forest_900"
-            android:textSize="18sp"
-            android:textStyle="bold" />
+            android:layout_height="132dp">
 
-        <TextView
-            android:id="@+id/tourDetailsText"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="5dp"
-            android:textColor="@color/forest_700"
-            android:textSize="13sp" />
+            <ImageView
+                android:id="@+id/mapThumbnail"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="@color/tour_thumbnail_placeholder"
+                android:scaleType="centerCrop" />
 
-        <TextView
-            android:id="@+id/offlineStatusText"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="9dp"
-            android:text="@string/offline_map_checking"
-            android:textColor="@color/forest_700"
-            android:textSize="13sp"
-            android:textStyle="bold" />
+            <ProgressBar
+                android:id="@+id/thumbnailProgress"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:layout_gravity="center"
+                android:indeterminateTint="@color/forest_700" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="bottom|start"
+                android:background="#BFFBF9F4"
+                android:paddingStart="5dp"
+                android:paddingTop="2dp"
+                android:paddingEnd="5dp"
+                android:paddingBottom="2dp"
+                android:text="@string/map_thumbnail_attribution"
+                android:textColor="@color/forest_900"
+                android:textSize="8sp" />
+        </FrameLayout>
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
+            android:orientation="vertical"
+            android:padding="16dp">
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/offlineMapButton"
-                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-                android:layout_width="0dp"
-                android:layout_height="48dp"
-                android:layout_weight="1"
-                android:enabled="false"
-                android:maxLines="1"
-                android:text="@string/offline_map_checking_short"
-                android:textAllCaps="false"
-                app:autoSizeMaxTextSize="13sp"
-                app:autoSizeMinTextSize="9sp"
-                app:autoSizeTextType="uniform"
-                app:cornerRadius="12dp"
-                app:strokeColor="@color/forest_700" />
+            <TextView
+                android:id="@+id/tourNameText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:maxLines="2"
+                android:textColor="@color/forest_900"
+                android:textSize="18sp"
+                android:textStyle="bold" />
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/tourMoreButton"
-                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:layout_marginStart="7dp"
-                android:contentDescription="@string/tour_actions"
-                android:insetLeft="0dp"
-                android:insetRight="0dp"
-                android:minWidth="0dp"
-                android:padding="12dp"
-                app:cornerRadius="12dp"
-                app:icon="@drawable/ic_more"
-                app:iconGravity="textStart"
-                app:iconPadding="0dp"
-                app:strokeColor="@color/forest_700" />
+            <TextView
+                android:id="@+id/tourDetailsText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="5dp"
+                android:textColor="@color/forest_700"
+                android:textSize="13sp" />
+
+            <TextView
+                android:id="@+id/offlineStatusText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="9dp"
+                android:text="@string/offline_map_checking"
+                android:textColor="@color/forest_700"
+                android:textSize="13sp"
+                android:textStyle="bold" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/offlineMapButton"
+                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                    android:layout_width="0dp"
+                    android:layout_height="48dp"
+                    android:layout_weight="1"
+                    android:enabled="false"
+                    android:maxLines="1"
+                    android:text="@string/offline_map_checking_short"
+                    android:textAllCaps="false"
+                    app:autoSizeMaxTextSize="13sp"
+                    app:autoSizeMinTextSize="9sp"
+                    app:autoSizeTextType="uniform"
+                    app:cornerRadius="12dp"
+                    app:strokeColor="@color/forest_700" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/tourMoreButton"
+                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:layout_marginStart="7dp"
+                    android:contentDescription="@string/tour_actions"
+                    android:insetLeft="0dp"
+                    android:insetRight="0dp"
+                    android:minWidth="0dp"
+                    android:padding="12dp"
+                    app:cornerRadius="12dp"
+                    app:icon="@drawable/ic_more"
+                    app:iconGravity="textStart"
+                    app:iconPadding="0dp"
+                    app:strokeColor="@color/forest_700" />
+            </LinearLayout>
         </LinearLayout>
     </LinearLayout>
 </com.google.android.material.card.MaterialCardView>
