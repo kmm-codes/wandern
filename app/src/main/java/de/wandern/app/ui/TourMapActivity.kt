@@ -209,7 +209,6 @@ class TourMapActivity : AppCompatActivity() {
 
     private fun renderSpeedPanel(insights: TourInsights) {
         val stats = insights.stats
-        binding.panelTitle.setText(R.string.speed_profile)
         binding.panelSummary.text = getString(
             R.string.tour_map_recorded_summary,
             formatDistance(stats.distanceMeters),
@@ -234,7 +233,6 @@ class TourMapActivity : AppCompatActivity() {
 
     private fun renderElevationPanel(insights: TourInsights) {
         val stats = insights.stats
-        binding.panelTitle.setText(R.string.elevation_profile)
         binding.panelSummary.text = getString(
             R.string.tour_map_elevation_summary,
             formatDistance(stats.distanceMeters),
@@ -255,7 +253,6 @@ class TourMapActivity : AppCompatActivity() {
     }
 
     private fun renderForecastPanel(insights: TourInsights) {
-        binding.panelTitle.setText(R.string.tour_map_forecast)
         val forecast = TourForecaster.forecast(
             insights.stats,
             insights.elevationProfile,
