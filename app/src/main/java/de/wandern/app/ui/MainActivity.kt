@@ -146,14 +146,17 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         val centerUser = pendingCenterRequest
         pendingRecordingStart = false
         pendingCenterRequest = false
-        if (locationGranted && startRecording) {
-            sendTrackingAction(TrackingService.ACTION_START, startForeground = true)
-        } else if (startRecording) {
-            toast("Ohne Standortberechtigung kann keine Tour aufgezeichnet werden.")
+        if (!locationGranted) {
+            if (startRecording) {
+                toast("Ohne Standortberechtigung kann keine Tour aufgezeichnet werden.")
+            } else if (centerUser) {
+                toast("Ohne Standortberechtigung kann dein Standort nicht angezeigt werden.")
+            }
+            return@registerForActivityResult
         }
-        if (locationGranted) startVisibleLocationUpdates()
-        if (locationGranted && centerUser) locateUser(centerAfterFix = true)
-        else if (centerUser) toast("Ohne Standortberechtigung kann dein Standort nicht angezeigt werden.")
+        startVisibleLocationUpdates()
+        if (centerUser) focusOnUser()
+        if (startRecording) sendTrackingAction(TrackingService.ACTION_START, startForeground = true)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -334,7 +337,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         snapshot.latestPoint?.let { point ->
             latestLocatedPoint = point
             renderGpsStatus(point)
-            if (followLocation && snapshot.state == RecordingState.RECORDING) centerOn(point, 16.5)
+            if (followLocation && snapshot.state == RecordingState.RECORDING) centerOn(point, USER_FOCUS_ZOOM)
         }
         snapshot.errorMessage?.let { toast(it) }
         renderLocationStatus(snapshot.latestPoint ?: latestLocatedPoint, snapshot.gpsGapActive)
@@ -757,10 +760,12 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
 
     private fun requestRecordingStart() {
         if (hasLocationPermission()) {
+            focusOnUser()
             sendTrackingAction(TrackingService.ACTION_START, startForeground = true)
             return
         }
         pendingRecordingStart = true
+        pendingCenterRequest = true
         val permissions = buildList {
             add(Manifest.permission.ACCESS_FINE_LOCATION)
             add(Manifest.permission.ACCESS_COARSE_LOCATION)
@@ -884,12 +889,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     }
 
     private fun requestCenterOnUser() {
-        initialRegionFramingComplete = true
-        followLocation = true
-        displayedPosition()?.let { centerOn(it, 16.0) }
         if (hasLocationPermission()) {
-            startVisibleLocationUpdates()
-            locateUser(centerAfterFix = true)
+            focusOnUser()
         } else {
             pendingCenterRequest = true
             permissionLauncher.launch(
@@ -899,6 +900,14 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
                 ),
             )
         }
+    }
+
+    private fun focusOnUser() {
+        initialRegionFramingComplete = true
+        followLocation = true
+        displayedPosition()?.let { centerOn(it, USER_FOCUS_ZOOM) }
+        startVisibleLocationUpdates()
+        locateUser(centerAfterFix = true)
     }
 
     @SuppressLint("MissingPermission")
@@ -958,7 +967,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         redrawTracks()
         if (centerAfterFix) {
             initialRegionFramingComplete = true
-            centerOn(point, 16.0)
+            centerOn(point, USER_FOCUS_ZOOM)
         } else {
             frameInitialRegionIfNeeded(point)
         }
@@ -1166,6 +1175,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         private const val STALE_LOCATION_MINUTES = 2
         private const val SIGNIFICANT_LOCATION_TIME_MILLIS = 120_000L
         private const val INITIAL_REGION_ZOOM = 4.0
+        private const val USER_FOCUS_ZOOM = 16.0
         private const val MIN_DIRECTION_SPEED_METERS_PER_SECOND = 0.6f
         private const val MIN_HEADING_UPDATE_DEGREES = 1f
         private const val CIRCULAR_ROUTE_ENDPOINT_DISTANCE_METERS = 50.0
