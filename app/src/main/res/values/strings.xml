@@ -139,6 +139,9 @@
     <string name="gps_position_stale">Letzter Standort ist bereits %1$d Minuten alt</string>
     <string name="gps_gap_recording">GPS ungenau · Aufzeichnung wartet; die Lücke wird später ergänzt</string>
     <string name="gps_position_uncertain">Standort nur auf ±%1$d m genau</string>
+    <string name="map_poi_distance">Entfernung: %1$s</string>
+    <string name="map_poi_level">Ebene: %1$s</string>
+    <string name="map_poi_source">Kartendaten: OpenStreetMap · Darstellung: OpenFreeMap</string>
     <string name="fit_route">Route vollständig anzeigen</string>
     <string name="reverse_route">Route umkehren</string>
     <string name="route_reversed">Routenrichtung umgekehrt · gespeicherte GPX bleibt unverändert</string>

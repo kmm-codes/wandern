@@ -9,6 +9,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.RectF
 import android.graphics.Typeface
 import android.hardware.GeomagneticField
 import android.hardware.Sensor
@@ -59,6 +60,7 @@ import de.wandern.app.model.GpxTrack
 import de.wandern.app.model.GpsQuality
 import de.wandern.app.model.HeadingSmoother
 import de.wandern.app.model.HikingFitnessLevel
+import de.wandern.app.model.MapPoiPresenter
 import de.wandern.app.model.OfflineMapPlanner
 import de.wandern.app.model.RecordingState
 import de.wandern.app.model.RouteProgress
@@ -278,6 +280,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
                         initialRegionFramingComplete = true
                     }
                 }
+                addOnMapClickListener(::showMapPoi)
             }
             readyMap.setStyle(Style.Builder().fromUri(MAP_STYLE_URL)) { style ->
                 mapStyle = style
@@ -286,6 +289,57 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
                 frameInitialRegionIfNeeded(displayedPosition())
             }
         }
+    }
+
+    private fun showMapPoi(coordinate: LatLng): Boolean {
+        val readyMap = map ?: return false
+        if (mapStyle == null) return false
+        val screenPoint = readyMap.projection.toScreenLocation(coordinate)
+        val hitRadius = POI_TAP_RADIUS_DP * resources.displayMetrics.density
+        val features = readyMap.queryRenderedFeatures(
+            RectF(
+                screenPoint.x - hitRadius,
+                screenPoint.y - hitRadius,
+                screenPoint.x + hitRadius,
+                screenPoint.y + hitRadius,
+            ),
+            *POI_LAYER_IDS,
+        )
+        val feature = features.firstOrNull() ?: return false
+        val name = feature.firstStringProperty("name:de", "name_de", "name", "name_en")
+        val poiClass = feature.firstStringProperty("class")
+        val subclass = feature.firstStringProperty("subclass")
+        val presentation = MapPoiPresenter.present(name, poiClass, subclass)
+        val featurePoint = feature.geometry() as? Point
+        val poiPosition = featurePoint?.let {
+            TrackPoint(latitude = it.latitude(), longitude = it.longitude())
+        } ?: TrackPoint(latitude = coordinate.latitude, longitude = coordinate.longitude)
+        val details = buildList {
+            if (presentation.title != presentation.category) add(presentation.category)
+            displayedPosition()?.let { userPosition ->
+                add(
+                    getString(
+                        R.string.map_poi_distance,
+                        formatRemainingDistance(GeoMath.distanceMeters(userPosition, poiPosition)),
+                    ),
+                )
+            }
+            feature.firstStringProperty("level")?.let {
+                add(getString(R.string.map_poi_level, it))
+            }
+            add(getString(R.string.map_poi_source))
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(presentation.title)
+            .setMessage(details.joinToString("\n"))
+            .setPositiveButton(R.string.ok, null)
+            .show()
+        return true
+    }
+
+    private fun Feature.firstStringProperty(vararg keys: String): String? = keys.firstNotNullOfOrNull { key ->
+        if (!hasProperty(key)) return@firstNotNullOfOrNull null
+        runCatching { getStringProperty(key) }.getOrNull()?.trim()?.takeIf(String::isNotEmpty)
     }
 
     private fun installTrackLayers(style: Style) {
@@ -1971,6 +2025,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         private const val POSITION_DIRECTION_SOURCE = "position-direction-source"
         private const val POSITION_DIRECTION_LAYER = "position-direction-layer"
         private const val POSITION_DIRECTION_ICON = "position-direction-icon"
+        private val POI_LAYER_IDS = arrayOf("poi_r20", "poi_r7", "poi_r1", "poi_transit")
+        private const val POI_TAP_RADIUS_DP = 22f
         private const val OFF_ROUTE_THRESHOLD_METERS = 50.0
         private const val STALE_LOCATION_MINUTES = 2
         private const val SIGNIFICANT_LOCATION_TIME_MILLIS = 120_000L
