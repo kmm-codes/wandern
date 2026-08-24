@@ -25,8 +25,10 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:padding="12dp"
-            android:paddingBottom="28dp">
+            android:paddingStart="12dp"
+            android:paddingTop="12dp"
+            android:paddingEnd="12dp"
+            android:paddingBottom="12dp">
 
             <com.google.android.material.card.MaterialCardView
                 android:id="@+id/previewMapCard"
@@ -188,9 +190,11 @@
             </com.google.android.material.card.MaterialCardView>
 
             <com.google.android.material.card.MaterialCardView
+                android:id="@+id/elevationCard"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="12dp"
+                android:layout_marginBottom="20dp"
                 app:cardBackgroundColor="@color/sand_50"
                 app:cardCornerRadius="18dp"
                 app:cardElevation="2dp">
@@ -234,8 +238,8 @@
                 android:id="@+id/speedCard"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:layout_marginBottom="12dp"
+                android:layout_marginTop="0dp"
+                android:layout_marginBottom="20dp"
                 app:cardBackgroundColor="@color/sand_50"
                 app:cardCornerRadius="18dp"
                 app:cardElevation="2dp">
