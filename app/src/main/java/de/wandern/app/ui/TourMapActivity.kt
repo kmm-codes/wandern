@@ -21,6 +21,7 @@ import de.wandern.app.databinding.ActivityTourMapBinding
 import de.wandern.app.model.GeoMath
 import de.wandern.app.model.GpxTrack
 import de.wandern.app.model.ProfileSample
+import de.wandern.app.model.RoutePointInterpolator
 import de.wandern.app.model.TourForecast
 import de.wandern.app.model.TourForecaster
 import de.wandern.app.model.TourInsights
@@ -38,6 +39,7 @@ import org.maplibre.android.geometry.LatLngBounds
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.layers.LineLayer
+import org.maplibre.android.style.layers.CircleLayer
 import org.maplibre.android.style.layers.Property.LINE_CAP_ROUND
 import org.maplibre.android.style.layers.Property.LINE_JOIN_ROUND
 import org.maplibre.android.style.layers.PropertyFactory.lineCap
@@ -45,6 +47,10 @@ import org.maplibre.android.style.layers.PropertyFactory.lineColor
 import org.maplibre.android.style.layers.PropertyFactory.lineJoin
 import org.maplibre.android.style.layers.PropertyFactory.lineOpacity
 import org.maplibre.android.style.layers.PropertyFactory.lineWidth
+import org.maplibre.android.style.layers.PropertyFactory.circleColor
+import org.maplibre.android.style.layers.PropertyFactory.circleRadius
+import org.maplibre.android.style.layers.PropertyFactory.circleStrokeColor
+import org.maplibre.android.style.layers.PropertyFactory.circleStrokeWidth
 import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.geojson.Feature
 import org.maplibre.geojson.FeatureCollection
@@ -57,6 +63,7 @@ class TourMapActivity : AppCompatActivity() {
     private lateinit var trackStore: TrackStore
     private lateinit var fitnessPreferences: FitnessPreferences
     private var loadedTour: LoadedTour? = null
+    private var mapStyle: Style? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -73,6 +80,7 @@ class TourMapActivity : AppCompatActivity() {
         binding.toolbar.setNavigationOnClickListener { finish() }
         binding.hideDataButton.setOnClickListener { setPanelVisible(false) }
         binding.showDataButton.setOnClickListener { setPanelVisible(true) }
+        binding.profileChart.onSelectionChanged = ::showProfilePositionOnMap
         trackStore = TrackStore(this)
         fitnessPreferences = FitnessPreferences(this)
 
@@ -126,6 +134,7 @@ class TourMapActivity : AppCompatActivity() {
 
     private fun renderPanel(primary: Boolean) {
         val loaded = loadedTour ?: return
+        showProfilePositionOnMap(null)
         val planned = loaded.stored.origin == TrackStore.StoredTourOrigin.IMPORTED
         when {
             planned && primary -> renderElevationPanel(loaded.insights)
@@ -218,6 +227,7 @@ class TourMapActivity : AppCompatActivity() {
                 isLogoEnabled = false
             }
             map.setStyle(Style.Builder().fromUri(MAP_STYLE_URL)) { style ->
+                mapStyle = style
                 val features = track.segments.filter { it.size >= 2 }.map { segment ->
                     Feature.fromGeometry(
                         LineString.fromLngLats(segment.map { Point.fromLngLat(it.longitude, it.latitude) }),
@@ -233,9 +243,37 @@ class TourMapActivity : AppCompatActivity() {
                         lineJoin(LINE_JOIN_ROUND),
                     ),
                 )
+                style.addSource(GeoJsonSource(PROFILE_POSITION_SOURCE, EMPTY_FEATURE_COLLECTION))
+                style.addLayer(
+                    CircleLayer(PROFILE_POSITION_LAYER, PROFILE_POSITION_SOURCE).withProperties(
+                        circleColor(Color.WHITE),
+                        circleRadius(7f),
+                        circleStrokeColor(Color.parseColor("#0D2B22")),
+                        circleStrokeWidth(4f),
+                    ),
+                )
                 addEndpointMarkers(map, track)
                 fitRoute(map, track)
             }
+        }
+    }
+
+    private fun showProfilePositionOnMap(distanceMeters: Double?) {
+        val source = mapStyle?.getSourceAs<GeoJsonSource>(PROFILE_POSITION_SOURCE) ?: return
+        val track = loadedTour?.track
+        val position = if (distanceMeters != null && track != null) {
+            RoutePointInterpolator.pointAtDistance(track, distanceMeters)
+        } else {
+            null
+        }
+        if (position == null) {
+            source.setGeoJson(EMPTY_FEATURE_COLLECTION)
+        } else {
+            source.setGeoJson(
+                FeatureCollection.fromFeature(
+                    Feature.fromGeometry(Point.fromLngLat(position.longitude, position.latitude)),
+                ),
+            )
         }
     }
 
@@ -359,6 +397,9 @@ class TourMapActivity : AppCompatActivity() {
         private const val MAP_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty"
         private const val ROUTE_SOURCE = "tour-map-route-source"
         private const val ROUTE_LAYER = "tour-map-route-layer"
+        private const val PROFILE_POSITION_SOURCE = "tour-map-profile-position-source"
+        private const val PROFILE_POSITION_LAYER = "tour-map-profile-position-layer"
+        private const val EMPTY_FEATURE_COLLECTION = "{\"type\":\"FeatureCollection\",\"features\":[]}"
         private const val CIRCULAR_ROUTE_ENDPOINT_DISTANCE_METERS = 50.0
     }
 }
