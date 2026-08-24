@@ -54,11 +54,39 @@ object TourInsightsAnalyzer {
 
         return TourInsights(
             stats = TrackAnalyzer.calculate(track),
-            elevationProfile = downsample(addLocalSlopes(elevations)),
-            speedProfile = downsample(speeds),
+            elevationProfile = downsample(addLocalSlopes(smoothValues(elevations))),
+            speedProfile = downsample(smoothSpeeds(speeds)),
             hasTimeData = hasTimeData,
         )
     }
+
+    private fun smoothSpeeds(samples: List<ProfileSample>): List<ProfileSample> {
+        if (samples.size < 3) return samples
+        val filtered = samples.mapIndexed { index, sample ->
+            val neighborhood = samples
+                .subList(maxOf(0, index - SMOOTHING_RADIUS), minOf(samples.size, index + SMOOTHING_RADIUS + 1))
+                .map { it.value }
+                .sorted()
+            val median = neighborhood[neighborhood.size / 2]
+            val allowedDeviation = maxOf(MIN_SPEED_OUTLIER_DELTA_KMH, median * SPEED_OUTLIER_FACTOR)
+            sample.copy(value = if (kotlin.math.abs(sample.value - median) > allowedDeviation) median else sample.value)
+        }
+        return smoothValues(filtered)
+    }
+
+    private fun smoothValues(samples: List<ProfileSample>): List<ProfileSample> =
+        samples.mapIndexed { index, sample ->
+            val start = maxOf(0, index - SMOOTHING_RADIUS)
+            val end = minOf(samples.lastIndex, index + SMOOTHING_RADIUS)
+            var weightedSum = 0.0
+            var totalWeight = 0.0
+            for (neighborIndex in start..end) {
+                val weight = (SMOOTHING_RADIUS + 1 - kotlin.math.abs(index - neighborIndex)).toDouble()
+                weightedSum += samples[neighborIndex].value * weight
+                totalWeight += weight
+            }
+            sample.copy(value = weightedSum / totalWeight)
+        }
 
     private fun addLocalSlopes(samples: List<ProfileSample>): List<ProfileSample> =
         samples.mapIndexed { index, sample ->
@@ -91,4 +119,7 @@ object TourInsightsAnalyzer {
 
     private const val SLOPE_HALF_WINDOW_METERS = 30.0
     private const val MIN_SLOPE_DISTANCE_METERS = 10.0
+    private const val SMOOTHING_RADIUS = 2
+    private const val MIN_SPEED_OUTLIER_DELTA_KMH = 2.5
+    private const val SPEED_OUTLIER_FACTOR = 0.55
 }

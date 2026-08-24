@@ -53,6 +53,8 @@ import org.maplibre.geojson.Feature
 import org.maplibre.geojson.FeatureCollection
 import org.maplibre.geojson.LineString
 import org.maplibre.geojson.Point
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 
 class TourDetailActivity : AppCompatActivity() {
@@ -123,9 +125,13 @@ class TourDetailActivity : AppCompatActivity() {
         binding.tourKindText.text = if (planned) {
             getString(R.string.planned_tour_forecast_hint)
         } else {
+            val recordedAt = loaded.track.points.firstNotNullOfOrNull { it.timeMillis }
+                ?: loaded.stored.createdAtMillis
             getString(
-                R.string.recorded_tour_actual_hint_with_activity,
+                R.string.recorded_tour_hint_with_activity_and_time,
                 getString((loaded.track.activityType ?: loaded.stored.activityType ?: de.wandern.app.model.ActivityType.HIKING).labelRes()),
+                SimpleDateFormat("dd.MM.yyyy, HH:mm", Locale.GERMANY)
+                    .format(Date(recordedAt)),
             )
         }
         binding.openMapButton.visibility = if (planned) View.VISIBLE else View.GONE
@@ -223,8 +229,17 @@ class TourDetailActivity : AppCompatActivity() {
             ?.let { String.format(Locale.GERMANY, "%.1f km/h", it * 3.6) }
             ?: getString(R.string.not_available)
         binding.averageSpeedLabel.setText(R.string.average_speed)
-        binding.pointsValue.text = stats.pointCount.toString()
-        binding.pointsLabel.setText(R.string.track_points)
+        binding.pointsValue.text = if (insights.hasTimeData) {
+            formatDuration(stats.pauseDurationMillis)
+        } else {
+            getString(R.string.not_available)
+        }
+        val pauseCount = resources.getQuantityString(
+            R.plurals.pause_count,
+            stats.pauseCount,
+            stats.pauseCount,
+        )
+        binding.pointsLabel.text = getString(R.string.pause_time_with_count, pauseCount)
         binding.ascentValue.text = formatMeters(stats.ascentMeters)
         binding.ascentLabel.setText(R.string.ascent)
         binding.descentValue.text = formatMeters(stats.descentMeters)
@@ -248,6 +263,8 @@ class TourDetailActivity : AppCompatActivity() {
             unit = "m",
             color = Color.parseColor("#1E4D3C"),
             emptyMessage = getString(R.string.no_elevation_data),
+            minimumValueRange = 100.0,
+            colorBySlope = true,
             selectionFormatter = ::formatElevationSelection,
         )
     }

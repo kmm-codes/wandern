@@ -65,6 +65,7 @@
     <string name="planned_tour_forecast_hint">Geplante Tour · Zeit und Tempo sind Prognosen</string>
     <string name="recorded_tour_actual_hint">Aufgezeichnete Tour · gemessene Werte</string>
     <string name="recorded_tour_actual_hint_with_activity">Aufgezeichnet · %1$s · gemessene Werte</string>
+    <string name="recorded_tour_hint_with_activity_and_time">Aufgezeichnet · %1$s · %2$s</string>
     <string name="start_tour">Tour starten</string>
     <string name="show_on_map">Auf Karte anzeigen</string>
     <string name="forecast_walking_time">PROGNOSE GEHZEIT</string>
@@ -233,6 +234,11 @@
     <string name="average_pace">Ø TEMPO /KM</string>
     <string name="average_speed">Ø GESCHWINDIGKEIT</string>
     <string name="track_points">MESSPUNKTE</string>
+    <string name="pause_time_with_count">PAUSENZEIT · %1$s</string>
+    <plurals name="pause_count">
+        <item quantity="one">%d PAUSE</item>
+        <item quantity="other">%d PAUSEN</item>
+    </plurals>
     <string name="ascent">HÖHENMETER HOCH</string>
     <string name="descent">HÖHENMETER RUNTER</string>
     <string name="elevation_profile">Höhenprofil</string>

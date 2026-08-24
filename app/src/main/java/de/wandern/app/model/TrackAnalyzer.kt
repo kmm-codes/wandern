@@ -10,7 +10,6 @@ object TrackAnalyzer {
 
     fun calculate(track: GpxTrack): TrackStats {
         var totalDistance = 0.0
-        var totalDuration = 0L
         var movingDuration = 0L
 
         track.segments.forEach { segment ->
@@ -19,13 +18,24 @@ object TrackAnalyzer {
                 totalDistance += distance
                 val interval = intervalMillis(previous, current)
                 if (interval != null && interval <= MAX_INTERVAL_MILLIS) {
-                    totalDuration += interval
                     val speed = if (interval > 0) distance / (interval / 1000.0) else 0.0
                     if (speed >= MOVING_SPEED_THRESHOLD_MPS) movingDuration += interval
                 }
             }
         }
 
+        val timedSegments = track.segments.mapNotNull { segment ->
+            val start = segment.firstNotNullOfOrNull { it.timeMillis } ?: return@mapNotNull null
+            val end = segment.asReversed().firstNotNullOfOrNull { it.timeMillis } ?: return@mapNotNull null
+            (start to end).takeIf { end >= start }
+        }
+        val totalDuration = timedSegments.firstOrNull()?.first?.let { start ->
+            (timedSegments.last().second - start).coerceAtLeast(0L)
+        } ?: 0L
+        val pauseCount = timedSegments.zipWithNext().count { (previous, current) ->
+            current.first > previous.second
+        }
+        val pauseDuration = (totalDuration - movingDuration).coerceAtLeast(0L)
         val (ascent, descent) = elevationGain(track)
         val denominator = movingDuration.takeIf { it > 0 } ?: totalDuration
         val averageSpeed = if (denominator > 0) totalDistance / (denominator / 1000.0) else 0.0
@@ -35,6 +45,8 @@ object TrackAnalyzer {
             distanceMeters = totalDistance,
             durationMillis = totalDuration,
             movingDurationMillis = movingDuration,
+            pauseDurationMillis = pauseDuration,
+            pauseCount = pauseCount,
             ascentMeters = ascent,
             descentMeters = descent,
             averageSpeedMetersPerSecond = averageSpeed,

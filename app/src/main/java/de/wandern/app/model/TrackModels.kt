@@ -40,6 +40,8 @@ data class TrackStats(
     val distanceMeters: Double = 0.0,
     val durationMillis: Long = 0L,
     val movingDurationMillis: Long = 0L,
+    val pauseDurationMillis: Long = 0L,
+    val pauseCount: Int = 0,
     val ascentMeters: Double = 0.0,
     val descentMeters: Double = 0.0,
     val averageSpeedMetersPerSecond: Double = 0.0,

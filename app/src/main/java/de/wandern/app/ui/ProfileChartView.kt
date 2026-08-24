@@ -65,6 +65,8 @@ class ProfileChartView @JvmOverloads constructor(
     private var unit = ""
     private var emptyMessage = "Keine Daten verfügbar"
     private var includeZero = false
+    private var minimumValueRange = 0.0
+    private var colorBySlope = false
     private var selectionFormatter: ((ProfileSample) -> String)? = null
     private var chartContentDescription = ""
     private var selectedDistanceMeters: Double? = null
@@ -96,12 +98,16 @@ class ProfileChartView @JvmOverloads constructor(
         color: Int,
         emptyMessage: String,
         includeZero: Boolean = false,
+        minimumValueRange: Double = 0.0,
+        colorBySlope: Boolean = false,
         selectionFormatter: ((ProfileSample) -> String)? = null,
     ) {
         this.samples = samples
         this.unit = unit
         this.emptyMessage = emptyMessage
         this.includeZero = includeZero
+        this.minimumValueRange = minimumValueRange
+        this.colorBySlope = colorBySlope
         this.selectionFormatter = selectionFormatter
         selectedDistanceMeters = null
         linePaint.color = color
@@ -126,6 +132,11 @@ class ProfileChartView @JvmOverloads constructor(
         var minValue = samples.minOf { it.value }
         var maxValue = samples.maxOf { it.value }
         if (includeZero) minValue = 0.0
+        if (!includeZero && maxValue - minValue < minimumValueRange) {
+            val center = (minValue + maxValue) / 2.0
+            minValue = center - minimumValueRange / 2.0
+            maxValue = center + minimumValueRange / 2.0
+        }
         if (maxValue - minValue < 1.0) maxValue = minValue + 1.0
         val valuePadding = (maxValue - minValue) * 0.08
         if (!includeZero) minValue -= valuePadding
@@ -162,7 +173,16 @@ class ProfileChartView @JvmOverloads constructor(
             close()
         }
         canvas.drawPath(fillPath, fillPaint)
-        canvas.drawPath(path, linePaint)
+        if (colorBySlope) {
+            samples.zipWithNext().forEach { (start, end) ->
+                linePaint.color = slopeColor(
+                    listOfNotNull(start.secondaryValue, end.secondaryValue).average().takeIf { !it.isNaN() },
+                )
+                canvas.drawLine(x(start), y(start), x(end), y(end), linePaint)
+            }
+        } else {
+            canvas.drawPath(path, linePaint)
+        }
 
         labelPaint.textAlign = Paint.Align.RIGHT
         canvas.drawText(maxValueLabel, left - 7f * density, top + 4f * density, labelPaint)
@@ -290,5 +310,17 @@ class ProfileChartView @JvmOverloads constructor(
     private fun formatValue(value: Double): String = when (unit) {
         "m" -> String.format(Locale.GERMANY, "%.0f m", value)
         else -> String.format(Locale.GERMANY, "%.1f %s", value, unit)
+    }
+
+    private fun slopeColor(slopePercent: Double?): Int {
+        val steepness = kotlin.math.abs(slopePercent ?: 0.0)
+        return when {
+            steepness < 3.0 -> Color.parseColor("#3A9D5D")
+            steepness < 7.0 -> Color.parseColor("#8AAA35")
+            steepness < 11.0 -> Color.parseColor("#D4A62A")
+            steepness < 16.0 -> Color.parseColor("#D7682F")
+            steepness < 22.0 -> Color.parseColor("#B83A2F")
+            else -> Color.parseColor("#7A1628")
+        }
     }
 }

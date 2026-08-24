@@ -63,4 +63,23 @@ class TourInsightsAnalyzerTest {
         assertTrue(middleSlope != null)
         assertEquals(9.9, middleSlope!!, 1.0)
     }
+
+    @Test
+    fun `removes a single implausible speed spike from the profile`() {
+        val speedsKmh = listOf(5.0, 5.2, 12.0, 5.1, 4.9)
+        val points = buildList {
+            var latitude = 48.0
+            var timeMillis = 0L
+            add(TrackPoint(latitude, 11.0, elevationMeters = 100.0, timeMillis = timeMillis))
+            speedsKmh.forEach { speedKmh ->
+                timeMillis += 10_000L
+                latitude += speedKmh / 3.6 * 10.0 / 111_195.0
+                add(TrackPoint(latitude, 11.0, elevationMeters = 100.0, timeMillis = timeMillis))
+            }
+        }
+
+        val profile = TourInsightsAnalyzer.analyze(GpxTrack("Tempo", listOf(points))).speedProfile
+
+        assertTrue(profile.maxOf { it.value } < 7.0)
+    }
 }

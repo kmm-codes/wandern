@@ -27,7 +27,7 @@ class TrackAnalyzerTest {
     }
 
     @Test
-    fun `sums time only inside segments so pauses do not count`() {
+    fun `reports time and count between segments as a pause`() {
         val track = GpxTrack(
             "Pause",
             listOf(
@@ -44,8 +44,10 @@ class TrackAnalyzerTest {
 
         val stats = TrackAnalyzer.calculate(track)
 
-        assertEquals(60_000L, stats.durationMillis)
+        assertEquals(330_000L, stats.durationMillis)
         assertEquals(60_000L, stats.movingDurationMillis)
+        assertEquals(270_000L, stats.pauseDurationMillis)
+        assertEquals(1, stats.pauseCount)
     }
 
     @Test
