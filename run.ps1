@@ -219,11 +219,11 @@ try {
             throw "App-Start fehlgeschlagen: $($startOutput -join ' ')"
         }
         Assert-ArtifactFreshness -AdbPath $adb -Serial $selected.Serial -LocalApk $apkPath
-        $pid = (& $adb -s $selected.Serial shell pidof $applicationId 2>$null | Select-Object -First 1)
+        $appProcessId = (& $adb -s $selected.Serial shell pidof $applicationId 2>$null | Select-Object -First 1)
         Write-Host ""
         Write-Host "Wandern läuft auf $($selected.Serial)." -ForegroundColor Green
-        if (-not [string]::IsNullOrWhiteSpace($pid)) {
-            Write-Host "Logs: adb -s $($selected.Serial) logcat --pid=$pid"
+        if (-not [string]::IsNullOrWhiteSpace($appProcessId)) {
+            Write-Host "Logs: adb -s $($selected.Serial) logcat --pid=$appProcessId"
         }
     }
 
