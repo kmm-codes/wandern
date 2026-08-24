@@ -88,6 +88,8 @@ class TourDetailActivity : AppCompatActivity() {
         }
         binding.openMapButton.setOnClickListener { loadedTour?.let(::startTour) }
         binding.fitnessProfileButton.setOnClickListener { showFitnessProfileDialog() }
+        binding.previewMapCard.setOnClickListener { openInteractiveMap(reference) }
+        binding.previewMapExpandButton.setOnClickListener { openInteractiveMap(reference) }
         loadTour(reference)
     }
 
@@ -305,6 +307,10 @@ class TourDetailActivity : AppCompatActivity() {
 
     private fun renderMap(track: GpxTrack) {
         binding.previewMapView.getMapAsync { map ->
+            map.addOnMapClickListener {
+                loadedTour?.stored?.reference?.let(::openInteractiveMap)
+                true
+            }
             map.uiSettings.apply {
                 isScrollGesturesEnabled = false
                 isZoomGesturesEnabled = false
@@ -399,6 +405,13 @@ class TourDetailActivity : AppCompatActivity() {
             Intent(this, MainActivity::class.java)
                 .putExtra(MainActivity.EXTRA_TOUR_REFERENCE, reference)
                 .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+        )
+    }
+
+    private fun openInteractiveMap(reference: String) {
+        startActivity(
+            Intent(this, TourMapActivity::class.java)
+                .putExtra(TourMapActivity.EXTRA_TOUR_REFERENCE, reference),
         )
     }
 

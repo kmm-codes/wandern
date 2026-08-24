@@ -62,6 +62,14 @@
     <string name="tour_statistics">Statistiken</string>
     <string name="tour_details_title">Tourdetails</string>
     <string name="route_map_preview">Interaktive Karte der Tour</string>
+    <string name="open_interactive_map">Interaktive Karte öffnen</string>
+    <string name="interactive_tour_map">Verschiebbare und zoombare Karte der Tour</string>
+    <string name="hide_tour_data">Tour-Daten ausblenden</string>
+    <string name="show_tour_data">Daten</string>
+    <string name="tour_map_forecast">Prognose</string>
+    <string name="tour_map_recorded_summary">%1$s · %2$s Bewegung · Ø %3$s</string>
+    <string name="tour_map_elevation_summary">%1$s · ↗ %2$s · ↘ %3$s</string>
+    <string name="tour_map_forecast_summary">%1$s gesamt · %2$s Gehzeit · %3$s Pause\nØ %4$s · %5$s</string>
     <string name="planned_tour_forecast_hint">Geplante Tour · Zeit und Tempo sind Prognosen</string>
     <string name="recorded_tour_actual_hint">Aufgezeichnete Tour · gemessene Werte</string>
     <string name="recorded_tour_actual_hint_with_activity">Aufgezeichnet · %1$s · gemessene Werte</string>

@@ -29,16 +29,37 @@
             android:paddingBottom="28dp">
 
             <com.google.android.material.card.MaterialCardView
+                android:id="@+id/previewMapCard"
                 android:layout_width="match_parent"
                 android:layout_height="340dp"
+                android:clickable="true"
+                android:focusable="true"
+                android:foreground="?attr/selectableItemBackground"
                 app:cardCornerRadius="18dp"
                 app:cardElevation="2dp">
 
-                <org.maplibre.android.maps.MapView
-                    android:id="@+id/previewMapView"
+                <FrameLayout
                     android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:contentDescription="@string/route_map_preview" />
+                    android:layout_height="match_parent">
+
+                    <org.maplibre.android.maps.MapView
+                        android:id="@+id/previewMapView"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:contentDescription="@string/route_map_preview" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/previewMapExpandButton"
+                        style="@style/Widget.Material3.Button.IconButton.Filled"
+                        android:layout_width="48dp"
+                        android:layout_height="48dp"
+                        android:layout_gravity="top|end"
+                        android:layout_margin="12dp"
+                        android:contentDescription="@string/open_interactive_map"
+                        app:backgroundTint="@color/sand_50"
+                        app:icon="@drawable/ic_fullscreen"
+                        app:iconTint="@color/forest_900" />
+                </FrameLayout>
             </com.google.android.material.card.MaterialCardView>
 
             <TextView
