@@ -108,6 +108,28 @@ class TrackStore(context: Context) {
     }
 
     @Synchronized
+    fun discardSession(sessionId: Long): Boolean {
+        val filePath = database.readableDatabase.query(
+            "sessions",
+            arrayOf("file_path"),
+            "id = ?",
+            arrayOf(sessionId.toString()),
+            null,
+            null,
+            null,
+        ).use { cursor ->
+            if (cursor.moveToFirst() && !cursor.isNull(0)) cursor.getString(0) else null
+        }
+        val deleted = database.writableDatabase.delete(
+            "sessions",
+            "id = ?",
+            arrayOf(sessionId.toString()),
+        ) > 0
+        if (deleted && filePath != null) File(filePath).delete()
+        return deleted
+    }
+
+    @Synchronized
     fun loadTrack(sessionId: Long): GpxTrack {
         val name = database.readableDatabase.query(
             "sessions",

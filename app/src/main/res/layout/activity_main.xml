@@ -450,6 +450,17 @@
                         app:backgroundTint="@color/forest_700"
                         app:cornerRadius="14dp" />
                 </LinearLayout>
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/recordingDiscardButton"
+                    style="@style/Widget.MaterialComponents.Button.TextButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="44dp"
+                    android:layout_marginTop="4dp"
+                    android:text="@string/discard_recording"
+                    android:textAllCaps="false"
+                    android:textColor="@color/warning"
+                    android:visibility="gone" />
             </LinearLayout>
         </LinearLayout>
     </com.google.android.material.card.MaterialCardView>

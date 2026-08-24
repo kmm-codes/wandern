@@ -3,7 +3,9 @@
     <string name="notification_channel_name">Wanderaufzeichnung</string>
     <string name="notification_channel_description">Zeigt eine laufende Wanderaufzeichnung an</string>
     <string name="notification_title">Wanderung wird aufgezeichnet</string>
-    <string name="notification_action_stop">Beenden</string>
+    <string name="notification_title_paused">Wanderung manuell pausiert</string>
+    <string name="notification_title_auto_paused">Wanderung automatisch pausiert</string>
+    <string name="notification_recording_stats">%1$s · %2$s · ↑ %3$d m · ↓ %4$d m</string>
     <string name="ready_to_hike">Bereit zum Wandern</string>
     <string name="gps_unknown">GPS —</string>
     <string name="distance_empty">0,00 km</string>
@@ -62,6 +64,7 @@
     <string name="tour_rename_error">Tour konnte nicht umbenannt werden: %1$s</string>
     <string name="recording_running">Wanderung läuft</string>
     <string name="recording_paused">Aufzeichnung pausiert</string>
+    <string name="recording_auto_paused">Auto-Pause · Bewegung abwarten</string>
     <string name="recording_saved">Wanderung gespeichert</string>
     <string name="pause">Pausieren</string>
     <string name="resume">Fortsetzen</string>
@@ -73,6 +76,9 @@
     <string name="finish">Beenden</string>
     <string name="finish_recording_title">Wanderung beenden?</string>
     <string name="finish_recording_message">Die bisherige Aufzeichnung wird gespeichert und beendet.</string>
+    <string name="discard_recording">Aufzeichnung verwerfen</string>
+    <string name="discard_recording_title">Aufzeichnung wirklich verwerfen?</string>
+    <string name="discard_recording_message">Alle bisher aufgezeichneten Punkte dieser Wanderung werden unwiderruflich gelöscht.</string>
     <string name="ascent_empty">↗ 0 m</string>
     <string name="descent_empty">↘ 0 m</string>
     <string name="ascent_short">ANSTIEG</string>

@@ -311,7 +311,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         }
         binding.recordingExpandButton.setOnClickListener {
             recordingDetailsExpanded = !recordingDetailsExpanded
-            renderRecordingPanelState(latestSnapshot.state)
+            renderRecordingPanelState(latestSnapshot)
         }
         binding.recordingPauseButton.setOnClickListener { toast(getString(R.string.pause_hold_hint)) }
         binding.recordingPauseButton.setOnLongClickListener {
@@ -322,6 +322,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             sendTrackingAction(TrackingService.ACTION_RESUME)
         }
         binding.recordingFinishButton.setOnClickListener { confirmStopRecording() }
+        binding.recordingDiscardButton.setOnClickListener { confirmDiscardRecording() }
         binding.moreButton.setOnClickListener { showMoreMenu() }
         binding.centerButton.setOnClickListener { requestCenterOnUser() }
         renderMoreButtonVisibility()
@@ -339,7 +340,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     }
 
     private fun renderSnapshot(snapshot: TrackingSnapshot) {
-        renderRecordingPanelState(snapshot.state)
+        renderRecordingPanelState(snapshot)
         binding.titleText.text = when (snapshot.state) {
             RecordingState.IDLE -> importedTrack?.name ?: getString(R.string.ready_to_hike)
             RecordingState.RECORDING -> getString(R.string.recording_running)
@@ -352,6 +353,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         val currentSpeed = snapshot.latestPoint
             ?.takeIf {
                 snapshot.state == RecordingState.RECORDING &&
+                    !snapshot.autoPaused &&
                     !snapshot.gpsGapActive &&
                     locationAgeMinutes(it) < STALE_LOCATION_MINUTES
             }
@@ -368,7 +370,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         redrawTracks()
     }
 
-    private fun renderRecordingPanelState(state: RecordingState) {
+    private fun renderRecordingPanelState(snapshot: TrackingSnapshot) {
+        val state = snapshot.state
         val recordingActive = state == RecordingState.RECORDING || state == RecordingState.PAUSED
         val stateChanged = state != lastRenderedRecordingState
         if (stateChanged) {
@@ -392,12 +395,17 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         val paused = state == RecordingState.PAUSED
         val detailsVisible = recordingDetailsExpanded || paused
         binding.recordingStatusText.setText(
-            if (paused) R.string.recording_paused else R.string.recording_running,
+            when {
+                paused -> R.string.recording_paused
+                snapshot.autoPaused -> R.string.recording_auto_paused
+                else -> R.string.recording_running
+            },
         )
         binding.recordingPausedBanner.visibility = if (paused) View.VISIBLE else View.GONE
         binding.recordingExpandedGroup.visibility = if (detailsVisible) View.VISIBLE else View.GONE
         binding.recordingPauseButton.visibility = if (paused) View.GONE else View.VISIBLE
         binding.recordingPausedActions.visibility = if (paused) View.VISIBLE else View.GONE
+        binding.recordingDiscardButton.visibility = if (paused) View.VISIBLE else View.GONE
         binding.recordingExpandButton.visibility = if (paused) View.INVISIBLE else View.VISIBLE
         binding.recordingExpandButton.setIconResource(
             if (detailsVisible) R.drawable.ic_expand_less else R.drawable.ic_expand_more,
@@ -415,6 +423,17 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             .setNegativeButton(R.string.cancel, null)
             .setPositiveButton(R.string.finish_and_save) { _, _ ->
                 sendTrackingAction(TrackingService.ACTION_STOP)
+            }
+            .show()
+    }
+
+    private fun confirmDiscardRecording() {
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.discard_recording_title)
+            .setMessage(R.string.discard_recording_message)
+            .setNegativeButton(R.string.cancel, null)
+            .setPositiveButton(R.string.discard_recording) { _, _ ->
+                sendTrackingAction(TrackingService.ACTION_DISCARD)
             }
             .show()
     }

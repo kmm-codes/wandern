@@ -19,6 +19,8 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import de.wandern.app.R
 import de.wandern.app.data.TrackStore
+import de.wandern.app.model.AutoPauseDetector
+import de.wandern.app.model.AutoPauseTransition
 import de.wandern.app.model.GeoMath
 import de.wandern.app.model.GpsGapInterpolator
 import de.wandern.app.model.GpsQuality
@@ -41,6 +43,8 @@ class TrackingService : Service(), LocationListener {
     private var lastAcceptedPoint: TrackPoint? = null
     private var lastObservedPoint: TrackPoint? = null
     private var gpsGapActive = false
+    private var autoPaused = false
+    private val autoPauseDetector = AutoPauseDetector()
 
     override fun onCreate() {
         super.onCreate()
@@ -55,6 +59,7 @@ class TrackingService : Service(), LocationListener {
             ACTION_PAUSE -> pauseRecording()
             ACTION_RESUME -> resumeRecording()
             ACTION_STOP -> stopRecording()
+            ACTION_DISCARD -> discardRecording()
             else -> restoreAfterProcessRestart()
         }
         return START_STICKY
@@ -77,8 +82,21 @@ class TrackingService : Service(), LocationListener {
         if (observedTime != null && (point.timeMillis ?: 0L) < observedTime) return
         lastObservedPoint = point
         if (location.accuracy > GpsQuality.RELIABLE_ACCURACY_METERS) {
-            gpsGapActive = lastAcceptedPoint != null
+            gpsGapActive = !autoPaused && lastAcceptedPoint != null
             publishObservedLocation(point)
+            return
+        }
+
+        val autoPauseUpdate = autoPauseDetector.update(point)
+        autoPaused = autoPauseUpdate.autoPaused
+        if (autoPauseUpdate.transition == AutoPauseTransition.RESUMED) {
+            // A stationary interval is not a GPS gap and must never be interpolated.
+            lastAcceptedPoint = null
+        }
+        if ((autoPaused || autoPauseUpdate.stationaryEvidence) && lastAcceptedPoint != null) {
+            gpsGapActive = false
+            publishObservedLocation(point)
+            if (autoPauseUpdate.transition != AutoPauseTransition.NONE) updateNotification()
             return
         }
 
@@ -127,11 +145,17 @@ class TrackingService : Service(), LocationListener {
 
     private fun startRecording(routeName: String?) {
         if (sessionId != null) return
+        trackStore.activeSession()?.let {
+            restoreActiveSession(it)
+            return
+        }
         sessionId = trackStore.createSession(routeName)
         segmentIndex = 0
         lastAcceptedPoint = null
         lastObservedPoint = null
         gpsGapActive = false
+        autoPaused = false
+        autoPauseDetector.reset()
         startAsForeground()
         publishSnapshot(RecordingState.RECORDING)
         requestLocationUpdates()
@@ -141,6 +165,8 @@ class TrackingService : Service(), LocationListener {
         val id = sessionId ?: return
         removeLocationUpdates()
         gpsGapActive = false
+        autoPaused = false
+        autoPauseDetector.reset()
         trackStore.updateState(id, RecordingState.PAUSED)
         publishSnapshot(RecordingState.PAUSED)
         updateNotification()
@@ -151,6 +177,8 @@ class TrackingService : Service(), LocationListener {
         segmentIndex += 1
         lastAcceptedPoint = null
         gpsGapActive = false
+        autoPaused = false
+        autoPauseDetector.reset()
         trackStore.updateState(id, RecordingState.RECORDING, segmentIndex)
         publishSnapshot(RecordingState.RECORDING)
         requestLocationUpdates()
@@ -180,18 +208,45 @@ class TrackingService : Service(), LocationListener {
         stopSelf()
     }
 
+    private fun discardRecording() {
+        val id = sessionId ?: run {
+            stopSelf()
+            return
+        }
+        removeLocationUpdates()
+        if (!trackStore.discardSession(id)) {
+            publishError("Aufzeichnung konnte nicht verworfen werden.")
+            return
+        }
+        sessionId = null
+        lastAcceptedPoint = null
+        lastObservedPoint = null
+        gpsGapActive = false
+        autoPaused = false
+        autoPauseDetector.reset()
+        _snapshots.value = TrackingSnapshot()
+        ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+        stopSelf()
+    }
+
     private fun restoreAfterProcessRestart() {
         val active = trackStore.activeSession() ?: run {
             stopSelf()
             return
         }
+        restoreActiveSession(active)
+    }
+
+    private fun restoreActiveSession(active: TrackStore.SessionInfo) {
         sessionId = active.id
         segmentIndex = active.segmentIndex
         lastAcceptedPoint = trackStore.loadTrack(active.id).segments.lastOrNull()?.lastOrNull()
         lastObservedPoint = lastAcceptedPoint
         gpsGapActive = false
-        startAsForeground()
+        autoPaused = false
+        autoPauseDetector.reset()
         publishSnapshot(active.state)
+        startAsForeground()
         if (active.state == RecordingState.RECORDING) requestLocationUpdates()
     }
 
@@ -227,6 +282,7 @@ class TrackingService : Service(), LocationListener {
             stats = TrackAnalyzer.calculate(track),
             latestPoint = lastObservedPoint ?: track.points.lastOrNull(),
             gpsGapActive = gpsGapActive,
+            autoPaused = autoPaused,
         )
     }
 
@@ -235,6 +291,7 @@ class TrackingService : Service(), LocationListener {
             latestPoint = point,
             errorMessage = null,
             gpsGapActive = gpsGapActive,
+            autoPaused = autoPaused,
         )
     }
 
@@ -269,15 +326,38 @@ class TrackingService : Service(), LocationListener {
         )
         val stats = _snapshots.value.stats
         val distance = String.format(Locale.GERMANY, "%.2f km", stats.distanceMeters / 1000.0)
-        val stateText = if (_snapshots.value.state == RecordingState.PAUSED) "Pausiert · $distance" else distance
+        val movingTime = formatNotificationDuration(stats.movingDurationMillis)
+        val ascent = stats.ascentMeters.toInt()
+        val descent = stats.descentMeters.toInt()
+        val title = when {
+            _snapshots.value.state == RecordingState.PAUSED -> getString(R.string.notification_title_paused)
+            _snapshots.value.autoPaused -> getString(R.string.notification_title_auto_paused)
+            else -> getString(R.string.notification_title)
+        }
+        val stateText = getString(
+            R.string.notification_recording_stats,
+            movingTime,
+            distance,
+            ascent,
+            descent,
+        )
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(getString(R.string.notification_title))
+            .setContentTitle(title)
             .setContentText(stateText)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(stateText))
             .setContentIntent(launchPendingIntent)
             .setOnlyAlertOnce(true)
             .setOngoing(true)
+            .setShowWhen(false)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .build()
+    }
+
+    private fun formatNotificationDuration(millis: Long): String {
+        val totalMinutes = millis / 60_000L
+        return "%d:%02d h".format(totalMinutes / 60L, totalMinutes % 60L)
     }
 
     private fun createNotificationChannel() {
@@ -294,6 +374,7 @@ class TrackingService : Service(), LocationListener {
         const val ACTION_PAUSE = "de.wandern.app.action.PAUSE"
         const val ACTION_RESUME = "de.wandern.app.action.RESUME"
         const val ACTION_STOP = "de.wandern.app.action.STOP"
+        const val ACTION_DISCARD = "de.wandern.app.action.DISCARD"
         const val EXTRA_ROUTE_NAME = "de.wandern.app.extra.ROUTE_NAME"
 
         private const val CHANNEL_ID = "tracking"
