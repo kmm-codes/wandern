@@ -217,7 +217,6 @@
     <string name="repeat_tour">Tour wiederholen</string>
     <string name="preparing_tour">Tour wird vorbereitet…</string>
     <string name="offline_map_checking">Offline-Karte wird geprüft…</string>
-    <string name="offline_map_checking_short">Karte…</string>
     <string name="offline_map_not_downloaded">Offline-Karte: nicht gespeichert</string>
     <string name="offline_map_partial">Offline-Karte: unvollständig · %1$s</string>
     <string name="offline_map_stored">Offline-Karte: gespeichert · %1$s</string>

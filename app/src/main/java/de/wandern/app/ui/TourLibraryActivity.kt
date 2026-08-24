@@ -610,7 +610,8 @@ class TourLibraryActivity : AppCompatActivity() {
 
     private fun queryOfflineStatus(row: TourRow, item: ItemTourBinding) {
         item.offlineStatusText.setText(R.string.offline_map_checking)
-        item.offlineMapButton.setText(R.string.offline_map_checking_short)
+        item.offlineMapButton.setIconResource(R.drawable.ic_offline_download)
+        item.offlineMapButton.contentDescription = getString(R.string.offline_map_checking)
         item.offlineMapButton.isEnabled = false
         offlineMapDownloader.status(row.track) { status ->
             runOnUiThread {
@@ -624,26 +625,30 @@ class TourLibraryActivity : AppCompatActivity() {
         when (status.availability) {
             OfflineMapAvailability.CHECKING -> {
                 item.offlineStatusText.setText(R.string.offline_map_checking)
-                item.offlineMapButton.setText(R.string.offline_map_checking_short)
+                item.offlineMapButton.setIconResource(R.drawable.ic_offline_download)
+                item.offlineMapButton.contentDescription = getString(R.string.offline_map_checking)
                 item.offlineMapButton.isEnabled = false
             }
             OfflineMapAvailability.NOT_DOWNLOADED -> {
                 item.offlineStatusText.setText(R.string.offline_map_not_downloaded)
-                item.offlineMapButton.setText(R.string.offline_map_save)
+                item.offlineMapButton.setIconResource(R.drawable.ic_offline_download)
+                item.offlineMapButton.contentDescription = getString(R.string.offline_map_save)
                 item.offlineMapButton.isEnabled = true
                 item.offlineMapButton.setOnClickListener { confirmDownload(row, item) }
             }
             OfflineMapAvailability.PARTIAL -> {
                 val size = Formatter.formatShortFileSize(this, status.downloadedBytes)
                 item.offlineStatusText.text = getString(R.string.offline_map_partial, size)
-                item.offlineMapButton.setText(R.string.offline_map_continue)
+                item.offlineMapButton.setIconResource(R.drawable.ic_offline_download)
+                item.offlineMapButton.contentDescription = getString(R.string.offline_map_continue)
                 item.offlineMapButton.isEnabled = true
                 item.offlineMapButton.setOnClickListener { confirmDownload(row, item) }
             }
             OfflineMapAvailability.DOWNLOADED -> {
                 val size = Formatter.formatShortFileSize(this, status.downloadedBytes)
                 item.offlineStatusText.text = getString(R.string.offline_map_stored, size)
-                item.offlineMapButton.setText(R.string.offline_map_delete)
+                item.offlineMapButton.setIconResource(R.drawable.ic_delete)
+                item.offlineMapButton.contentDescription = getString(R.string.offline_map_delete)
                 item.offlineMapButton.isEnabled = true
                 item.offlineMapButton.setOnClickListener { confirmDeleteOfflineMap(row, item) }
             }
@@ -651,7 +656,8 @@ class TourLibraryActivity : AppCompatActivity() {
                 item.offlineStatusText.text = status.message?.let {
                     getString(R.string.offline_map_error, it)
                 } ?: getString(R.string.offline_map_manage_error)
-                item.offlineMapButton.setText(R.string.retry)
+                item.offlineMapButton.setIconResource(R.drawable.ic_refresh)
+                item.offlineMapButton.contentDescription = getString(R.string.retry)
                 item.offlineMapButton.isEnabled = true
                 item.offlineMapButton.setOnClickListener { queryOfflineStatus(row, item) }
             }
