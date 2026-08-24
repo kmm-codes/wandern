@@ -267,13 +267,6 @@ class TrackingService : Service(), LocationListener {
             launchIntent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
-        val stopIntent = Intent(this, TrackingService::class.java).setAction(ACTION_STOP)
-        val stopPendingIntent = PendingIntent.getService(
-            this,
-            1,
-            stopIntent,
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-        )
         val stats = _snapshots.value.stats
         val distance = String.format(Locale.GERMANY, "%.2f km", stats.distanceMeters / 1000.0)
         val stateText = if (_snapshots.value.state == RecordingState.PAUSED) "Pausiert · $distance" else distance
@@ -284,7 +277,6 @@ class TrackingService : Service(), LocationListener {
             .setContentIntent(launchPendingIntent)
             .setOnlyAlertOnce(true)
             .setOngoing(true)
-            .addAction(0, getString(R.string.notification_action_stop), stopPendingIntent)
             .build()
     }
 

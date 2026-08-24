@@ -123,6 +123,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     private val headingSmoother = HeadingSmoother()
     private var latestCompassHeadingDegrees: Float? = null
     private var visibleLocationUpdatesActive = false
+    private var recordingDetailsExpanded = false
+    private var lastRenderedRecordingState = RecordingState.IDLE
     private val compassRotationMatrix = FloatArray(9)
     private val compassOrientation = FloatArray(3)
     private val routeEndpointMarkers = mutableListOf<Marker>()
@@ -178,7 +180,13 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         rotationVectorSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
         binding.mapView.onCreate(savedInstanceState)
         binding.headerCard.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
-            syncRouteStatusPosition()
+            syncOverlayPositions()
+        }
+        binding.actionsCard.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            syncOverlayPositions()
+        }
+        binding.recordingCard.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            syncOverlayPositions()
         }
 
         setupMap()
@@ -295,12 +303,23 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             startActivity(Intent(this, TourLibraryActivity::class.java))
         }
         binding.recordButton.setOnClickListener {
-            when (latestSnapshot.state) {
-                RecordingState.IDLE, RecordingState.FINISHED -> requestRecordingStart()
-                RecordingState.RECORDING -> sendTrackingAction(TrackingService.ACTION_PAUSE)
-                RecordingState.PAUSED -> sendTrackingAction(TrackingService.ACTION_RESUME)
+            if (latestSnapshot.state == RecordingState.IDLE || latestSnapshot.state == RecordingState.FINISHED) {
+                requestRecordingStart()
             }
         }
+        binding.recordingExpandButton.setOnClickListener {
+            recordingDetailsExpanded = !recordingDetailsExpanded
+            renderRecordingPanelState(latestSnapshot.state)
+        }
+        binding.recordingPauseButton.setOnClickListener { toast(getString(R.string.pause_hold_hint)) }
+        binding.recordingPauseButton.setOnLongClickListener {
+            sendTrackingAction(TrackingService.ACTION_PAUSE)
+            true
+        }
+        binding.recordingResumeButton.setOnClickListener {
+            sendTrackingAction(TrackingService.ACTION_RESUME)
+        }
+        binding.recordingFinishButton.setOnClickListener { confirmStopRecording() }
         binding.moreButton.setOnClickListener { showMoreMenu() }
         binding.centerButton.setOnClickListener { requestCenterOnUser() }
         renderMoreButtonVisibility()
@@ -318,20 +337,15 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     }
 
     private fun renderSnapshot(snapshot: TrackingSnapshot) {
+        renderRecordingPanelState(snapshot.state)
         binding.titleText.text = when (snapshot.state) {
             RecordingState.IDLE -> importedTrack?.name ?: getString(R.string.ready_to_hike)
             RecordingState.RECORDING -> getString(R.string.recording_running)
             RecordingState.PAUSED -> getString(R.string.recording_paused)
             RecordingState.FINISHED -> getString(R.string.recording_saved)
         }
-        binding.recordButton.text = when (snapshot.state) {
-            RecordingState.IDLE, RecordingState.FINISHED -> getString(R.string.record)
-            RecordingState.RECORDING -> getString(R.string.pause)
-            RecordingState.PAUSED -> getString(R.string.resume)
-        }
-        binding.recordButton.setIconResource(
-            if (snapshot.state == RecordingState.RECORDING) R.drawable.ic_pause else R.drawable.ic_record,
-        )
+        binding.recordButton.text = getString(R.string.record)
+        binding.recordButton.setIconResource(R.drawable.ic_record)
         renderMoreButtonVisibility()
         renderStats(snapshot.stats)
         snapshot.latestPoint?.let { point ->
@@ -343,6 +357,56 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         renderLocationStatus(snapshot.latestPoint ?: latestLocatedPoint, snapshot.gpsGapActive)
         renderRouteProgress(snapshot.latestPoint ?: latestLocatedPoint)
         redrawTracks()
+    }
+
+    private fun renderRecordingPanelState(state: RecordingState) {
+        val recordingActive = state == RecordingState.RECORDING || state == RecordingState.PAUSED
+        val stateChanged = state != lastRenderedRecordingState
+        if (stateChanged) {
+            when {
+                state == RecordingState.PAUSED -> recordingDetailsExpanded = true
+                state == RecordingState.RECORDING -> recordingDetailsExpanded = false
+                !recordingActive -> recordingDetailsExpanded = false
+            }
+            lastRenderedRecordingState = state
+        }
+
+        binding.headerCard.visibility = if (recordingActive) View.GONE else View.VISIBLE
+        binding.actionsCard.visibility = if (recordingActive) View.GONE else View.VISIBLE
+        binding.recordingCard.visibility = if (recordingActive) View.VISIBLE else View.GONE
+        if (!recordingActive) {
+            binding.root.post(::syncOverlayPositions)
+            return
+        }
+
+        val paused = state == RecordingState.PAUSED
+        val detailsVisible = recordingDetailsExpanded || paused
+        binding.recordingStatusText.setText(
+            if (paused) R.string.recording_paused else R.string.recording_running,
+        )
+        binding.recordingPausedBanner.visibility = if (paused) View.VISIBLE else View.GONE
+        binding.recordingExpandedGroup.visibility = if (detailsVisible) View.VISIBLE else View.GONE
+        binding.recordingPauseButton.visibility = if (paused) View.GONE else View.VISIBLE
+        binding.recordingPausedActions.visibility = if (paused) View.VISIBLE else View.GONE
+        binding.recordingExpandButton.visibility = if (paused) View.INVISIBLE else View.VISIBLE
+        binding.recordingExpandButton.setIconResource(
+            if (detailsVisible) R.drawable.ic_expand_less else R.drawable.ic_expand_more,
+        )
+        binding.recordingExpandButton.contentDescription = getString(
+            if (detailsVisible) R.string.hide_recording_details else R.string.show_recording_details,
+        )
+        binding.root.post(::syncOverlayPositions)
+    }
+
+    private fun confirmStopRecording() {
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.finish_recording_title)
+            .setMessage(R.string.finish_recording_message)
+            .setNegativeButton(R.string.cancel, null)
+            .setPositiveButton(R.string.finish_and_save) { _, _ ->
+                sendTrackingAction(TrackingService.ACTION_STOP)
+            }
+            .show()
     }
 
     private fun renderStats(stats: TrackStats) {
@@ -357,6 +421,22 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         binding.slopeText.text = stats.currentSlopePercent?.let {
             getString(R.string.slope_value, it)
         } ?: getString(R.string.slope_empty)
+
+        binding.recordingDistanceText.text = String.format(
+            Locale.GERMANY,
+            "%.2f km",
+            stats.distanceMeters / 1000.0,
+        )
+        binding.recordingMovingTimeText.text = formatDuration(stats.movingDurationMillis)
+        binding.recordingPaceText.text = stats.paceSecondsPerKilometer
+            ?.let(::formatPace)
+            ?: getString(R.string.not_available)
+        binding.recordingAscentText.text = getString(R.string.ascent_value, stats.ascentMeters.toInt())
+        binding.recordingTotalTimeText.text = formatDuration(stats.durationMillis)
+        binding.recordingDescentText.text = getString(R.string.descent_value, stats.descentMeters.toInt())
+        binding.recordingSlopeText.text = stats.currentSlopePercent?.let {
+            getString(R.string.slope_percent_value, it)
+        } ?: getString(R.string.not_available)
     }
 
     private fun renderRouteStatus(point: TrackPoint?) {
@@ -398,7 +478,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     private fun renderGpsStatus(point: TrackPoint) {
         val accuracy = point.accuracyMeters
         val ageMinutes = locationAgeMinutes(point)
-        binding.gpsText.text = when {
+        val statusText = when {
             ageMinutes >= STALE_LOCATION_MINUTES -> {
                 getString(R.string.gps_last_known, ageMinutes, accuracy?.toInt() ?: 0)
             }
@@ -407,6 +487,12 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
                 getString(R.string.gps_inaccurate, accuracy.toInt())
             }
             else -> getString(R.string.gps_accuracy, accuracy.toInt())
+        }
+        binding.gpsText.text = statusText
+        binding.recordingGpsText.text = when {
+            ageMinutes >= STALE_LOCATION_MINUTES -> getString(R.string.gps_age_short, ageMinutes)
+            accuracy == null -> getString(R.string.gps_active_short)
+            else -> getString(R.string.gps_accuracy_short, accuracy.toInt())
         }
         binding.gpsText.setTextColor(
             ContextCompat.getColor(
@@ -441,10 +527,24 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         binding.routeStatusText.visibility = View.GONE
     }
 
-    private fun syncRouteStatusPosition() {
+    private fun syncOverlayPositions() {
+        val recordingActive = latestSnapshot.state == RecordingState.RECORDING ||
+            latestSnapshot.state == RecordingState.PAUSED
+        val bottomOverlay = if (recordingActive) binding.recordingCard else binding.actionsCard
+        val centerParams = binding.centerButton.layoutParams as FrameLayout.LayoutParams
+        val centerBottomMargin = bottomOverlay.height + (38 * resources.displayMetrics.density).roundToInt()
+        if (centerParams.bottomMargin != centerBottomMargin) {
+            centerParams.bottomMargin = centerBottomMargin
+            binding.centerButton.layoutParams = centerParams
+        }
+
         val layoutParams = binding.routeStatusText.layoutParams as FrameLayout.LayoutParams
-        val topMargin = binding.headerCard.bottom - binding.root.paddingTop +
-            (8 * resources.displayMetrics.density).roundToInt()
+        val density = resources.displayMetrics.density
+        val topMargin = if (recordingActive) {
+            (12 * density).roundToInt()
+        } else {
+            binding.headerCard.bottom - binding.root.paddingTop + (8 * density).roundToInt()
+        }
         if (layoutParams.topMargin != topMargin) {
             layoutParams.topMargin = topMargin
             binding.routeStatusText.layoutParams = layoutParams
@@ -787,9 +887,6 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
 
     private fun showMoreMenu() {
         PopupMenu(this, binding.moreButton).apply {
-            if (latestSnapshot.state == RecordingState.RECORDING || latestSnapshot.state == RecordingState.PAUSED) {
-                menu.add(0, MENU_STOP, 0, "Beenden & speichern")
-            }
             if (importedTrack != null) {
                 menu.add(0, MENU_FIT_ROUTE, 2, getString(R.string.fit_route))
                 menu.add(0, MENU_CLEAR_ROUTE, 3, "Route ausblenden")
@@ -797,14 +894,11 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             if (menu.size() == 0) menu.add("Keine weiteren Aktionen").isEnabled = false
             setOnMenuItemClickListener { item ->
                 when (item.itemId) {
-                    MENU_STOP -> {
-                        sendTrackingAction(TrackingService.ACTION_STOP)
-                        true
-                    }
                     MENU_CLEAR_ROUTE -> {
                         importedTrack = null
                         routeProgressTracker = null
                         binding.routeProgressGroup.visibility = View.GONE
+                        binding.recordingRouteProgressGroup.visibility = View.GONE
                         renderMoreButtonVisibility()
                         hideRouteStatus()
                         redrawTracks()
@@ -823,9 +917,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     }
 
     private fun renderMoreButtonVisibility() {
-        val hasRecordingAction = latestSnapshot.state == RecordingState.RECORDING ||
-            latestSnapshot.state == RecordingState.PAUSED
-        binding.moreButton.visibility = if (importedTrack != null || hasRecordingAction) {
+        binding.moreButton.visibility = if (importedTrack != null) {
             View.VISIBLE
         } else {
             View.GONE
@@ -847,11 +939,17 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         binding.mapView.post {
             val density = resources.displayMetrics.density
             val horizontalPadding = (24 * density).toInt()
-            val topPadding = (
-                binding.headerCard.bottom - binding.mapView.top + (16 * density).toInt()
-            ).coerceAtLeast(horizontalPadding)
+            val recordingActive = latestSnapshot.state == RecordingState.RECORDING ||
+                latestSnapshot.state == RecordingState.PAUSED
+            val topPadding = if (recordingActive) {
+                horizontalPadding
+            } else {
+                (binding.headerCard.bottom - binding.mapView.top + (16 * density).toInt())
+                    .coerceAtLeast(horizontalPadding)
+            }
+            val bottomOverlay = if (recordingActive) binding.recordingCard else binding.actionsCard
             val bottomPadding = (
-                binding.mapView.bottom - binding.actionsCard.top + (16 * density).toInt()
+                binding.mapView.bottom - bottomOverlay.top + (16 * density).toInt()
             ).coerceAtLeast(horizontalPadding)
             readyMap.animateCamera(
                 CameraUpdateFactory.newLatLngBounds(
@@ -1042,6 +1140,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         val tracker = routeProgressTracker
         if (importedTrack == null || tracker == null) {
             binding.routeProgressGroup.visibility = View.GONE
+            binding.recordingRouteProgressGroup.visibility = View.GONE
             return
         }
         val reliablePoint = point?.takeIf {
@@ -1050,19 +1149,29 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         }
         val progress = reliablePoint?.let(tracker::update) ?: tracker.currentOrInitial() ?: run {
             binding.routeProgressGroup.visibility = View.GONE
+            binding.recordingRouteProgressGroup.visibility = View.GONE
             return
         }
         binding.routeProgressGroup.visibility = View.VISIBLE
+        binding.recordingRouteProgressGroup.visibility = View.VISIBLE
         binding.routeProgressBar.progress = (progress.fraction * binding.routeProgressBar.max).roundToInt()
-        binding.routeProgressText.text = "${(progress.fraction * 100.0).roundToInt()} %"
-        binding.remainingDistanceText.text = formatRemainingDistance(progress.remainingDistanceMeters)
+        binding.recordingRouteProgressBar.progress =
+            (progress.fraction * binding.recordingRouteProgressBar.max).roundToInt()
+        val progressText = "${(progress.fraction * 100.0).roundToInt()} %"
+        val remainingDistance = formatRemainingDistance(progress.remainingDistanceMeters)
+        val eta = formatEstimatedArrival(progress)
+        binding.routeProgressText.text = progressText
+        binding.recordingRouteProgressText.text = progressText
+        binding.remainingDistanceText.text = remainingDistance
+        binding.recordingRemainingDistanceText.text = remainingDistance
         binding.remainingElevationText.text = String.format(
             Locale.GERMANY,
             "↗ %.0f  ↘ %.0f",
             progress.remainingAscentMeters,
             progress.remainingDescentMeters,
         )
-        binding.etaText.text = formatEstimatedArrival(progress)
+        binding.etaText.text = eta
+        binding.recordingEtaText.text = eta
     }
 
     private fun formatRemainingDistance(distanceMeters: Double): String =
@@ -1184,7 +1293,6 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         private const val INFO_BADGE_MILLIS = 4_000L
         private const val SUCCESS_BADGE_MILLIS = 4_000L
         private const val ERROR_BADGE_MILLIS = 8_000L
-        private const val MENU_STOP = 1
         private const val MENU_CLEAR_ROUTE = 3
         private const val MENU_FIT_ROUTE = 5
         private const val EMPTY_FEATURE_COLLECTION = "{\"type\":\"FeatureCollection\",\"features\":[]}"
