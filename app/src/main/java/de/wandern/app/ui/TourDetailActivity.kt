@@ -86,7 +86,7 @@ class TourDetailActivity : AppCompatActivity() {
             finish()
             return
         }
-        binding.openMapButton.setOnClickListener { openOnMainMap(reference) }
+        binding.openMapButton.setOnClickListener { loadedTour?.let(::startTour) }
         binding.fitnessProfileButton.setOnClickListener { showFitnessProfileDialog() }
         loadTour(reference)
     }
@@ -123,7 +123,13 @@ class TourDetailActivity : AppCompatActivity() {
         val planned = loaded.stored.origin == TrackStore.StoredTourOrigin.IMPORTED
         binding.tourNameText.text = loaded.track.name
         binding.tourKindText.text = if (planned) {
-            getString(R.string.planned_tour_forecast_hint)
+            getString(
+                if (loaded.stored.sourceReference != null) {
+                    R.string.planned_tour_from_recording_hint
+                } else {
+                    R.string.planned_tour_forecast_hint
+                },
+            )
         } else {
             val recordedAt = loaded.track.points.firstNotNullOfOrNull { it.timeMillis }
                 ?: loaded.stored.createdAtMillis
@@ -134,10 +140,12 @@ class TourDetailActivity : AppCompatActivity() {
                     .format(Date(recordedAt)),
             )
         }
-        binding.openMapButton.visibility = if (planned) View.VISIBLE else View.GONE
+        binding.openMapButton.visibility = View.VISIBLE
         binding.fitnessProfileButton.visibility = if (planned) View.VISIBLE else View.GONE
         binding.fitnessProfileHint.visibility = if (planned) View.VISIBLE else View.GONE
-        if (planned) binding.openMapButton.setText(R.string.start_tour)
+        binding.openMapButton.setText(
+            if (planned) R.string.start_tour else R.string.repeat_tour,
+        )
         renderMap(loaded.track)
         if (planned) renderPlannedInsights(loaded.insights) else renderRecordedInsights(loaded.insights)
         renderElevation(loaded.insights)
@@ -392,6 +400,33 @@ class TourDetailActivity : AppCompatActivity() {
                 .putExtra(MainActivity.EXTRA_TOUR_REFERENCE, reference)
                 .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
         )
+    }
+
+    private fun startTour(loaded: LoadedTour) {
+        if (loaded.stored.origin == TrackStore.StoredTourOrigin.IMPORTED) {
+            openOnMainMap(loaded.stored.reference)
+            return
+        }
+        binding.openMapButton.isEnabled = false
+        binding.openMapButton.setText(R.string.preparing_tour)
+        lifecycleScope.launch {
+            val result = runCatching {
+                withContext(Dispatchers.IO) {
+                    trackStore.saveRouteDefinitionFromRecording(loaded.stored.reference)
+                }
+            }
+            result.onSuccess { planned ->
+                openOnMainMap(planned.reference)
+            }.onFailure {
+                binding.openMapButton.isEnabled = true
+                binding.openMapButton.setText(R.string.repeat_tour)
+                Toast.makeText(
+                    this@TourDetailActivity,
+                    getString(R.string.plan_from_recording_error, it.localizedMessage ?: "Unbekannter Fehler"),
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+        }
     }
 
     private fun formatDistance(distanceMeters: Double) =

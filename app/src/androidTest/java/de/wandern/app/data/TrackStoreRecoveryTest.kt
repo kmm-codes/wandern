@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import de.wandern.app.model.RecordingState
+import de.wandern.app.model.GpxTrack
 import de.wandern.app.model.ActivityType
 import de.wandern.app.model.TrackPoint
 import org.junit.Assert.assertEquals
@@ -15,6 +16,39 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class TrackStoreRecoveryTest {
+    @Test
+    fun recordedTourCanBecomeLinkedRouteDefinitionWithoutLosingHistory() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val store = TrackStore(context)
+        val recorded = store.saveRecordedTrack(
+            GpxTrack(
+                name = "Wiederholen-${System.nanoTime()}",
+                segments = listOf(
+                    listOf(
+                        TrackPoint(48.0, 8.0, elevationMeters = 100.0, timeMillis = 1_000L),
+                        TrackPoint(48.001, 8.0, elevationMeters = 110.0, timeMillis = 61_000L),
+                    ),
+                ),
+                activityType = ActivityType.HIKING,
+            ),
+        )
+        var planned: TrackStore.StoredTour? = null
+
+        try {
+            planned = store.saveRouteDefinitionFromRecording(recorded.reference)
+            val route = store.loadStoredTrack(planned.reference)
+
+            assertEquals(TrackStore.StoredTourOrigin.IMPORTED, planned.origin)
+            assertEquals(recorded.reference, planned.sourceReference)
+            assertEquals(2, route.points.size)
+            assertTrue(route.points.all { it.timeMillis == null && it.speedMetersPerSecond == null })
+            assertTrue(store.listStoredTours().any { it.reference == recorded.reference })
+        } finally {
+            planned?.let { store.deleteStoredTour(it.reference) }
+            store.deleteStoredTour(recorded.reference)
+        }
+    }
+
     @Test
     fun pausedSessionSurvivesStoreRecreationAndCanBeDiscarded() {
         val context = ApplicationProvider.getApplicationContext<Context>()

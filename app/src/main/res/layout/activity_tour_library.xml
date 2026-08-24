@@ -15,12 +15,44 @@
         app:title="@string/my_tours"
         app:titleTextColor="@color/white" />
 
+    <com.google.android.material.button.MaterialButtonToggleGroup
+        android:id="@+id/tourCategoryToggle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="12dp"
+        android:layout_marginTop="12dp"
+        android:layout_marginEnd="12dp"
+        app:checkedButton="@id/plannedToursButton"
+        app:selectionRequired="true"
+        app:singleSelection="true">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/plannedToursButton"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_weight="1"
+            android:text="@string/tours_planned"
+            android:textAllCaps="false"
+            app:strokeColor="@color/forest_700" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/completedToursButton"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_weight="1"
+            android:text="@string/tours_completed"
+            android:textAllCaps="false"
+            app:strokeColor="@color/forest_700" />
+    </com.google.android.material.button.MaterialButtonToggleGroup>
+
     <com.google.android.material.button.MaterialButton
         android:id="@+id/importToursButton"
         android:layout_width="match_parent"
         android:layout_height="52dp"
         android:layout_marginStart="12dp"
-        android:layout_marginTop="12dp"
+        android:layout_marginTop="10dp"
         android:layout_marginEnd="12dp"
         android:maxLines="1"
         android:text="@string/import_gpx_files"

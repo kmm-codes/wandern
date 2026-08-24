@@ -44,6 +44,8 @@ class TourLibraryActivity : AppCompatActivity() {
     private lateinit var offlineMapDownloader: OfflineMapDownloader
     private var exportSource: File? = null
     private val dateFormat = SimpleDateFormat("dd.MM.yyyy", Locale.GERMANY)
+    private var allRows: List<TourRow> = emptyList()
+    private var selectedOrigin = TrackStore.StoredTourOrigin.IMPORTED
 
     private val multiImportLauncher = registerForActivityResult(
         ActivityResultContracts.OpenMultipleDocuments(),
@@ -72,6 +74,15 @@ class TourLibraryActivity : AppCompatActivity() {
         offlineMapDownloader = OfflineMapDownloader(this, MAP_STYLE_URL)
         binding.toolbar.setNavigationContentDescription(R.string.cancel)
         binding.toolbar.setNavigationOnClickListener { finish() }
+        binding.tourCategoryToggle.addOnButtonCheckedListener { _, checkedId, isChecked ->
+            if (!isChecked) return@addOnButtonCheckedListener
+            selectedOrigin = if (checkedId == R.id.completedToursButton) {
+                TrackStore.StoredTourOrigin.RECORDED
+            } else {
+                TrackStore.StoredTourOrigin.IMPORTED
+            }
+            renderTours()
+        }
         setupDemoMenu()
         binding.importToursButton.setOnClickListener {
             multiImportLauncher.launch(
@@ -173,7 +184,7 @@ class TourLibraryActivity : AppCompatActivity() {
     private fun refreshTours() {
         lifecycleScope.launch {
             val rows = withContext(Dispatchers.IO) {
-                trackStore.listStoredTours().mapNotNull { stored ->
+                val baseRows = trackStore.listStoredTours().mapNotNull { stored ->
                     runCatching {
                         val track = stored.file.inputStream().use { input ->
                             de.wandern.app.data.GpxCodec.parse(input, stored.name)
@@ -181,36 +192,67 @@ class TourLibraryActivity : AppCompatActivity() {
                         TourRow(stored, track, TrackAnalyzer.calculate(track).distanceMeters)
                     }.getOrNull()
                 }
+                val rowsByReference = baseRows.associateBy { it.stored.reference }
+                baseRows.map { row ->
+                    val source = row.stored.sourceReference?.let(rowsByReference::get)
+                    row.copy(
+                        sourceRecordedAtMillis = source?.track?.points
+                            ?.firstNotNullOfOrNull { it.timeMillis }
+                            ?: source?.stored?.createdAtMillis,
+                        relatedRouteName = row.stored.routeReference
+                            ?.let(rowsByReference::get)
+                            ?.stored
+                            ?.name,
+                    )
+                }
             }
-            renderTours(rows)
+            allRows = rows
+            renderTours()
         }
     }
 
-    private fun renderTours(rows: List<TourRow>) {
+    private fun renderTours() {
+        val rows = allRows.filter { it.stored.origin == selectedOrigin }
+        val planned = selectedOrigin == TrackStore.StoredTourOrigin.IMPORTED
+        binding.importToursButton.visibility = if (planned) View.VISIBLE else View.GONE
+        binding.emptyText.setText(
+            if (planned) R.string.no_planned_tours else R.string.no_completed_tours,
+        )
         binding.tourListContainer.removeAllViews()
         binding.emptyText.visibility = if (rows.isEmpty()) View.VISIBLE else View.GONE
         binding.tourScrollView.visibility = if (rows.isEmpty()) View.GONE else View.VISIBLE
         rows.forEach { row ->
             val item = ItemTourBinding.inflate(layoutInflater, binding.tourListContainer, false)
             item.tourNameText.text = row.stored.name
-            val origin = getString(
-                if (row.stored.origin == TrackStore.StoredTourOrigin.IMPORTED) {
-                    R.string.tour_origin_imported
-                } else {
-                    R.string.tour_origin_recorded
-                },
-            )
             val activity = row.track.activityType ?: row.stored.activityType
             val sourceAndDate = buildList {
-                add(origin)
-                activity?.let { add(getString(it.labelRes())) }
-                add(dateFormat.format(Date(row.stored.createdAtMillis)))
+                if (row.stored.origin == TrackStore.StoredTourOrigin.IMPORTED) {
+                    val sourceDate = row.sourceRecordedAtMillis
+                    add(
+                        if (sourceDate != null) {
+                            getString(
+                                R.string.tour_origin_from_recording,
+                                dateFormat.format(Date(sourceDate)),
+                            )
+                        } else {
+                            getString(R.string.tour_origin_imported)
+                        },
+                    )
+                    if (sourceDate == null) add(dateFormat.format(Date(row.stored.createdAtMillis)))
+                } else {
+                    row.relatedRouteName?.let {
+                        add(getString(R.string.completed_from_planned_route, it))
+                    }
+                    activity?.let { add(getString(it.labelRes())) }
+                    val recordedAt = row.track.points.firstNotNullOfOrNull { it.timeMillis }
+                        ?: row.stored.createdAtMillis
+                    add(dateFormat.format(Date(recordedAt)))
+                }
             }.joinToString(" · ")
             item.tourDetailsText.text = getString(
                 R.string.tour_details,
                 sourceAndDate,
                 row.distanceMeters / 1000.0,
-                row.track.points.size,
             )
             item.openTourButton.setOnClickListener { openTour(row.stored.reference) }
             item.tourMoreButton.setOnClickListener { showTourActions(it, row) }
@@ -221,11 +263,19 @@ class TourLibraryActivity : AppCompatActivity() {
 
     private fun showTourActions(anchor: View, row: TourRow) {
         PopupMenu(this, anchor).apply {
-            menu.add(0, MENU_RENAME, 0, R.string.rename_tour)
-            menu.add(0, MENU_EXPORT, 1, R.string.export_gpx)
-            menu.add(0, MENU_DELETE, 2, R.string.delete)
+            var order = 0
+            if (row.stored.origin == TrackStore.StoredTourOrigin.RECORDED) {
+                menu.add(0, MENU_PLAN_FROM_RECORDING, order++, R.string.plan_from_recording)
+            }
+            menu.add(0, MENU_RENAME, order++, R.string.rename_tour)
+            menu.add(0, MENU_EXPORT, order++, R.string.export_gpx)
+            menu.add(0, MENU_DELETE, order, R.string.delete)
             setOnMenuItemClickListener { item ->
                 when (item.itemId) {
+                    MENU_PLAN_FROM_RECORDING -> {
+                        planFromRecording(row)
+                        true
+                    }
                     MENU_RENAME -> {
                         showRenameDialog(row)
                         true
@@ -243,6 +293,24 @@ class TourLibraryActivity : AppCompatActivity() {
                 }
             }
             show()
+        }
+    }
+
+    private fun planFromRecording(row: TourRow) {
+        lifecycleScope.launch {
+            val result = runCatching {
+                withContext(Dispatchers.IO) {
+                    trackStore.saveRouteDefinitionFromRecording(row.stored.reference)
+                }
+            }
+            result.onSuccess {
+                selectedOrigin = TrackStore.StoredTourOrigin.IMPORTED
+                binding.tourCategoryToggle.check(R.id.plannedToursButton)
+                toast(getString(R.string.recording_added_to_planned))
+                refreshTours()
+            }.onFailure {
+                toast(getString(R.string.plan_from_recording_error, it.localizedMessage ?: "Unbekannter Fehler"))
+            }
         }
     }
 
@@ -471,6 +539,8 @@ class TourLibraryActivity : AppCompatActivity() {
         val stored: TrackStore.StoredTour,
         val track: GpxTrack,
         val distanceMeters: Double,
+        val sourceRecordedAtMillis: Long? = null,
+        val relatedRouteName: String? = null,
     )
 
     private data class ImportOutcome(
@@ -486,6 +556,7 @@ class TourLibraryActivity : AppCompatActivity() {
         private const val MENU_EXPORT = 1
         private const val MENU_RENAME = 3
         private const val MENU_DELETE = 4
+        private const val MENU_PLAN_FROM_RECORDING = 5
         private const val MENU_CREATE_DEMO = 10
     }
 }

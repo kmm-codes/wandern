@@ -63,6 +63,7 @@ import de.wandern.app.model.HikingFitnessLevel
 import de.wandern.app.model.MapPoiPresenter
 import de.wandern.app.model.OfflineMapPlanner
 import de.wandern.app.model.RecordingState
+import de.wandern.app.model.RecordingRetentionPolicy
 import de.wandern.app.model.RouteProgress
 import de.wandern.app.model.RouteProgressTracker
 import de.wandern.app.model.RouteEntryMode
@@ -556,7 +557,13 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         binding.recordingExpandedGroup.visibility = if (detailsVisible) View.VISIBLE else View.GONE
         binding.recordingPauseButton.visibility = if (paused) View.GONE else View.VISIBLE
         binding.recordingPausedActions.visibility = if (paused) View.VISIBLE else View.GONE
-        binding.recordingDiscardButton.visibility = if (paused) View.VISIBLE else View.GONE
+        binding.recordingDiscardButton.visibility = if (
+            paused && RecordingRetentionPolicy.canDiscardInline(snapshot.stats.distanceMeters)
+        ) {
+            View.VISIBLE
+        } else {
+            View.GONE
+        }
         binding.recordingExpandButton.visibility = if (paused) View.INVISIBLE else View.VISIBLE
         binding.recordingExpandButton.setIconResource(
             if (detailsVisible) R.drawable.ic_expand_more else R.drawable.ic_expand_less,
@@ -583,6 +590,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     }
 
     private fun confirmDiscardRecording() {
+        if (!RecordingRetentionPolicy.canDiscardInline(latestSnapshot.stats.distanceMeters)) return
         MaterialAlertDialogBuilder(this)
             .setTitle(R.string.discard_recording_title)
             .setMessage(R.string.discard_recording_message)

@@ -32,6 +32,20 @@ data class GpxTrack(
     }
 }
 
+fun GpxTrack.asRouteDefinition(): GpxTrack = copy(
+    segments = segments.map { segment ->
+        segment.map { point ->
+            point.copy(
+                timeMillis = null,
+                accuracyMeters = null,
+                speedMetersPerSecond = null,
+                isInterpolated = false,
+                bearingDegrees = null,
+            )
+        }
+    },
+)
+
 enum class ElevationSource {
     OPEN_METEO_COPERNICUS_GLO_90,
 }

@@ -8,6 +8,7 @@ import de.wandern.app.model.GpxTrack
 import de.wandern.app.model.ActivityType
 import de.wandern.app.model.RecordingState
 import de.wandern.app.model.TrackPoint
+import de.wandern.app.model.asRouteDefinition
 import java.io.File
 import java.security.MessageDigest
 import java.time.LocalDateTime
@@ -218,7 +219,7 @@ class TrackStore(context: Context) {
     }
 
     @Synchronized
-    fun saveImportedTrack(track: GpxTrack): StoredTour {
+    fun saveImportedTrack(track: GpxTrack, sourceRecordingReference: String? = null): StoredTour {
         val encoded = GpxCodec.encode(track)
         val trackKey = MessageDigest.getInstance("SHA-256")
             .digest(encoded.toByteArray(Charsets.UTF_8))
@@ -228,6 +229,10 @@ class TrackStore(context: Context) {
         if (!target.exists()) target.writeText(encoded, Charsets.UTF_8)
 
         val now = System.currentTimeMillis()
+        val sourceRecordingId = sourceRecordingReference
+            ?.takeIf { it.startsWith("recorded:") }
+            ?.substringAfter(':')
+            ?.toLongOrNull()
         database.writableDatabase.insertWithOnConflict(
             "imported_tracks",
             null,
@@ -236,13 +241,20 @@ class TrackStore(context: Context) {
                 put("name", track.name)
                 put("imported_at", now)
                 track.activityType?.let { put("activity_type", it.name) }
+                sourceRecordingId?.let { put("source_recording_id", it) }
                 put("file_path", target.absolutePath)
             },
             SQLiteDatabase.CONFLICT_IGNORE,
         )
+        if (sourceRecordingId != null) {
+            database.writableDatabase.execSQL(
+                "UPDATE imported_tracks SET source_recording_id = COALESCE(source_recording_id, ?) WHERE track_key = ?",
+                arrayOf(sourceRecordingId, trackKey),
+            )
+        }
         return database.readableDatabase.query(
             "imported_tracks",
-            arrayOf("id", "name", "imported_at", "file_path", "activity_type"),
+            arrayOf("id", "name", "imported_at", "file_path", "activity_type", "source_recording_id"),
             "track_key = ?",
             arrayOf(trackKey),
             null,
@@ -261,8 +273,19 @@ class TrackStore(context: Context) {
                 activityType = ActivityType.fromStoredValueOrNull(
                     if (cursor.isNull(4)) null else cursor.getString(4),
                 ),
+                sourceReference = if (cursor.isNull(5)) null else "recorded:${cursor.getLong(5)}",
             )
         }
+    }
+
+    @Synchronized
+    fun saveRouteDefinitionFromRecording(reference: String): StoredTour {
+        val recorded = listStoredTours().firstOrNull {
+            it.reference == reference && it.origin == StoredTourOrigin.RECORDED
+        } ?: error("Die Aufzeichnung wurde nicht gefunden.")
+        val route = recorded.file.inputStream().use { GpxCodec.parse(it, recorded.name) }
+            .asRouteDefinition()
+        return saveImportedTrack(route, sourceRecordingReference = reference)
     }
 
     @Synchronized
@@ -318,7 +341,7 @@ class TrackStore(context: Context) {
         val tours = mutableListOf<StoredTour>()
         database.readableDatabase.query(
             "imported_tracks",
-            arrayOf("id", "name", "imported_at", "file_path", "activity_type"),
+            arrayOf("id", "name", "imported_at", "file_path", "activity_type", "source_recording_id"),
             null,
             null,
             null,
@@ -337,13 +360,21 @@ class TrackStore(context: Context) {
                         activityType = ActivityType.fromStoredValueOrNull(
                             if (cursor.isNull(4)) null else cursor.getString(4),
                         ),
+                        sourceReference = if (cursor.isNull(5)) null else "recorded:${cursor.getLong(5)}",
                     )
                 }
             }
         }
         database.readableDatabase.query(
             "sessions",
-            arrayOf("id", "name", "COALESCE(ended_at, started_at)", "file_path", "activity_type"),
+            arrayOf(
+                "id",
+                "name",
+                "COALESCE(ended_at, started_at)",
+                "file_path",
+                "activity_type",
+                "route_reference",
+            ),
             "state = ? AND file_path IS NOT NULL",
             arrayOf(RecordingState.FINISHED.name),
             null,
@@ -362,6 +393,7 @@ class TrackStore(context: Context) {
                         activityType = ActivityType.fromStoredValue(
                             if (cursor.isNull(4)) null else cursor.getString(4),
                         ),
+                        routeReference = if (cursor.isNull(5)) null else cursor.getString(5),
                     )
                 }
             }
@@ -465,6 +497,8 @@ class TrackStore(context: Context) {
         val file: File,
         val origin: StoredTourOrigin,
         val activityType: ActivityType?,
+        val sourceReference: String? = null,
+        val routeReference: String? = null,
     )
 
     enum class StoredTourOrigin { IMPORTED, RECORDED }
@@ -478,7 +512,7 @@ class TrackStore(context: Context) {
     private fun android.database.Cursor.floatOrNull(index: Int): Float? =
         if (isNull(index)) null else getFloat(index)
 
-    private class Database(context: Context) : SQLiteOpenHelper(context, "wandern.db", null, 5) {
+    private class Database(context: Context) : SQLiteOpenHelper(context, "wandern.db", null, 6) {
         override fun onCreate(db: SQLiteDatabase) {
             db.execSQL(
                 """
@@ -531,6 +565,11 @@ class TrackStore(context: Context) {
                     db.execSQL("ALTER TABLE imported_tracks ADD COLUMN activity_type TEXT")
                 }
             }
+            if (oldVersion in 2..5) {
+                db.execSQL(
+                    "ALTER TABLE imported_tracks ADD COLUMN source_recording_id INTEGER REFERENCES sessions(id) ON DELETE SET NULL",
+                )
+            }
         }
 
         private fun createImportedTracksTable(db: SQLiteDatabase) {
@@ -542,6 +581,7 @@ class TrackStore(context: Context) {
                     name TEXT NOT NULL,
                     imported_at INTEGER NOT NULL,
                     activity_type TEXT,
+                    source_recording_id INTEGER REFERENCES sessions(id) ON DELETE SET NULL,
                     file_path TEXT NOT NULL
                 )
                 """.trimIndent(),
