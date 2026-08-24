@@ -61,18 +61,6 @@
                 app:iconTint="@color/forest_700"
                 app:strokeColor="@color/forest_700" />
 
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="bottom|start"
-                android:background="#BFFBF9F4"
-                android:paddingStart="5dp"
-                android:paddingTop="2dp"
-                android:paddingEnd="5dp"
-                android:paddingBottom="2dp"
-                android:text="@string/map_thumbnail_attribution"
-                android:textColor="@color/forest_900"
-                android:textSize="8sp" />
         </FrameLayout>
 
         <LinearLayout
