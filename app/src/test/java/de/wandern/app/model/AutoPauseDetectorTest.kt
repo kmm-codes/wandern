@@ -13,10 +13,11 @@ class AutoPauseDetectorTest {
 
     @Test
     fun pausesOnlyAfterSustainedStationaryEvidence() {
-        assertFalse(detector.update(point(0L, speed = 0f)).autoPaused)
-        assertFalse(detector.update(point(5_000L, speed = 0.1f)).autoPaused)
+        assertFalse(detector.update(point(0L, speed = 1.2f)).autoPaused)
+        assertFalse(detector.update(point(1_000L, speed = 0f)).autoPaused)
+        assertFalse(detector.update(point(6_000L, speed = 0.1f)).autoPaused)
 
-        val update = detector.update(point(10_000L, speed = 0f))
+        val update = detector.update(point(11_000L, speed = 0f))
 
         assertTrue(update.autoPaused)
         assertEquals(AutoPauseTransition.PAUSED, update.transition)
@@ -24,7 +25,8 @@ class AutoPauseDetectorTest {
 
     @Test
     fun briefStopDoesNotPause() {
-        detector.update(point(0L, speed = 0f))
+        detector.update(point(0L, speed = 1.2f))
+        detector.update(point(1_000L, speed = 0f))
         detector.update(point(5_000L, speed = 0f))
 
         val update = detector.update(point(8_000L, speed = 1.2f, latitudeOffset = 0.00008))
@@ -35,9 +37,10 @@ class AutoPauseDetectorTest {
 
     @Test
     fun resumesOnlyAfterConfirmedMovement() {
-        detector.update(point(0L, speed = 0f))
-        detector.update(point(5_000L, speed = 0f))
-        detector.update(point(10_000L, speed = 0f))
+        detector.update(point(0L, speed = 1.2f))
+        detector.update(point(1_000L, speed = 0f))
+        detector.update(point(6_000L, speed = 0f))
+        detector.update(point(11_000L, speed = 0f))
         assertTrue(detector.update(point(12_000L, speed = 1.2f, latitudeOffset = 0.00008)).autoPaused)
 
         val update = detector.update(point(16_000L, speed = 1.3f, latitudeOffset = 0.00013))
@@ -48,9 +51,10 @@ class AutoPauseDetectorTest {
 
     @Test
     fun gpsJitterInsideAccuracyRadiusDoesNotResume() {
-        detector.update(point(0L, speed = 0f, accuracy = 20f))
-        detector.update(point(5_000L, speed = 0f, accuracy = 20f))
-        detector.update(point(10_000L, speed = 0f, accuracy = 20f))
+        detector.update(point(0L, speed = 1.2f, accuracy = 20f))
+        detector.update(point(1_000L, speed = 0f, accuracy = 20f))
+        detector.update(point(6_000L, speed = 0f, accuracy = 20f))
+        detector.update(point(11_000L, speed = 0f, accuracy = 20f))
 
         val update = detector.update(
             point(20_000L, speed = null, accuracy = 20f, latitudeOffset = 0.00015),
@@ -69,6 +73,31 @@ class AutoPauseDetectorTest {
 
         assertFalse(update.autoPaused)
         assertEquals(AutoPauseTransition.NONE, update.transition)
+    }
+
+    @Test
+    fun doesNotAutoPauseBeforeFirstRealMovement() {
+        detector.update(point(0L, speed = 0f))
+        detector.update(point(15_000L, speed = 0f))
+
+        val update = detector.update(point(30_000L, speed = 0f))
+
+        assertFalse(update.autoPaused)
+        assertEquals(AutoPauseTransition.NONE, update.transition)
+    }
+
+    @Test
+    fun observationClockPreventsOldLocationTimeFromTriggeringImmediatePause() {
+        detector.update(point(0L, speed = 1.2f), observationTimeMillis = 1_000L)
+        detector.update(point(30_000L, speed = 0f), observationTimeMillis = 2_000L)
+        detector.update(point(31_000L, speed = 0f), observationTimeMillis = 3_000L)
+
+        val update = detector.update(
+            point(32_000L, speed = 0f),
+            observationTimeMillis = 4_000L,
+        )
+
+        assertFalse(update.autoPaused)
     }
 
     private fun point(

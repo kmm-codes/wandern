@@ -19,6 +19,7 @@ class TrackStoreRecoveryTest {
     fun pausedSessionSurvivesStoreRecreationAndCanBeDiscarded() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val firstStore = TrackStore(context)
+        discardActiveSessions(firstStore)
         val sessionId = firstStore.createSession(
             "Recovery-Test",
             routeReference = "imported:42",
@@ -47,6 +48,14 @@ class TrackStoreRecoveryTest {
             assertFalse(restoredStore.discardSession(sessionId))
         } finally {
             firstStore.discardSession(sessionId)
+            discardActiveSessions(firstStore)
+        }
+    }
+
+    private fun discardActiveSessions(store: TrackStore) {
+        while (true) {
+            val active = store.activeSession() ?: return
+            store.discardSession(active.id)
         }
     }
 }

@@ -35,13 +35,18 @@ class AutoPauseDetector(
     private var stationarySampleCount = 0
     private var movingSampleCount = 0
     private var paused = false
+    private var movementObserved = false
+    private var previousObservationTimeMillis: Long? = null
 
-    fun update(point: TrackPoint): AutoPauseUpdate {
-        val timeMillis = point.timeMillis ?: return currentUpdate(stationaryEvidence = false)
+    fun update(
+        point: TrackPoint,
+        observationTimeMillis: Long? = point.timeMillis,
+    ): AutoPauseUpdate {
+        val timeMillis = observationTimeMillis ?: return currentUpdate(stationaryEvidence = false)
         if ((point.accuracyMeters ?: 0f) > reliableAccuracyMeters) {
             return currentUpdate(stationaryEvidence = false)
         }
-        val previousTime = previous?.timeMillis
+        val previousTime = previousObservationTimeMillis
         if (previousTime != null && timeMillis < previousTime) {
             return currentUpdate(stationaryEvidence = false)
         }
@@ -49,6 +54,7 @@ class AutoPauseDetector(
 
         val evidence = motionEvidence(point)
         previous = point
+        previousObservationTimeMillis = timeMillis
         return if (paused) updateWhilePaused(point, timeMillis, evidence) else {
             updateWhileMoving(point, timeMillis, evidence)
         }
@@ -62,6 +68,8 @@ class AutoPauseDetector(
         stationarySampleCount = 0
         movingSampleCount = 0
         paused = false
+        movementObserved = false
+        previousObservationTimeMillis = null
     }
 
     private fun updateWhileMoving(
@@ -70,20 +78,30 @@ class AutoPauseDetector(
         evidence: MotionEvidence,
     ): AutoPauseUpdate = when (evidence) {
         MotionEvidence.STATIONARY -> {
-            stationarySampleCount += 1
-            val stationarySince = stationarySinceMillis ?: timeMillis.also {
-                stationarySinceMillis = it
-            }
-            if (stationarySampleCount >= MIN_STATIONARY_SAMPLES && timeMillis - stationarySince >= pauseAfterMillis) {
-                paused = true
-                movingSinceMillis = null
-                movingSampleCount = 0
-                AutoPauseUpdate(true, stationaryEvidence = true, AutoPauseTransition.PAUSED)
-            } else {
+            if (!movementObserved) {
+                stationarySinceMillis = null
+                stationarySampleCount = 0
                 AutoPauseUpdate(false, stationaryEvidence = true)
+            } else {
+                stationarySampleCount += 1
+                val stationarySince = stationarySinceMillis ?: timeMillis.also {
+                    stationarySinceMillis = it
+                }
+                if (
+                    stationarySampleCount >= MIN_STATIONARY_SAMPLES &&
+                    timeMillis - stationarySince >= pauseAfterMillis
+                ) {
+                    paused = true
+                    movingSinceMillis = null
+                    movingSampleCount = 0
+                    AutoPauseUpdate(true, stationaryEvidence = true, AutoPauseTransition.PAUSED)
+                } else {
+                    AutoPauseUpdate(false, stationaryEvidence = true)
+                }
             }
         }
         MotionEvidence.MOVING -> {
+            movementObserved = true
             anchor = point
             stationarySinceMillis = null
             stationarySampleCount = 0

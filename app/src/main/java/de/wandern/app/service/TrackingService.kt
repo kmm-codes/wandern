@@ -14,6 +14,7 @@ import android.location.LocationManager
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
+import android.os.SystemClock
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
@@ -68,6 +69,7 @@ class TrackingService : Service(), LocationListener {
                 intent.getStringExtra(EXTRA_ROUTE_REFERENCE),
                 ActivityType.fromStoredValue(intent.getStringExtra(EXTRA_ACTIVITY_TYPE)),
             )
+            ACTION_RESTORE -> restoreAfterProcessRestart()
             ACTION_PAUSE -> pauseRecording()
             ACTION_RESUME -> resumeRecording()
             ACTION_STOP -> stopRecording()
@@ -101,7 +103,7 @@ class TrackingService : Service(), LocationListener {
 
         updateRouteDeviation(point)
 
-        val autoPauseUpdate = autoPauseDetector.update(point)
+        val autoPauseUpdate = autoPauseDetector.update(point, SystemClock.elapsedRealtime())
         autoPaused = autoPauseUpdate.autoPaused
         if (autoPauseUpdate.transition == AutoPauseTransition.RESUMED) {
             // A stationary interval is not a GPS gap and must never be interpolated.
@@ -202,6 +204,7 @@ class TrackingService : Service(), LocationListener {
         resetRouteDeviationState()
         trackStore.updateState(id, RecordingState.RECORDING, segmentIndex)
         publishSnapshot(RecordingState.RECORDING)
+        startAsForeground()
         requestLocationUpdates()
         updateNotification()
     }
@@ -271,8 +274,10 @@ class TrackingService : Service(), LocationListener {
         autoPauseDetector.reset()
         configureRoute(active.routeReference)
         publishSnapshot(active.state)
-        startAsForeground()
-        if (active.state == RecordingState.RECORDING) requestLocationUpdates()
+        if (active.state == RecordingState.RECORDING) {
+            startAsForeground()
+            requestLocationUpdates()
+        }
     }
 
     private fun requestLocationUpdates() {
@@ -471,6 +476,7 @@ class TrackingService : Service(), LocationListener {
 
     companion object {
         const val ACTION_START = "de.wandern.app.action.START"
+        const val ACTION_RESTORE = "de.wandern.app.action.RESTORE"
         const val ACTION_PAUSE = "de.wandern.app.action.PAUSE"
         const val ACTION_RESUME = "de.wandern.app.action.RESUME"
         const val ACTION_STOP = "de.wandern.app.action.STOP"

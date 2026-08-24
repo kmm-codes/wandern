@@ -213,6 +213,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         setupMap()
         setupActions()
         observeTracking()
+        restoreActiveRecording()
         if (savedInstanceState == null) handleIncomingIntent(intent)
     }
 
@@ -368,6 +369,17 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
                     renderSnapshot(snapshot)
                 }
             }
+        }
+    }
+
+    private fun restoreActiveRecording() {
+        val activeSession = trackStore.activeSession() ?: return
+        val intent = Intent(this, TrackingService::class.java)
+            .setAction(TrackingService.ACTION_RESTORE)
+        if (activeSession.state == RecordingState.RECORDING) {
+            ContextCompat.startForegroundService(this, intent)
+        } else {
+            startService(intent)
         }
     }
 
