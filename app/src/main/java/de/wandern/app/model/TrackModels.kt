@@ -59,4 +59,6 @@ data class TrackingSnapshot(
     val errorMessage: String? = null,
     val gpsGapActive: Boolean = false,
     val autoPaused: Boolean = false,
+    val routeDeviationMeters: Double? = null,
+    val confirmedOffRoute: Boolean = false,
 )

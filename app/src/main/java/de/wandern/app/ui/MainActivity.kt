@@ -113,6 +113,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     private var map: MapLibreMap? = null
     private var mapStyle: Style? = null
     private var importedTrack: GpxTrack? = null
+    private var importedTrackReference: String? = null
     private var latestSnapshot = TrackingSnapshot()
     private var pendingRecordingStart = false
     private var pendingCenterRequest = false
@@ -482,9 +483,16 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             hideRouteStatus()
             return
         }
-        val deviation = GeoMath.distanceToTrackMeters(point, route) ?: return
-        if (deviation <= OFF_ROUTE_THRESHOLD_METERS) {
+        val recordingActive = latestSnapshot.state == RecordingState.RECORDING ||
+            latestSnapshot.state == RecordingState.PAUSED
+        val monitoredDeviation = latestSnapshot.routeDeviationMeters.takeIf { recordingActive }
+        val deviation = monitoredDeviation ?: GeoMath.distanceToTrackMeters(point, route) ?: return
+        if (recordingActive && latestSnapshot.confirmedOffRoute) {
+            showRouteStatus(getString(R.string.off_route, deviation.toInt()), R.color.warning)
+        } else if (deviation <= OFF_ROUTE_THRESHOLD_METERS) {
             showRouteStatus(getString(R.string.on_route, deviation.toInt()), R.color.forest_900)
+        } else if (recordingActive && monitoredDeviation != null) {
+            showRouteStatus(getString(R.string.route_deviation_checking, deviation.toInt()), R.color.forest_900)
         } else {
             showRouteStatus(getString(R.string.off_route, deviation.toInt()), R.color.warning)
         }
@@ -602,7 +610,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
                 }
             }
             result.onSuccess { (track, reference) ->
-                displayTrack(track, askForOfflineDownload = false)
+                displayTrack(track, reference, askForOfflineDownload = false)
                 askToDownloadOfflineMap(track) { openTourDetails(reference) }
             }.onFailure {
                 Log.e(LOG_TAG, "GPX import failed for $uri", it)
@@ -616,16 +624,17 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             val result = runCatching {
                 withContext(Dispatchers.IO) { trackStore.loadStoredTrack(reference) }
             }
-            result.onSuccess { displayTrack(it, askForOfflineDownload = false) }
+            result.onSuccess { displayTrack(it, reference, askForOfflineDownload = false) }
                 .onFailure {
                     toast(getString(R.string.tour_open_error, it.localizedMessage ?: "Unbekannter Fehler"))
                 }
         }
     }
 
-    private fun displayTrack(track: GpxTrack, askForOfflineDownload: Boolean) {
+    private fun displayTrack(track: GpxTrack, reference: String?, askForOfflineDownload: Boolean) {
         initialRegionFramingComplete = true
         importedTrack = track
+        importedTrackReference = reference
         routeProgressTracker = RouteProgressTracker(track)
         renderMoreButtonVisibility()
         binding.titleText.text = track.name
@@ -916,6 +925,9 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             .apply {
                 if (action == TrackingService.ACTION_START) {
                     importedTrack?.name?.let { putExtra(TrackingService.EXTRA_ROUTE_NAME, it) }
+                    importedTrackReference?.let {
+                        putExtra(TrackingService.EXTRA_ROUTE_REFERENCE, it)
+                    }
                 }
             }
         if (startForeground) ContextCompat.startForegroundService(this, intent) else startService(intent)
@@ -932,6 +944,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
                 when (item.itemId) {
                     MENU_CLEAR_ROUTE -> {
                         importedTrack = null
+                        importedTrackReference = null
                         routeProgressTracker = null
                         binding.routeProgressGroup.visibility = View.GONE
                         binding.recordingRouteProgressGroup.visibility = View.GONE

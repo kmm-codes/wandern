@@ -26,6 +26,8 @@ import de.wandern.app.model.GpsGapInterpolator
 import de.wandern.app.model.GpsQuality
 import de.wandern.app.model.GpxTrack
 import de.wandern.app.model.RecordingState
+import de.wandern.app.model.RouteDeviationEvent
+import de.wandern.app.model.RouteDeviationMonitor
 import de.wandern.app.model.TrackAnalyzer
 import de.wandern.app.model.TrackPoint
 import de.wandern.app.model.TrackingSnapshot
@@ -45,6 +47,10 @@ class TrackingService : Service(), LocationListener {
     private var gpsGapActive = false
     private var autoPaused = false
     private val autoPauseDetector = AutoPauseDetector()
+    private var activeRoute: GpxTrack? = null
+    private var routeDeviationMeters: Double? = null
+    private var confirmedOffRoute = false
+    private val routeDeviationMonitor = RouteDeviationMonitor()
 
     override fun onCreate() {
         super.onCreate()
@@ -55,7 +61,10 @@ class TrackingService : Service(), LocationListener {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACTION_START -> startRecording(intent.getStringExtra(EXTRA_ROUTE_NAME))
+            ACTION_START -> startRecording(
+                intent.getStringExtra(EXTRA_ROUTE_NAME),
+                intent.getStringExtra(EXTRA_ROUTE_REFERENCE),
+            )
             ACTION_PAUSE -> pauseRecording()
             ACTION_RESUME -> resumeRecording()
             ACTION_STOP -> stopRecording()
@@ -86,6 +95,8 @@ class TrackingService : Service(), LocationListener {
             publishObservedLocation(point)
             return
         }
+
+        updateRouteDeviation(point)
 
         val autoPauseUpdate = autoPauseDetector.update(point)
         autoPaused = autoPauseUpdate.autoPaused
@@ -143,19 +154,20 @@ class TrackingService : Service(), LocationListener {
         super.onDestroy()
     }
 
-    private fun startRecording(routeName: String?) {
+    private fun startRecording(routeName: String?, routeReference: String?) {
         if (sessionId != null) return
         trackStore.activeSession()?.let {
             restoreActiveSession(it)
             return
         }
-        sessionId = trackStore.createSession(routeName)
+        sessionId = trackStore.createSession(routeName, routeReference)
         segmentIndex = 0
         lastAcceptedPoint = null
         lastObservedPoint = null
         gpsGapActive = false
         autoPaused = false
         autoPauseDetector.reset()
+        configureRoute(routeReference)
         startAsForeground()
         publishSnapshot(RecordingState.RECORDING)
         requestLocationUpdates()
@@ -179,6 +191,7 @@ class TrackingService : Service(), LocationListener {
         gpsGapActive = false
         autoPaused = false
         autoPauseDetector.reset()
+        resetRouteDeviationState()
         trackStore.updateState(id, RecordingState.RECORDING, segmentIndex)
         publishSnapshot(RecordingState.RECORDING)
         requestLocationUpdates()
@@ -245,6 +258,7 @@ class TrackingService : Service(), LocationListener {
         gpsGapActive = false
         autoPaused = false
         autoPauseDetector.reset()
+        configureRoute(active.routeReference)
         publishSnapshot(active.state)
         startAsForeground()
         if (active.state == RecordingState.RECORDING) requestLocationUpdates()
@@ -283,6 +297,8 @@ class TrackingService : Service(), LocationListener {
             latestPoint = lastObservedPoint ?: track.points.lastOrNull(),
             gpsGapActive = gpsGapActive,
             autoPaused = autoPaused,
+            routeDeviationMeters = routeDeviationMeters,
+            confirmedOffRoute = confirmedOffRoute,
         )
     }
 
@@ -292,11 +308,45 @@ class TrackingService : Service(), LocationListener {
             errorMessage = null,
             gpsGapActive = gpsGapActive,
             autoPaused = autoPaused,
+            routeDeviationMeters = routeDeviationMeters,
+            confirmedOffRoute = confirmedOffRoute,
         )
     }
 
     private fun publishError(message: String) {
         _snapshots.value = _snapshots.value.copy(errorMessage = message)
+    }
+
+    private fun configureRoute(reference: String?) {
+        activeRoute = reference?.let {
+            runCatching { trackStore.loadStoredTrack(it) }.getOrNull()
+        }
+        resetRouteDeviationState()
+    }
+
+    private fun resetRouteDeviationState() {
+        routeDeviationMeters = null
+        confirmedOffRoute = false
+        routeDeviationMonitor.reset()
+    }
+
+    private fun updateRouteDeviation(point: TrackPoint) {
+        val route = activeRoute ?: return
+        val deviation = GeoMath.distanceToTrackMeters(point, route) ?: return
+        routeDeviationMeters = deviation
+        val update = routeDeviationMonitor.update(
+            deviationMeters = deviation,
+            accuracyMeters = point.accuracyMeters,
+            nowMillis = point.timeMillis ?: System.currentTimeMillis(),
+        )
+        confirmedOffRoute = update.confirmedOffRoute
+        when (update.event) {
+            RouteDeviationEvent.LEFT_ROUTE,
+            RouteDeviationEvent.OFF_ROUTE_REMINDER,
+            RouteDeviationEvent.RETURNED_TO_ROUTE,
+            -> postRouteAlert(update.event, deviation)
+            RouteDeviationEvent.NONE -> Unit
+        }
     }
 
     private fun startAsForeground() {
@@ -367,6 +417,44 @@ class TrackingService : Service(), LocationListener {
             NotificationManager.IMPORTANCE_LOW,
         ).apply { description = getString(R.string.notification_channel_description) }
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+        val routeAlerts = NotificationChannel(
+            ROUTE_ALERT_CHANNEL_ID,
+            getString(R.string.route_alert_channel_name),
+            NotificationManager.IMPORTANCE_HIGH,
+        ).apply {
+            description = getString(R.string.route_alert_channel_description)
+            enableVibration(true)
+        }
+        getSystemService(NotificationManager::class.java).createNotificationChannel(routeAlerts)
+    }
+
+    private fun postRouteAlert(event: RouteDeviationEvent, deviationMeters: Double) {
+        val launchIntent = Intent(this, MainActivity::class.java)
+        val launchPendingIntent = PendingIntent.getActivity(
+            this,
+            2,
+            launchIntent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val returned = event == RouteDeviationEvent.RETURNED_TO_ROUTE
+        val notification = NotificationCompat.Builder(this, ROUTE_ALERT_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(
+                getString(if (returned) R.string.route_alert_returned else R.string.route_alert_off_route),
+            )
+            .setContentText(
+                if (returned) {
+                    getString(R.string.route_alert_returned_text)
+                } else {
+                    getString(R.string.route_alert_off_route_text, deviationMeters.toInt())
+                },
+            )
+            .setContentIntent(launchPendingIntent)
+            .setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_NAVIGATION)
+            .build()
+        getSystemService(NotificationManager::class.java).notify(ROUTE_ALERT_NOTIFICATION_ID, notification)
     }
 
     companion object {
@@ -376,9 +464,12 @@ class TrackingService : Service(), LocationListener {
         const val ACTION_STOP = "de.wandern.app.action.STOP"
         const val ACTION_DISCARD = "de.wandern.app.action.DISCARD"
         const val EXTRA_ROUTE_NAME = "de.wandern.app.extra.ROUTE_NAME"
+        const val EXTRA_ROUTE_REFERENCE = "de.wandern.app.extra.ROUTE_REFERENCE"
 
         private const val CHANNEL_ID = "tracking"
         private const val NOTIFICATION_ID = 101
+        private const val ROUTE_ALERT_CHANNEL_ID = "route_alerts"
+        private const val ROUTE_ALERT_NOTIFICATION_ID = 102
         private const val MIN_DISTANCE_METERS = 2.5
         private const val MAX_STATIONARY_INTERVAL_MILLIS = 10_000L
         private const val GPS_GAP_THRESHOLD_MILLIS = 15_000L

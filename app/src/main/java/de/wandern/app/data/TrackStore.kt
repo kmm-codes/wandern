@@ -17,7 +17,7 @@ class TrackStore(context: Context) {
     private val database = Database(appContext)
 
     @Synchronized
-    fun createSession(routeName: String? = null): Long {
+    fun createSession(routeName: String? = null, routeReference: String? = null): Long {
         val now = System.currentTimeMillis()
         val timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm"))
         val name = routeName?.trim()?.takeIf { it.isNotEmpty() }
@@ -31,6 +31,7 @@ class TrackStore(context: Context) {
                 put("started_at", now)
                 put("state", RecordingState.RECORDING.name)
                 put("segment_index", 0)
+                routeReference?.let { put("route_reference", it) }
             },
         )
     }
@@ -38,7 +39,7 @@ class TrackStore(context: Context) {
     @Synchronized
     fun activeSession(): SessionInfo? = database.readableDatabase.query(
         "sessions",
-        arrayOf("id", "name", "state", "segment_index"),
+        arrayOf("id", "name", "state", "segment_index", "route_reference"),
         "state IN (?, ?)",
         arrayOf(RecordingState.RECORDING.name, RecordingState.PAUSED.name),
         null,
@@ -52,6 +53,7 @@ class TrackStore(context: Context) {
             name = cursor.getString(1),
             state = RecordingState.valueOf(cursor.getString(2)),
             segmentIndex = cursor.getInt(3),
+            routeReference = if (cursor.isNull(4)) null else cursor.getString(4),
         )
     }
 
@@ -420,6 +422,7 @@ class TrackStore(context: Context) {
         val name: String,
         val state: RecordingState,
         val segmentIndex: Int,
+        val routeReference: String?,
     )
 
     data class StoredTour(
@@ -441,7 +444,7 @@ class TrackStore(context: Context) {
     private fun android.database.Cursor.floatOrNull(index: Int): Float? =
         if (isNull(index)) null else getFloat(index)
 
-    private class Database(context: Context) : SQLiteOpenHelper(context, "wandern.db", null, 3) {
+    private class Database(context: Context) : SQLiteOpenHelper(context, "wandern.db", null, 4) {
         override fun onCreate(db: SQLiteDatabase) {
             db.execSQL(
                 """
@@ -452,6 +455,7 @@ class TrackStore(context: Context) {
                     ended_at INTEGER,
                     state TEXT NOT NULL,
                     segment_index INTEGER NOT NULL DEFAULT 0,
+                    route_reference TEXT,
                     file_path TEXT
                 )
                 """.trimIndent(),
@@ -482,6 +486,9 @@ class TrackStore(context: Context) {
             if (oldVersion < 2) createImportedTracksTable(db)
             if (oldVersion < 3) {
                 db.execSQL("ALTER TABLE points ADD COLUMN interpolated INTEGER NOT NULL DEFAULT 0")
+            }
+            if (oldVersion < 4) {
+                db.execSQL("ALTER TABLE sessions ADD COLUMN route_reference TEXT")
             }
         }
 

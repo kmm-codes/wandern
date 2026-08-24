@@ -6,6 +6,12 @@
     <string name="notification_title_paused">Wanderung manuell pausiert</string>
     <string name="notification_title_auto_paused">Wanderung automatisch pausiert</string>
     <string name="notification_recording_stats">%1$s · %2$s · ↑ %3$d m · ↓ %4$d m</string>
+    <string name="route_alert_channel_name">Routenwarnungen</string>
+    <string name="route_alert_channel_description">Warnt bei bestätigter Abweichung von einer geöffneten Route</string>
+    <string name="route_alert_off_route">Route verlassen</string>
+    <string name="route_alert_off_route_text">Du bist etwa %1$d m von der Route entfernt.</string>
+    <string name="route_alert_returned">Zurück auf der Route</string>
+    <string name="route_alert_returned_text">Die Position liegt wieder zuverlässig auf der Route.</string>
     <string name="ready_to_hike">Bereit zum Wandern</string>
     <string name="gps_unknown">GPS —</string>
     <string name="distance_empty">0,00 km</string>
@@ -96,6 +102,7 @@
     <string name="slope_value">Steigung %1$+.1f%%</string>
     <string name="on_route">Auf Route · %1$d m</string>
     <string name="off_route">⚠ %1$d m abseits der Route</string>
+    <string name="route_deviation_checking">Routenposition wird geprüft · %1$d m</string>
     <string name="route_points_loaded">%1$d Routenpunkte geladen</string>
     <string name="gps_accuracy">GPS ±%1$d m</string>
     <string name="gps_active">GPS aktiv</string>

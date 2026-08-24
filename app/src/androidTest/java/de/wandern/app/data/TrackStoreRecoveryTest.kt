@@ -18,7 +18,7 @@ class TrackStoreRecoveryTest {
     fun pausedSessionSurvivesStoreRecreationAndCanBeDiscarded() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val firstStore = TrackStore(context)
-        val sessionId = firstStore.createSession("Recovery-Test")
+        val sessionId = firstStore.createSession("Recovery-Test", routeReference = "imported:42")
 
         try {
             firstStore.appendPoint(
@@ -33,6 +33,7 @@ class TrackStoreRecoveryTest {
 
             assertEquals(sessionId, restored?.id)
             assertEquals(RecordingState.PAUSED, restored?.state)
+            assertEquals("imported:42", restored?.routeReference)
             assertEquals(1, restoredStore.loadTrack(sessionId).points.size)
             assertTrue(restoredStore.discardSession(sessionId))
             assertNull(restoredStore.activeSession())
