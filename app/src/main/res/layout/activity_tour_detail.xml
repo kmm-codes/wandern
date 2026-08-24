@@ -1,0 +1,248 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/sand_100"
+    android:orientation="vertical">
+
+    <com.google.android.material.appbar.MaterialToolbar
+        android:id="@+id/toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="?attr/actionBarSize"
+        android:background="@color/forest_900"
+        app:navigationIcon="@drawable/ic_back"
+        app:title="@string/tour_details_title"
+        app:titleTextColor="@color/white" />
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:clipToPadding="false">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="12dp">
+
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="340dp"
+                app:cardCornerRadius="18dp"
+                app:cardElevation="2dp">
+
+                <org.maplibre.android.maps.MapView
+                    android:id="@+id/previewMapView"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:contentDescription="@string/route_map_preview" />
+            </com.google.android.material.card.MaterialCardView>
+
+            <TextView
+                android:id="@+id/tourNameText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingStart="4dp"
+                android:paddingTop="14dp"
+                android:paddingEnd="4dp"
+                android:paddingBottom="10dp"
+                android:textColor="@color/forest_900"
+                android:textSize="22sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tourKindText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
+                android:background="@drawable/status_background"
+                android:paddingStart="10dp"
+                android:paddingTop="5dp"
+                android:paddingEnd="10dp"
+                android:paddingBottom="5dp"
+                android:textColor="@color/forest_700"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/fitnessProfileButton"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:layout_marginTop="10dp"
+                android:textAllCaps="false"
+                android:textColor="@color/forest_700"
+                android:visibility="gone"
+                app:backgroundTint="@color/sand_50"
+                app:cornerRadius="14dp"
+                app:strokeColor="@color/forest_700"
+                app:strokeWidth="1dp" />
+
+            <TextView
+                android:id="@+id/fitnessProfileHint"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingStart="4dp"
+                android:paddingTop="4dp"
+                android:paddingEnd="4dp"
+                android:text="@string/fitness_profile_hint"
+                android:textColor="@color/forest_700"
+                android:textSize="11sp"
+                android:visibility="gone" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/openMapButton"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:layout_marginTop="8dp"
+                android:layout_marginBottom="12dp"
+                android:textAllCaps="false"
+                android:textColor="@color/white"
+                app:backgroundTint="@color/forest_700"
+                app:cornerRadius="14dp"
+                app:icon="@drawable/ic_route"
+                app:iconGravity="textStart"
+                app:iconTint="@color/white" />
+
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                app:cardBackgroundColor="@color/sand_50"
+                app:cardCornerRadius="18dp"
+                app:cardElevation="2dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <LinearLayout style="@style/TourStatRow">
+                        <LinearLayout style="@style/TourStatCell">
+                            <TextView android:id="@+id/distanceValue" style="@style/TourDetailStatValue" />
+                            <TextView android:id="@+id/distanceLabel" style="@style/TourDetailStatLabel" android:text="@string/distance_label" />
+                        </LinearLayout>
+                        <LinearLayout style="@style/TourStatCell">
+                            <TextView android:id="@+id/durationValue" style="@style/TourDetailStatValue" />
+                            <TextView android:id="@+id/durationLabel" style="@style/TourDetailStatLabel" android:text="@string/total_time" />
+                        </LinearLayout>
+                    </LinearLayout>
+
+                    <LinearLayout style="@style/TourStatRow" android:layout_marginTop="14dp">
+                        <LinearLayout style="@style/TourStatCell">
+                            <TextView android:id="@+id/movingTimeValue" style="@style/TourDetailStatValue" />
+                            <TextView android:id="@+id/movingTimeLabel" style="@style/TourDetailStatLabel" android:text="@string/moving_time" />
+                        </LinearLayout>
+                        <LinearLayout style="@style/TourStatCell">
+                            <TextView android:id="@+id/paceValue" style="@style/TourDetailStatValue" />
+                            <TextView android:id="@+id/paceLabel" style="@style/TourDetailStatLabel" android:text="@string/average_pace" />
+                        </LinearLayout>
+                    </LinearLayout>
+
+                    <LinearLayout style="@style/TourStatRow" android:layout_marginTop="14dp">
+                        <LinearLayout style="@style/TourStatCell">
+                            <TextView android:id="@+id/averageSpeedValue" style="@style/TourDetailStatValue" />
+                            <TextView android:id="@+id/averageSpeedLabel" style="@style/TourDetailStatLabel" android:text="@string/average_speed" />
+                        </LinearLayout>
+                        <LinearLayout style="@style/TourStatCell">
+                            <TextView android:id="@+id/pointsValue" style="@style/TourDetailStatValue" />
+                            <TextView android:id="@+id/pointsLabel" style="@style/TourDetailStatLabel" android:text="@string/track_points" />
+                        </LinearLayout>
+                    </LinearLayout>
+
+                    <LinearLayout style="@style/TourStatRow" android:layout_marginTop="14dp">
+                        <LinearLayout style="@style/TourStatCell">
+                            <TextView android:id="@+id/ascentValue" style="@style/TourDetailStatValue" />
+                            <TextView android:id="@+id/ascentLabel" style="@style/TourDetailStatLabel" android:text="@string/ascent" />
+                        </LinearLayout>
+                        <LinearLayout style="@style/TourStatCell">
+                            <TextView android:id="@+id/descentValue" style="@style/TourDetailStatValue" />
+                            <TextView android:id="@+id/descentLabel" style="@style/TourDetailStatLabel" android:text="@string/descent" />
+                        </LinearLayout>
+                    </LinearLayout>
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                app:cardBackgroundColor="@color/sand_50"
+                app:cardCornerRadius="18dp"
+                app:cardElevation="2dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="14dp">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/elevation_profile"
+                        android:textColor="@color/forest_900"
+                        android:textSize="17sp"
+                        android:textStyle="bold" />
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:text="@string/chart_hold_hint"
+                        android:textColor="@color/forest_700"
+                        android:textSize="11sp" />
+                    <de.wandern.app.ui.ProfileChartView
+                        android:id="@+id/elevationChart"
+                        android:layout_width="match_parent"
+                        android:layout_height="210dp"
+                        android:layout_marginTop="6dp" />
+                    <TextView
+                        android:id="@+id/elevationAttributionText"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:textColor="@color/forest_700"
+                        android:textSize="10sp"
+                        android:visibility="gone" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/speedCard"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:layout_marginBottom="12dp"
+                app:cardBackgroundColor="@color/sand_50"
+                app:cardCornerRadius="18dp"
+                app:cardElevation="2dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="14dp">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/speed_profile"
+                        android:textColor="@color/forest_900"
+                        android:textSize="17sp"
+                        android:textStyle="bold" />
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:text="@string/chart_hold_hint"
+                        android:textColor="@color/forest_700"
+                        android:textSize="11sp" />
+                    <de.wandern.app.ui.ProfileChartView
+                        android:id="@+id/speedChart"
+                        android:layout_width="match_parent"
+                        android:layout_height="210dp"
+                        android:layout_marginTop="6dp" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+        </LinearLayout>
+    </ScrollView>
+</LinearLayout>
