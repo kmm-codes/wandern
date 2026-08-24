@@ -232,9 +232,6 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         sensorManager = getSystemService(SENSOR_SERVICE) as SensorManager
         rotationVectorSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
         binding.mapView.onCreate(savedInstanceState)
-        binding.headerCard.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
-            syncOverlayPositions()
-        }
         binding.actionsCard.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
             syncOverlayPositions()
         }
@@ -477,12 +474,6 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
 
     private fun renderSnapshot(snapshot: TrackingSnapshot) {
         renderRecordingPanelState(snapshot)
-        binding.titleText.text = when (snapshot.state) {
-            RecordingState.IDLE -> importedTrack?.name ?: getString(R.string.ready_to_hike)
-            RecordingState.RECORDING -> recordingStateLabel(R.string.recording_running, snapshot.activityType)
-            RecordingState.PAUSED -> recordingStateLabel(R.string.recording_paused, snapshot.activityType)
-            RecordingState.FINISHED -> getString(R.string.recording_saved)
-        }
         binding.recordButton.text = getString(R.string.record)
         binding.recordButton.setIconResource(R.drawable.ic_record)
         renderMoreButtonVisibility()
@@ -520,7 +511,6 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             lastRenderedRecordingState = state
         }
 
-        binding.headerCard.visibility = if (recordingActive) View.GONE else View.VISIBLE
         binding.actionsCard.visibility = if (recordingActive) View.GONE else View.VISIBLE
         binding.recordingCard.visibility = if (recordingActive) View.VISIBLE else View.GONE
         if (!recordingActive) {
@@ -602,18 +592,6 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     }
 
     private fun renderStats(stats: TrackStats, currentSpeedMetersPerSecond: Double?) {
-        binding.distanceText.text = String.format(Locale.GERMANY, "%.2f km", stats.distanceMeters / 1000.0)
-        binding.durationText.text = formatDuration(stats.durationMillis)
-        binding.paceText.text = stats.paceSecondsPerKilometer?.let(::formatPace) ?: getString(R.string.not_available)
-        binding.elevationText.text = getString(
-            R.string.elevation_stats,
-            stats.ascentMeters.toInt(),
-            stats.descentMeters.toInt(),
-        )
-        binding.slopeText.text = stats.currentSlopePercent?.let {
-            getString(R.string.slope_value, it)
-        } ?: getString(R.string.slope_empty)
-
         binding.recordingDistanceText.text = String.format(
             Locale.GERMANY,
             "%.2f km",
@@ -684,34 +662,11 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     private fun renderGpsStatus(point: TrackPoint) {
         val accuracy = point.accuracyMeters
         val ageMinutes = locationAgeMinutes(point)
-        val statusText = when {
-            ageMinutes >= STALE_LOCATION_MINUTES -> {
-                getString(R.string.gps_last_known, ageMinutes, accuracy?.toInt() ?: 0)
-            }
-            accuracy == null -> getString(R.string.gps_active)
-            accuracy > GpsQuality.RELIABLE_ACCURACY_METERS -> {
-                getString(R.string.gps_inaccurate, accuracy.toInt())
-            }
-            else -> getString(R.string.gps_accuracy, accuracy.toInt())
-        }
-        binding.gpsText.text = statusText
         binding.recordingGpsText.text = when {
             ageMinutes >= STALE_LOCATION_MINUTES -> getString(R.string.gps_age_short, ageMinutes)
             accuracy == null -> getString(R.string.gps_active_short)
             else -> getString(R.string.gps_accuracy_short, accuracy.toInt())
         }
-        binding.gpsText.setTextColor(
-            ContextCompat.getColor(
-                this,
-                if (ageMinutes >= STALE_LOCATION_MINUTES ||
-                    accuracy != null && accuracy > GpsQuality.RELIABLE_ACCURACY_METERS
-                ) {
-                    R.color.warning
-                } else {
-                    R.color.sand_50
-                },
-            ),
-        )
     }
 
     private fun locationAgeMinutes(point: TrackPoint): Int {
@@ -746,11 +701,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
 
         val layoutParams = binding.routeStatusText.layoutParams as FrameLayout.LayoutParams
         val density = resources.displayMetrics.density
-        val topMargin = if (recordingActive) {
-            (12 * density).roundToInt()
-        } else {
-            binding.headerCard.bottom - binding.root.paddingTop + (8 * density).roundToInt()
-        }
+        val topMargin = (12 * density).roundToInt()
         if (layoutParams.topMargin != topMargin) {
             layoutParams.topMargin = topMargin
             binding.routeStatusText.layoutParams = layoutParams
@@ -800,7 +751,6 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         importedTrackReference = reference
         routeProgressTracker = RouteProgressTracker(track)
         renderMoreButtonVisibility()
-        binding.titleText.text = track.name
         showRouteStatus(
             getString(R.string.route_points_loaded, track.points.size),
             R.color.forest_900,
@@ -1470,7 +1420,6 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
                         offlineMapIdentityTrack = null
                         importedTrackReference = null
                         routeProgressTracker = null
-                        binding.routeProgressGroup.visibility = View.GONE
                         binding.recordingRouteProgressGroup.visibility = View.GONE
                         renderMoreButtonVisibility()
                         hideRouteStatus()
@@ -1526,12 +1475,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             val horizontalPadding = (24 * density).toInt()
             val recordingActive = latestSnapshot.state == RecordingState.RECORDING ||
                 latestSnapshot.state == RecordingState.PAUSED
-            val topPadding = if (recordingActive) {
-                horizontalPadding
-            } else {
-                (binding.headerCard.bottom - binding.mapView.top + (16 * density).toInt())
-                    .coerceAtLeast(horizontalPadding)
-            }
+            val topPadding = horizontalPadding
             val bottomOverlay = if (recordingActive) binding.recordingCard else binding.actionsCard
             val bottomPadding = (
                 binding.mapView.bottom - bottomOverlay.top + (16 * density).toInt()
@@ -1606,7 +1550,6 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         }.maxByOrNull { it.time }
         if (lastKnown != null) showLocatedPosition(lastKnown, centerAfterFix)
         else {
-            binding.gpsText.setText(R.string.gps_locating)
             showRouteStatus(getString(R.string.gps_locating), R.color.forest_900)
         }
 
@@ -1624,7 +1567,6 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
                 if (location != null) {
                     showLocatedPosition(location, centerAfterFix)
                 } else if (latestLocatedPoint == null && latestSnapshot.latestPoint == null) {
-                    binding.gpsText.setText(R.string.gps_no_fix)
                     showRouteStatus(getString(R.string.gps_no_fix), R.color.warning)
                 }
             }
@@ -1728,7 +1670,6 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     private fun renderRouteProgress(point: TrackPoint?) {
         val tracker = routeProgressTracker
         if (importedTrack == null || tracker == null) {
-            binding.routeProgressGroup.visibility = View.GONE
             binding.recordingRouteProgressGroup.visibility = View.GONE
             return
         }
@@ -1737,29 +1678,17 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
                 (it.accuracyMeters == null || it.accuracyMeters <= GpsQuality.RELIABLE_ACCURACY_METERS)
         }
         val progress = reliablePoint?.let(tracker::update) ?: tracker.currentOrInitial() ?: run {
-            binding.routeProgressGroup.visibility = View.GONE
             binding.recordingRouteProgressGroup.visibility = View.GONE
             return
         }
-        binding.routeProgressGroup.visibility = View.VISIBLE
         binding.recordingRouteProgressGroup.visibility = View.VISIBLE
-        binding.routeProgressBar.progress = (progress.fraction * binding.routeProgressBar.max).roundToInt()
         binding.recordingRouteProgressBar.progress =
             (progress.fraction * binding.recordingRouteProgressBar.max).roundToInt()
         val progressText = "${(progress.fraction * 100.0).roundToInt()} %"
         val remainingDistance = formatRemainingDistance(progress.remainingDistanceMeters)
         val eta = formatEstimatedArrival(progress)
-        binding.routeProgressText.text = progressText
         binding.recordingRouteProgressText.text = progressText
-        binding.remainingDistanceText.text = remainingDistance
         binding.recordingRemainingDistanceText.text = remainingDistance
-        binding.remainingElevationText.text = String.format(
-            Locale.GERMANY,
-            "↗ %.0f  ↘ %.0f",
-            progress.remainingAscentMeters,
-            progress.remainingDescentMeters,
-        )
-        binding.etaText.text = eta
         binding.recordingEtaText.text = eta
     }
 
