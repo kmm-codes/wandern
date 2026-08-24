@@ -502,7 +502,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         binding.recordingDiscardButton.visibility = if (paused) View.VISIBLE else View.GONE
         binding.recordingExpandButton.visibility = if (paused) View.INVISIBLE else View.VISIBLE
         binding.recordingExpandButton.setIconResource(
-            if (detailsVisible) R.drawable.ic_expand_less else R.drawable.ic_expand_more,
+            if (detailsVisible) R.drawable.ic_expand_more else R.drawable.ic_expand_less,
         )
         binding.recordingExpandButton.contentDescription = getString(
             if (detailsVisible) R.string.hide_recording_details else R.string.show_recording_details,
