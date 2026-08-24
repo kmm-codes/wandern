@@ -207,7 +207,7 @@
     <string name="tours_completed">Gemacht</string>
     <string name="no_planned_tours">Noch keine geplanten Touren. Importiere eine GPX-Datei oder übernimm eine gemachte Tour.</string>
     <string name="no_completed_tours">Noch keine gemachten Touren. Deine abgeschlossenen Aufzeichnungen erscheinen hier chronologisch.</string>
-    <string name="open_tour">Öffnen</string>
+    <string name="open_tour_accessibility">Tour „%1$s“ öffnen</string>
     <string name="delete">Löschen</string>
     <string name="tour_details">%1$s · %2$.1f km</string>
     <string name="tour_origin_imported">GPX importiert</string>

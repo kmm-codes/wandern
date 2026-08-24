@@ -224,6 +224,7 @@ class TourLibraryActivity : AppCompatActivity() {
         rows.forEach { row ->
             val item = ItemTourBinding.inflate(layoutInflater, binding.tourListContainer, false)
             item.tourNameText.text = row.stored.name
+            item.root.contentDescription = getString(R.string.open_tour_accessibility, row.stored.name)
             val activity = row.track.activityType ?: row.stored.activityType
             val sourceAndDate = buildList {
                 if (row.stored.origin == TrackStore.StoredTourOrigin.IMPORTED) {
@@ -254,7 +255,7 @@ class TourLibraryActivity : AppCompatActivity() {
                 sourceAndDate,
                 row.distanceMeters / 1000.0,
             )
-            item.openTourButton.setOnClickListener { openTour(row.stored.reference) }
+            item.root.setOnClickListener { openTour(row.stored.reference) }
             item.tourMoreButton.setOnClickListener { showTourActions(it, row) }
             binding.tourListContainer.addView(item.root)
             queryOfflineStatus(row, item)

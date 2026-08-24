@@ -4,6 +4,9 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:layout_marginBottom="10dp"
+    android:clickable="true"
+    android:focusable="true"
+    android:foreground="?attr/selectableItemBackground"
     app:cardBackgroundColor="@color/sand_50"
     app:cardCornerRadius="18dp"
     app:cardElevation="2dp"
@@ -52,27 +55,11 @@
             android:orientation="horizontal">
 
             <com.google.android.material.button.MaterialButton
-                android:id="@+id/openTourButton"
-                android:layout_width="0dp"
-                android:layout_height="48dp"
-                android:layout_weight="1"
-                android:maxLines="1"
-                android:text="@string/open_tour"
-                android:textAllCaps="false"
-                android:textColor="@color/white"
-                app:autoSizeMaxTextSize="14sp"
-                app:autoSizeMinTextSize="10sp"
-                app:autoSizeTextType="uniform"
-                app:backgroundTint="@color/forest_700"
-                app:cornerRadius="12dp" />
-
-            <com.google.android.material.button.MaterialButton
                 android:id="@+id/offlineMapButton"
                 style="@style/Widget.MaterialComponents.Button.OutlinedButton"
                 android:layout_width="0dp"
                 android:layout_height="48dp"
-                android:layout_marginStart="7dp"
-                android:layout_weight="1.35"
+                android:layout_weight="1"
                 android:enabled="false"
                 android:maxLines="1"
                 android:text="@string/offline_map_checking_short"
