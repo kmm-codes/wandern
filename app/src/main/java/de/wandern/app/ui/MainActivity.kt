@@ -23,6 +23,7 @@ import android.os.BatteryManager
 import android.os.Build
 import android.os.Bundle
 import android.content.IntentFilter
+import android.provider.Settings
 import android.text.format.Formatter
 import android.util.Log
 import android.view.View
@@ -191,8 +192,17 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         }
         startVisibleLocationUpdates()
         if (centerUser) focusOnUser()
-        if (startRecording) sendTrackingAction(TrackingService.ACTION_START, startForeground = true)
+        if (startRecording) {
+            requestRecordingNotificationPermission()
+            sendTrackingAction(TrackingService.ACTION_START, startForeground = true)
+        }
         if (startCompassCalibration) beginCompassWalkCalibration()
+    }
+
+    private val notificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (!granted) showRecordingNotificationSettingsDialog()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -404,6 +414,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         } else {
             startService(intent)
         }
+        binding.root.post(::requestRecordingNotificationPermission)
     }
 
     private fun renderSnapshot(snapshot: TrackingSnapshot) {
@@ -1206,6 +1217,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     private fun startRecordingWithPermissions() {
         if (hasLocationPermission()) {
             focusOnUser()
+            requestRecordingNotificationPermission()
             sendTrackingAction(TrackingService.ACTION_START, startForeground = true)
             return
         }
@@ -1214,9 +1226,33 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         val permissions = buildList {
             add(Manifest.permission.ACCESS_FINE_LOCATION)
             add(Manifest.permission.ACCESS_COARSE_LOCATION)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) add(Manifest.permission.POST_NOTIFICATIONS)
         }
         permissionLauncher.launch(permissions.toTypedArray())
+    }
+
+    private fun requestRecordingNotificationPermission() {
+        if (
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
+    private fun showRecordingNotificationSettingsDialog() {
+        if (isFinishing || isDestroyed) return
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.recording_notification_disabled_title)
+            .setMessage(R.string.recording_notification_disabled_message)
+            .setNegativeButton(R.string.later, null)
+            .setPositiveButton(R.string.open_notification_settings) { _, _ ->
+                startActivity(
+                    Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                        .putExtra(Settings.EXTRA_APP_PACKAGE, packageName),
+                )
+            }
+            .show()
     }
 
     private fun batteryState(): BatteryState? {

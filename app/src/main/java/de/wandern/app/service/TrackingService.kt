@@ -432,7 +432,11 @@ class TrackingService : Service(), LocationListener {
             CHANNEL_ID,
             getString(R.string.notification_channel_name),
             NotificationManager.IMPORTANCE_LOW,
-        ).apply { description = getString(R.string.notification_channel_description) }
+        ).apply {
+            description = getString(R.string.notification_channel_description)
+            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            setShowBadge(false)
+        }
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
         val routeAlerts = NotificationChannel(
             ROUTE_ALERT_CHANNEL_ID,

@@ -6,6 +6,10 @@
     <string name="notification_title_paused">Aufzeichnung manuell pausiert</string>
     <string name="notification_title_auto_paused">Aufzeichnung automatisch pausiert</string>
     <string name="notification_recording_stats">%1$s · %2$s · ↑ %3$d m · ↓ %4$d m</string>
+    <string name="recording_notification_disabled_title">Lockscreen-Anzeige ist deaktiviert</string>
+    <string name="recording_notification_disabled_message">Die Aufzeichnung läuft trotzdem weiter, kann aber auf dem Sperrbildschirm nicht angezeigt werden. Erlaube Benachrichtigungen für die App, damit Zeit, Strecke und Höhenmeter dort sichtbar bleiben.</string>
+    <string name="open_notification_settings">Einstellungen öffnen</string>
+    <string name="later">Später</string>
     <string name="route_alert_channel_name">Routenwarnungen</string>
     <string name="route_alert_channel_description">Warnt bei bestätigter Abweichung von einer geöffneten Route</string>
     <string name="route_alert_off_route">Route verlassen</string>
