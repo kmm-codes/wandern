@@ -22,5 +22,14 @@ class HorizontalSwipeClassifierTest {
         assertNull(HorizontalSwipeClassifier.classify(-80f, 5f, 250L, 100f))
         assertNull(HorizontalSwipeClassifier.classify(-300f, 280f, 250L, 100f))
         assertNull(HorizontalSwipeClassifier.classify(-300f, 10f, 1_500L, 100f))
+        assertNull(
+            HorizontalSwipeClassifier.classify(
+                deltaX = -300f,
+                deltaY = 10f,
+                durationMillis = 600L,
+                minimumDistance = 100f,
+                maximumDurationMillis = 450L,
+            ),
+        )
     }
 }

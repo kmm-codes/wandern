@@ -4,8 +4,10 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Rect
 import android.graphics.Typeface
 import android.os.Bundle
+import android.view.MotionEvent
 import android.view.View
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -64,6 +66,10 @@ class TourMapActivity : AppCompatActivity() {
     private lateinit var fitnessPreferences: FitnessPreferences
     private var loadedTour: LoadedTour? = null
     private var mapStyle: Style? = null
+    private var panelSwipeCandidate = false
+    private var panelSwipeStartX = 0f
+    private var panelSwipeStartY = 0f
+    private var panelSwipeStartTimeMillis = 0L
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -90,6 +96,63 @@ class TourMapActivity : AppCompatActivity() {
             return
         }
         loadTour(reference)
+    }
+
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        if (detectPanelSwipe(event)) {
+            val cancel = MotionEvent.obtain(event).apply { action = MotionEvent.ACTION_CANCEL }
+            super.dispatchTouchEvent(cancel)
+            cancel.recycle()
+            return true
+        }
+        return super.dispatchTouchEvent(event)
+    }
+
+    private fun detectPanelSwipe(event: MotionEvent): Boolean {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                panelSwipeCandidate = binding.dataPanel.visibility == View.VISIBLE &&
+                    isInsideDataPanel(event.rawX.toInt(), event.rawY.toInt())
+                panelSwipeStartX = event.x
+                panelSwipeStartY = event.y
+                panelSwipeStartTimeMillis = event.eventTime
+                return false
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                panelSwipeCandidate = false
+                return false
+            }
+            MotionEvent.ACTION_UP -> {
+                if (!panelSwipeCandidate) return false
+                panelSwipeCandidate = false
+                val direction = HorizontalSwipeClassifier.classify(
+                    deltaX = event.x - panelSwipeStartX,
+                    deltaY = event.y - panelSwipeStartY,
+                    durationMillis = event.eventTime - panelSwipeStartTimeMillis,
+                    minimumDistance = PANEL_SWIPE_MIN_DISTANCE_DP * resources.displayMetrics.density,
+                    horizontalRatio = PANEL_SWIPE_HORIZONTAL_RATIO,
+                    maximumDurationMillis = PANEL_SWIPE_MAX_DURATION_MILLIS,
+                ) ?: return false
+                return switchPanel(direction)
+            }
+            else -> return false
+        }
+    }
+
+    private fun isInsideDataPanel(screenX: Int, screenY: Int): Boolean {
+        val bounds = Rect()
+        return binding.dataPanel.getGlobalVisibleRect(bounds) && bounds.contains(screenX, screenY)
+    }
+
+    private fun switchPanel(direction: HorizontalSwipeDirection): Boolean {
+        val target = if (direction == HorizontalSwipeDirection.LEFT) {
+            binding.secondaryPanelButton.id
+        } else {
+            binding.primaryPanelButton.id
+        }
+        if (binding.panelToggle.checkedButtonId == target) return false
+        binding.panelToggle.check(target)
+        return true
     }
 
     private fun loadTour(reference: String) {
@@ -156,6 +219,7 @@ class TourMapActivity : AppCompatActivity() {
                 ?: getString(R.string.not_available),
         )
         binding.profileChart.visibility = View.VISIBLE
+        binding.forecastDetailsText.visibility = View.GONE
         binding.profileChart.setSeries(
             samples = insights.speedProfile,
             unit = "km/h",
@@ -178,6 +242,7 @@ class TourMapActivity : AppCompatActivity() {
             formatMeters(stats.descentMeters),
         )
         binding.profileChart.visibility = View.VISIBLE
+        binding.forecastDetailsText.visibility = View.GONE
         binding.profileChart.setSeries(
             samples = insights.elevationProfile,
             unit = "m",
@@ -197,7 +262,14 @@ class TourMapActivity : AppCompatActivity() {
             fitnessPreferences.level,
         )
         binding.profileChart.visibility = View.GONE
-        binding.panelSummary.text = forecast?.let(::formatForecast)
+        binding.forecastDetailsText.visibility = View.VISIBLE
+        binding.panelSummary.text = getString(
+            R.string.tour_map_elevation_summary,
+            formatDistance(insights.stats.distanceMeters),
+            formatMeters(insights.stats.ascentMeters),
+            formatMeters(insights.stats.descentMeters),
+        )
+        binding.forecastDetailsText.text = forecast?.let(::formatForecast)
             ?: getString(R.string.not_available)
     }
 
@@ -401,5 +473,8 @@ class TourMapActivity : AppCompatActivity() {
         private const val PROFILE_POSITION_LAYER = "tour-map-profile-position-layer"
         private const val EMPTY_FEATURE_COLLECTION = "{\"type\":\"FeatureCollection\",\"features\":[]}"
         private const val CIRCULAR_ROUTE_ENDPOINT_DISTANCE_METERS = 50.0
+        private const val PANEL_SWIPE_MIN_DISTANCE_DP = 64f
+        private const val PANEL_SWIPE_HORIZONTAL_RATIO = 1.35f
+        private const val PANEL_SWIPE_MAX_DURATION_MILLIS = 450L
     }
 }
