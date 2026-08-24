@@ -40,6 +40,25 @@ Voraussetzungen:
 Die Debug-APK liegt danach unter
 `app/build/outputs/apk/debug/app-debug.apk`.
 
+## Auf einem Android-Gerät installieren
+
+Das Entwicklerskript baut die aktuelle Debug-APK, aktualisiert die App ohne
+Deinstallation oder Datenverlust und öffnet sie anschließend:
+
+```powershell
+.\run.ps1
+```
+
+Ist mehr als ein Gerät verbunden, erscheint im interaktiven Terminal eine
+Auswahl. Ein Gerät kann auch direkt angegeben werden:
+
+```powershell
+.\run.ps1 -Device <ADB-SERIENNUMMER>
+```
+
+Mit `-NoBuild` wird die bereits gebaute APK installiert. `-WhatIf` zeigt die
+geplanten Aktionen, ohne zu bauen, zu installieren oder die App zu starten.
+
 ## Lokal prüfen
 
 Der normale lokale CI-Lauf umfasst JVM-Tests, Android Lint und den Debug-Build:
