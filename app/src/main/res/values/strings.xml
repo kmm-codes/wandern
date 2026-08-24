@@ -84,6 +84,8 @@
     <string name="gps_active_short">aktiv</string>
     <string name="gps_accuracy_short">±%1$d m</string>
     <string name="gps_age_short">%1$d Min.</string>
+    <string name="current_speed_short">AKTUELL KM/H</string>
+    <string name="average_speed_short">Ø KM/H</string>
     <string name="elevation_stats">↗ %1$d m  ↘ %2$d m</string>
     <string name="slope_value">Steigung %1$+.1f%%</string>
     <string name="on_route">Auf Route · %1$d m</string>

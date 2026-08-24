@@ -287,8 +287,8 @@
                 </LinearLayout>
 
                 <LinearLayout style="@style/RecordingStatCell">
-                    <TextView android:id="@+id/recordingPaceText" style="@style/RecordingStatValue" android:text="@string/not_available" />
-                    <TextView style="@style/RecordingStatLabel" android:text="@string/average_pace" />
+                    <TextView android:id="@+id/recordingCurrentSpeedText" style="@style/RecordingStatValue" android:text="@string/not_available" />
+                    <TextView style="@style/RecordingStatLabel" android:text="@string/current_speed_short" />
                 </LinearLayout>
 
                 <LinearLayout style="@style/RecordingStatCell">
@@ -320,6 +320,16 @@
                     android:orientation="horizontal">
 
                     <LinearLayout style="@style/RecordingDetailCell">
+                        <TextView android:id="@+id/recordingAverageSpeedText" style="@style/RecordingDetailValue" android:text="@string/not_available" />
+                        <TextView style="@style/RecordingDetailLabel" android:text="@string/average_speed_short" />
+                    </LinearLayout>
+
+                    <LinearLayout style="@style/RecordingDetailCell">
+                        <TextView android:id="@+id/recordingAveragePaceText" style="@style/RecordingDetailValue" android:text="@string/not_available" />
+                        <TextView style="@style/RecordingDetailLabel" android:text="@string/average_pace" />
+                    </LinearLayout>
+
+                    <LinearLayout style="@style/RecordingDetailCell">
                         <TextView android:id="@+id/recordingTotalTimeText" style="@style/RecordingDetailValue" android:text="@string/duration_empty" />
                         <TextView style="@style/RecordingDetailLabel" android:text="@string/total_time" />
                     </LinearLayout>
@@ -328,6 +338,14 @@
                         <TextView android:id="@+id/recordingDescentText" style="@style/RecordingDetailValue" android:text="@string/descent_empty" />
                         <TextView style="@style/RecordingDetailLabel" android:text="@string/descent" />
                     </LinearLayout>
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:baselineAligned="false"
+                    android:orientation="horizontal">
 
                     <LinearLayout style="@style/RecordingDetailCell">
                         <TextView android:id="@+id/recordingSlopeText" style="@style/RecordingDetailValue" android:text="@string/not_available" />

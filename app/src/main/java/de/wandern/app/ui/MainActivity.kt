@@ -53,6 +53,7 @@ import de.wandern.app.model.OfflineMapPlanner
 import de.wandern.app.model.RecordingState
 import de.wandern.app.model.RouteProgress
 import de.wandern.app.model.RouteProgressTracker
+import de.wandern.app.model.SpeedSmoother
 import de.wandern.app.model.TrackPoint
 import de.wandern.app.model.TrackStats
 import de.wandern.app.model.TourForecaster
@@ -125,6 +126,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     private var visibleLocationUpdatesActive = false
     private var recordingDetailsExpanded = false
     private var lastRenderedRecordingState = RecordingState.IDLE
+    private val speedSmoother = SpeedSmoother()
     private val compassRotationMatrix = FloatArray(9)
     private val compassOrientation = FloatArray(3)
     private val routeEndpointMarkers = mutableListOf<Marker>()
@@ -347,7 +349,14 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         binding.recordButton.text = getString(R.string.record)
         binding.recordButton.setIconResource(R.drawable.ic_record)
         renderMoreButtonVisibility()
-        renderStats(snapshot.stats)
+        val currentSpeed = snapshot.latestPoint
+            ?.takeIf {
+                snapshot.state == RecordingState.RECORDING &&
+                    !snapshot.gpsGapActive &&
+                    locationAgeMinutes(it) < STALE_LOCATION_MINUTES
+            }
+            ?.let(speedSmoother::update)
+        renderStats(snapshot.stats, currentSpeed)
         snapshot.latestPoint?.let { point ->
             latestLocatedPoint = point
             renderGpsStatus(point)
@@ -363,6 +372,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         val recordingActive = state == RecordingState.RECORDING || state == RecordingState.PAUSED
         val stateChanged = state != lastRenderedRecordingState
         if (stateChanged) {
+            speedSmoother.reset()
             when {
                 state == RecordingState.PAUSED -> recordingDetailsExpanded = true
                 state == RecordingState.RECORDING -> recordingDetailsExpanded = false
@@ -409,7 +419,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             .show()
     }
 
-    private fun renderStats(stats: TrackStats) {
+    private fun renderStats(stats: TrackStats, currentSpeedMetersPerSecond: Double?) {
         binding.distanceText.text = String.format(Locale.GERMANY, "%.2f km", stats.distanceMeters / 1000.0)
         binding.durationText.text = formatDuration(stats.durationMillis)
         binding.paceText.text = stats.paceSecondsPerKilometer?.let(::formatPace) ?: getString(R.string.not_available)
@@ -428,10 +438,17 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             stats.distanceMeters / 1000.0,
         )
         binding.recordingMovingTimeText.text = formatDuration(stats.movingDurationMillis)
-        binding.recordingPaceText.text = stats.paceSecondsPerKilometer
-            ?.let(::formatPace)
+        binding.recordingCurrentSpeedText.text = currentSpeedMetersPerSecond
+            ?.let(::formatSpeed)
             ?: getString(R.string.not_available)
         binding.recordingAscentText.text = getString(R.string.ascent_value, stats.ascentMeters.toInt())
+        binding.recordingAverageSpeedText.text = stats.averageSpeedMetersPerSecond
+            .takeIf { stats.movingDurationMillis > 0L }
+            ?.let(::formatSpeed)
+            ?: getString(R.string.not_available)
+        binding.recordingAveragePaceText.text = stats.paceSecondsPerKilometer
+            ?.let(::formatPace)
+            ?: getString(R.string.not_available)
         binding.recordingTotalTimeText.text = formatDuration(stats.durationMillis)
         binding.recordingDescentText.text = getString(R.string.descent_value, stats.descentMeters.toInt())
         binding.recordingSlopeText.text = stats.currentSlopePercent?.let {
@@ -1135,6 +1152,9 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         val seconds = secondsPerKilometer.toInt().coerceAtMost(99 * 60 + 59)
         return "%d:%02d".format(seconds / 60, seconds % 60)
     }
+
+    private fun formatSpeed(metersPerSecond: Double): String =
+        String.format(Locale.GERMANY, "%.1f", metersPerSecond * 3.6)
 
     private fun renderRouteProgress(point: TrackPoint?) {
         val tracker = routeProgressTracker
