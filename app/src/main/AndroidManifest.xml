@@ -35,18 +35,6 @@
                 <data android:mimeType="application/gpx+xml" />
             </intent-filter>
 
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <data
-                    android:scheme="content"
-                    android:mimeType="*/*"
-                    android:pathPattern=".*\\.gpx" />
-                <data
-                    android:scheme="file"
-                    android:mimeType="*/*"
-                    android:pathPattern=".*\\.gpx" />
-            </intent-filter>
         </activity>
 
         <activity
