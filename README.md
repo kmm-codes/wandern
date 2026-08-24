@@ -78,6 +78,17 @@ nicht zum Funktionsumfang.
 
 ## Lizenz
 
-Für das Projekt ist noch keine Open-Source-Lizenz festgelegt. Der Quellcode ist
-öffentlich einsehbar; weitergehende Nutzungsrechte werden dadurch nicht
-automatisch eingeräumt.
+Der eigene Quellcode dieses Projekts steht unter der
+[GNU General Public License v3.0 oder neuer](LICENSE)
+(`GPL-3.0-or-later`). Jeder darf die App nutzen, untersuchen, verändern und
+weitergeben. Wer eine veränderte Version oder APK verteilt, muss den
+Empfängern auch den zugehörigen Quellcode unter denselben Freiheiten anbieten.
+
+Die offiziellen APK-Releases dieses Projekts werden dauerhaft kostenlos
+angeboten. Die GPL erlaubt zwar auch einen kommerziellen Vertrieb, gibt aber
+allen Empfängern ausdrücklich das Recht, erhaltene Kopien kostenlos oder gegen
+Entgelt weiterzugeben. Ein verteilter Fork kann deshalb nicht proprietär
+gemacht werden.
+
+Eingebundene Bibliotheken sowie Karten- und Höhendaten bleiben unter ihren
+jeweiligen eigenen Lizenzen und Nutzungsbedingungen.
