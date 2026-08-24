@@ -5,6 +5,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.text.format.Formatter
 import android.util.Log
+import android.view.MotionEvent
 import android.view.View
 import android.view.MenuItem
 import android.widget.EditText
@@ -46,6 +47,9 @@ class TourLibraryActivity : AppCompatActivity() {
     private val dateFormat = SimpleDateFormat("dd.MM.yyyy", Locale.GERMANY)
     private var allRows: List<TourRow> = emptyList()
     private var selectedOrigin = TrackStore.StoredTourOrigin.IMPORTED
+    private var swipeStartX = 0f
+    private var swipeStartY = 0f
+    private var swipeStartTimeMillis = 0L
 
     private val multiImportLauncher = registerForActivityResult(
         ActivityResultContracts.OpenMultipleDocuments(),
@@ -90,6 +94,55 @@ class TourLibraryActivity : AppCompatActivity() {
             )
         }
         refreshTours()
+    }
+
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        if (detectCategorySwipe(event)) {
+            val cancel = MotionEvent.obtain(event).apply { action = MotionEvent.ACTION_CANCEL }
+            super.dispatchTouchEvent(cancel)
+            cancel.recycle()
+            return true
+        }
+        return super.dispatchTouchEvent(event)
+    }
+
+    private fun detectCategorySwipe(event: MotionEvent): Boolean {
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+            swipeStartX = event.x
+            swipeStartY = event.y
+            swipeStartTimeMillis = event.eventTime
+            return false
+        }
+        if (event.actionMasked != MotionEvent.ACTION_UP) return false
+        val deltaX = event.x - swipeStartX
+        val deltaY = event.y - swipeStartY
+        val durationMillis = event.eventTime - swipeStartTimeMillis
+        val minimumDistance = SWIPE_MIN_DISTANCE_DP * resources.displayMetrics.density
+        val direction = HorizontalSwipeClassifier.classify(
+            deltaX = deltaX,
+            deltaY = deltaY,
+            durationMillis = durationMillis,
+            minimumDistance = minimumDistance,
+            horizontalRatio = SWIPE_HORIZONTAL_RATIO,
+            maximumDurationMillis = SWIPE_MAX_DURATION_MILLIS,
+        ) ?: return false
+        return switchCategory(
+            if (direction == HorizontalSwipeDirection.LEFT) TrackStore.StoredTourOrigin.RECORDED
+            else TrackStore.StoredTourOrigin.IMPORTED,
+        )
+    }
+
+    private fun switchCategory(origin: TrackStore.StoredTourOrigin): Boolean {
+        if (origin == selectedOrigin) return false
+        binding.tourCategoryToggle.check(
+            if (origin == TrackStore.StoredTourOrigin.IMPORTED) {
+                R.id.plannedToursButton
+            } else {
+                R.id.completedToursButton
+            },
+        )
+        binding.tourScrollView.scrollTo(0, 0)
+        return true
     }
 
     private fun setupDemoMenu() {
@@ -554,6 +607,9 @@ class TourLibraryActivity : AppCompatActivity() {
         private const val LOG_TAG = "TourLibraryActivity"
         private const val MAP_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty"
         private const val MAX_IMPORT_ERRORS_SHOWN = 5
+        private const val SWIPE_MIN_DISTANCE_DP = 72f
+        private const val SWIPE_HORIZONTAL_RATIO = 1.25f
+        private const val SWIPE_MAX_DURATION_MILLIS = 1_200L
         private const val MENU_EXPORT = 1
         private const val MENU_RENAME = 3
         private const val MENU_DELETE = 4

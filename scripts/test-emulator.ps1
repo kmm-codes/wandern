@@ -112,6 +112,18 @@ try {
     }
 
     Assert-GuestUptimeAdvances -AdbPath $adb -Serial $serial
+
+    # Die dedizierte CI-Lane muss unabhängig von vorherigen Läufen starten.
+    # Das gilt nur für den Emulator; run.ps1 und physische Geräte behalten ihre Daten.
+    $installedPackages = @(& $adb -s $serial shell pm list packages de.wandern.app 2>&1)
+    if (($installedPackages -join "`n") -match 'package:de\.wandern\.app(?:\s|$)') {
+        $clearOutput = @(& $adb -s $serial shell pm clear de.wandern.app 2>&1)
+        if ($LASTEXITCODE -ne 0 -or ($clearOutput -join "`n") -notmatch 'Success') {
+            throw "EMULATOR-STATE RESET FAILED serial=${serial}: $($clearOutput -join ' ')"
+        }
+    }
+    Write-Host "EMULATOR-STATE RESET OK serial=$serial package=de.wandern.app" -ForegroundColor Green
+
     & (Join-Path $repository 'scripts\check.ps1') -DeviceSerial $serial
     if ($LASTEXITCODE -ne 0) { throw 'Der lokale Android-Gate ist fehlgeschlagen.' }
     Write-Host "WANDERN-E2E OK avd=$Avd serial=$serial" -ForegroundColor Green
