@@ -54,6 +54,12 @@ ausgeführt werden:
 .\scripts\check.ps1 -DeviceSerial <ADB-SERIENNUMMER>
 ```
 
+Der Runner aktualisiert App und Test-APK mit derselben lokalen Debug-Signatur und
+deinstalliert sie zwischen Läufen nicht. Deshalb erscheint die Android/Xiaomi-
+Installationsabfrage normalerweise nur bei der ersten Installation oder nach
+einem Signaturwechsel, etwa zwischen Debug und Release. Nach dem E2E-Lauf öffnet
+das Skript die normale App wieder, weil der Test seine Activity regulär schließt.
+
 Die Teststrategie ist bewusst lokal ausgerichtet. GitHub Actions soll später
 höchstens einen kleinen, schnellen Basisschutz liefern; reale Navigations-,
 Import- und Aufzeichnungsabläufe gehören in reproduzierbare lokale E2E-Tests.

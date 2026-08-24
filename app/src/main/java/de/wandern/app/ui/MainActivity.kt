@@ -17,6 +17,7 @@ import android.os.Bundle
 import android.text.format.Formatter
 import android.util.Log
 import android.view.View
+import android.widget.FrameLayout
 import android.widget.PopupMenu
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -32,6 +33,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import de.wandern.app.R
 import de.wandern.app.data.GpxCodec
 import de.wandern.app.data.ElevationEnricher
+import de.wandern.app.data.FitnessPreferences
 import de.wandern.app.data.OfflineMapDownloadState
 import de.wandern.app.data.OfflineMapDownloader
 import de.wandern.app.data.TrackStore
@@ -41,8 +43,11 @@ import de.wandern.app.model.GpxTrack
 import de.wandern.app.model.GpsQuality
 import de.wandern.app.model.OfflineMapPlanner
 import de.wandern.app.model.RecordingState
+import de.wandern.app.model.RouteProgress
+import de.wandern.app.model.RouteProgressTracker
 import de.wandern.app.model.TrackPoint
 import de.wandern.app.model.TrackStats
+import de.wandern.app.model.TourForecaster
 import de.wandern.app.model.TrackingSnapshot
 import de.wandern.app.service.TrackingService
 import kotlinx.coroutines.Dispatchers
@@ -77,12 +82,15 @@ import org.maplibre.geojson.Feature
 import org.maplibre.geojson.FeatureCollection
 import org.maplibre.geojson.LineString
 import org.maplibre.geojson.Point
+import java.util.Date
 import java.util.Locale
+import kotlin.math.roundToInt
 
 class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
     private lateinit var trackStore: TrackStore
     private lateinit var offlineMapDownloader: OfflineMapDownloader
+    private lateinit var fitnessPreferences: FitnessPreferences
     private var map: MapLibreMap? = null
     private var mapStyle: Style? = null
     private var importedTrack: GpxTrack? = null
@@ -92,6 +100,7 @@ class MainActivity : AppCompatActivity() {
     private var followLocation = true
     private var offlineDownloadInProgress = false
     private var latestLocatedPoint: TrackPoint? = null
+    private var routeProgressTracker: RouteProgressTracker? = null
     private val routeEndpointMarkers = mutableListOf<Marker>()
     private val routeStartIcon: Icon by lazy { createRouteEndpointIcon("S", R.color.forest_700) }
     private val routeEndIcon: Icon by lazy { createRouteEndpointIcon("Z", R.color.warning) }
@@ -134,7 +143,11 @@ class MainActivity : AppCompatActivity() {
         }
         trackStore = TrackStore(this)
         offlineMapDownloader = OfflineMapDownloader(this, MAP_STYLE_URL)
+        fitnessPreferences = FitnessPreferences(this)
         binding.mapView.onCreate(savedInstanceState)
+        binding.headerCard.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            syncRouteStatusPosition()
+        }
 
         setupMap()
         setupActions()
@@ -232,6 +245,7 @@ class MainActivity : AppCompatActivity() {
         }
         binding.moreButton.setOnClickListener { showMoreMenu() }
         binding.centerButton.setOnClickListener { requestCenterOnUser() }
+        renderMoreButtonVisibility()
     }
 
     private fun observeTracking() {
@@ -260,6 +274,7 @@ class MainActivity : AppCompatActivity() {
         binding.recordButton.setIconResource(
             if (snapshot.state == RecordingState.RECORDING) R.drawable.ic_pause else R.drawable.ic_record,
         )
+        renderMoreButtonVisibility()
         renderStats(snapshot.stats)
         snapshot.latestPoint?.let { point ->
             latestLocatedPoint = point
@@ -268,6 +283,7 @@ class MainActivity : AppCompatActivity() {
         }
         snapshot.errorMessage?.let { toast(it) }
         renderLocationStatus(snapshot.latestPoint ?: latestLocatedPoint, snapshot.gpsGapActive)
+        renderRouteProgress(snapshot.latestPoint ?: latestLocatedPoint)
         redrawTracks()
     }
 
@@ -367,6 +383,16 @@ class MainActivity : AppCompatActivity() {
         binding.routeStatusText.visibility = View.GONE
     }
 
+    private fun syncRouteStatusPosition() {
+        val layoutParams = binding.routeStatusText.layoutParams as FrameLayout.LayoutParams
+        val topMargin = binding.headerCard.bottom - binding.root.paddingTop +
+            (8 * resources.displayMetrics.density).roundToInt()
+        if (layoutParams.topMargin != topMargin) {
+            layoutParams.topMargin = topMargin
+            binding.routeStatusText.layoutParams = layoutParams
+        }
+    }
+
     private fun importGpx(uri: Uri) {
         lifecycleScope.launch {
             val result = runCatching {
@@ -405,12 +431,15 @@ class MainActivity : AppCompatActivity() {
 
     private fun displayTrack(track: GpxTrack, askForOfflineDownload: Boolean) {
         importedTrack = track
+        routeProgressTracker = RouteProgressTracker(track)
+        renderMoreButtonVisibility()
         binding.titleText.text = track.name
         showRouteStatus(
             getString(R.string.route_points_loaded, track.points.size),
             R.color.forest_900,
             ROUTE_LOADED_BADGE_MILLIS,
         )
+        renderRouteProgress(latestSnapshot.latestPoint ?: latestLocatedPoint)
         redrawTracks()
         fitTrack(track)
         if (askForOfflineDownload) askToDownloadOfflineMap(track)
@@ -659,6 +688,9 @@ class MainActivity : AppCompatActivity() {
                     }
                     MENU_CLEAR_ROUTE -> {
                         importedTrack = null
+                        routeProgressTracker = null
+                        binding.routeProgressGroup.visibility = View.GONE
+                        renderMoreButtonVisibility()
                         hideRouteStatus()
                         redrawTracks()
                         true
@@ -672,6 +704,16 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             show()
+        }
+    }
+
+    private fun renderMoreButtonVisibility() {
+        val hasRecordingAction = latestSnapshot.state == RecordingState.RECORDING ||
+            latestSnapshot.state == RecordingState.PAUSED
+        binding.moreButton.visibility = if (importedTrack != null || hasRecordingAction) {
+            View.VISIBLE
+        } else {
+            View.GONE
         }
     }
 
@@ -785,6 +827,7 @@ class MainActivity : AppCompatActivity() {
         latestLocatedPoint = point
         renderGpsStatus(point)
         renderLocationStatus(point, latestSnapshot.gpsGapActive)
+        renderRouteProgress(point)
         redrawTracks()
         centerOn(point, 16.0)
     }
@@ -814,6 +857,55 @@ class MainActivity : AppCompatActivity() {
     private fun formatPace(secondsPerKilometer: Double): String {
         val seconds = secondsPerKilometer.toInt().coerceAtMost(99 * 60 + 59)
         return "%d:%02d".format(seconds / 60, seconds % 60)
+    }
+
+    private fun renderRouteProgress(point: TrackPoint?) {
+        val tracker = routeProgressTracker
+        if (importedTrack == null || tracker == null) {
+            binding.routeProgressGroup.visibility = View.GONE
+            return
+        }
+        val reliablePoint = point?.takeIf {
+            locationAgeMinutes(it) < STALE_LOCATION_MINUTES &&
+                (it.accuracyMeters == null || it.accuracyMeters <= GpsQuality.RELIABLE_ACCURACY_METERS)
+        }
+        val progress = reliablePoint?.let(tracker::update) ?: tracker.currentOrInitial() ?: run {
+            binding.routeProgressGroup.visibility = View.GONE
+            return
+        }
+        binding.routeProgressGroup.visibility = View.VISIBLE
+        binding.routeProgressBar.progress = (progress.fraction * binding.routeProgressBar.max).roundToInt()
+        binding.routeProgressText.text = "${(progress.fraction * 100.0).roundToInt()} %"
+        binding.remainingDistanceText.text = formatRemainingDistance(progress.remainingDistanceMeters)
+        binding.remainingElevationText.text = String.format(
+            Locale.GERMANY,
+            "↗ %.0f  ↘ %.0f",
+            progress.remainingAscentMeters,
+            progress.remainingDescentMeters,
+        )
+        binding.etaText.text = formatEstimatedArrival(progress)
+    }
+
+    private fun formatRemainingDistance(distanceMeters: Double): String =
+        if (distanceMeters < 1_000.0) "${distanceMeters.roundToInt()} m"
+        else String.format(Locale.GERMANY, "%.1f km", distanceMeters / 1_000.0)
+
+    private fun formatEstimatedArrival(progress: RouteProgress): String {
+        if (progress.remainingDistanceMeters <= ROUTE_FINISHED_DISTANCE_METERS) {
+            return getString(R.string.route_finished)
+        }
+        val forecast = TourForecaster.forecast(
+            stats = TrackStats(
+                distanceMeters = progress.remainingDistanceMeters,
+                ascentMeters = progress.remainingAscentMeters,
+                descentMeters = progress.remainingDescentMeters,
+            ),
+            elevationProfile = progress.remainingElevationProfile,
+            fitnessLevel = fitnessPreferences.level,
+        ) ?: return getString(R.string.not_available)
+        return android.text.format.DateFormat.getTimeFormat(this).format(
+            Date(System.currentTimeMillis() + forecast.totalDurationMillis),
+        )
     }
 
     private fun toast(message: String) = Toast.makeText(this, message, Toast.LENGTH_LONG).show()
@@ -848,6 +940,7 @@ class MainActivity : AppCompatActivity() {
         private const val STALE_LOCATION_MINUTES = 2
         private const val SIGNIFICANT_LOCATION_TIME_MILLIS = 120_000L
         private const val CIRCULAR_ROUTE_ENDPOINT_DISTANCE_METERS = 50.0
+        private const val ROUTE_FINISHED_DISTANCE_METERS = 25.0
         private const val ROUTE_LOADED_BADGE_MILLIS = 3_000L
         private const val INFO_BADGE_MILLIS = 4_000L
         private const val SUCCESS_BADGE_MILLIS = 4_000L

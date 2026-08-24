@@ -14,6 +14,14 @@
     <string name="pace_label">TEMPO /KM</string>
     <string name="elevation_empty">↗ 0 m  ↘ 0 m</string>
     <string name="slope_empty">Steigung —</string>
+    <string name="route_progress_empty">0 %</string>
+    <string name="route_progress_label">FORTSCHRITT</string>
+    <string name="remaining_distance_empty">— km</string>
+    <string name="remaining_distance_label">RESTSTRECKE</string>
+    <string name="remaining_elevation_empty">↗ — ↘ —</string>
+    <string name="remaining_elevation_label">REST-HM</string>
+    <string name="eta_label">ANKUNFT</string>
+    <string name="route_finished">Ziel</string>
     <string name="center_location">Auf meinen Standort zentrieren</string>
     <string name="open_gpx">GPX öffnen</string>
     <string name="record">Aufzeichnen</string>

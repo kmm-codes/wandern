@@ -110,6 +110,65 @@
                     android:layout_width="wrap_content"
                     android:text="@string/slope_empty" />
             </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/routeProgressGroup"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <ProgressBar
+                    android:id="@+id/routeProgressBar"
+                    style="?android:attr/progressBarStyleHorizontal"
+                    android:layout_width="match_parent"
+                    android:layout_height="6dp"
+                    android:max="1000"
+                    android:progress="0"
+                    android:progressBackgroundTint="@color/forest_700"
+                    android:progressTint="@color/moss_300" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:baselineAligned="false"
+                    android:orientation="horizontal">
+
+                    <LinearLayout style="@style/RouteProgressCell">
+                        <TextView
+                            android:id="@+id/routeProgressText"
+                            style="@style/RouteProgressValue"
+                            android:text="@string/route_progress_empty" />
+                        <TextView style="@style/RouteProgressLabel" android:text="@string/route_progress_label" />
+                    </LinearLayout>
+
+                    <LinearLayout style="@style/RouteProgressCell">
+                        <TextView
+                            android:id="@+id/remainingDistanceText"
+                            style="@style/RouteProgressValue"
+                            android:text="@string/remaining_distance_empty" />
+                        <TextView style="@style/RouteProgressLabel" android:text="@string/remaining_distance_label" />
+                    </LinearLayout>
+
+                    <LinearLayout style="@style/RouteProgressCell">
+                        <TextView
+                            android:id="@+id/remainingElevationText"
+                            style="@style/RouteProgressValue"
+                            android:text="@string/remaining_elevation_empty" />
+                        <TextView style="@style/RouteProgressLabel" android:text="@string/remaining_elevation_label" />
+                    </LinearLayout>
+
+                    <LinearLayout style="@style/RouteProgressCell">
+                        <TextView
+                            android:id="@+id/etaText"
+                            style="@style/RouteProgressValue"
+                            android:text="@string/not_available" />
+                        <TextView style="@style/RouteProgressLabel" android:text="@string/eta_label" />
+                    </LinearLayout>
+                </LinearLayout>
+            </LinearLayout>
         </LinearLayout>
     </com.google.android.material.card.MaterialCardView>
 
@@ -210,6 +269,7 @@
                 android:insetLeft="0dp"
                 android:insetRight="0dp"
                 android:padding="14dp"
+                android:visibility="gone"
                 app:cornerRadius="14dp"
                 app:icon="@drawable/ic_more"
                 app:iconGravity="textStart"
