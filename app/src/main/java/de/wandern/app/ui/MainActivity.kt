@@ -116,6 +116,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     private var pendingRecordingStart = false
     private var pendingCenterRequest = false
     private var followLocation = true
+    private var initialRegionFramingComplete = false
     private var offlineDownloadInProgress = false
     private var latestLocatedPoint: TrackPoint? = null
     private var routeProgressTracker: RouteProgressTracker? = null
@@ -157,6 +158,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        initialRegionFramingComplete = savedInstanceState != null
         MapLibre.getInstance(this)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
@@ -190,12 +192,16 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
 
     private fun handleIncomingIntent(intent: Intent?) {
         intent?.getStringExtra(EXTRA_TOUR_REFERENCE)?.let {
+            initialRegionFramingComplete = true
             openStoredTour(it)
             intent.removeExtra(EXTRA_TOUR_REFERENCE)
             return
         }
         if (intent?.action != Intent.ACTION_VIEW) return
-        intent.data?.let(::importGpx)
+        intent.data?.let {
+            initialRegionFramingComplete = true
+            importGpx(it)
+        }
     }
 
     private fun setupMap() {
@@ -205,13 +211,17 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
                 uiSettings.isAttributionEnabled = true
                 uiSettings.isLogoEnabled = true
                 addOnCameraMoveStartedListener { reason ->
-                    if (reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE) followLocation = false
+                    if (reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE) {
+                        followLocation = false
+                        initialRegionFramingComplete = true
+                    }
                 }
             }
             readyMap.setStyle(Style.Builder().fromUri(MAP_STYLE_URL)) { style ->
                 mapStyle = style
                 installTrackLayers(style)
                 redrawTracks()
+                frameInitialRegionIfNeeded(displayedPosition())
             }
         }
     }
@@ -475,6 +485,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     }
 
     private fun displayTrack(track: GpxTrack, askForOfflineDownload: Boolean) {
+        initialRegionFramingComplete = true
         importedTrack = track
         routeProgressTracker = RouteProgressTracker(track)
         renderMoreButtonVisibility()
@@ -817,6 +828,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     }
 
     private fun fitTrack(track: GpxTrack) {
+        initialRegionFramingComplete = true
         val points = track.points
         val readyMap = map ?: return
         if (points.isEmpty()) return
@@ -856,7 +868,23 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         )
     }
 
+    private fun frameInitialRegionIfNeeded(point: TrackPoint?) {
+        if (
+            initialRegionFramingComplete ||
+            point == null ||
+            importedTrack != null ||
+            latestSnapshot.state == RecordingState.RECORDING ||
+            latestSnapshot.state == RecordingState.PAUSED ||
+            map == null
+        ) {
+            return
+        }
+        initialRegionFramingComplete = true
+        centerOn(point, INITIAL_REGION_ZOOM)
+    }
+
     private fun requestCenterOnUser() {
+        initialRegionFramingComplete = true
         followLocation = true
         displayedPosition()?.let { centerOn(it, 16.0) }
         if (hasLocationPermission()) {
@@ -928,7 +956,12 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         renderLocationStatus(point, latestSnapshot.gpsGapActive)
         renderRouteProgress(point)
         redrawTracks()
-        if (centerAfterFix) centerOn(point, 16.0)
+        if (centerAfterFix) {
+            initialRegionFramingComplete = true
+            centerOn(point, 16.0)
+        } else {
+            frameInitialRegionIfNeeded(point)
+        }
     }
 
     @SuppressLint("MissingPermission")
@@ -1132,6 +1165,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         private const val OFF_ROUTE_THRESHOLD_METERS = 50.0
         private const val STALE_LOCATION_MINUTES = 2
         private const val SIGNIFICANT_LOCATION_TIME_MILLIS = 120_000L
+        private const val INITIAL_REGION_ZOOM = 4.0
         private const val MIN_DIRECTION_SPEED_METERS_PER_SECOND = 0.6f
         private const val MIN_HEADING_UPDATE_DEGREES = 1f
         private const val CIRCULAR_ROUTE_ENDPOINT_DISTANCE_METERS = 50.0
