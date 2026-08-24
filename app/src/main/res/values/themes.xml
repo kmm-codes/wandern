@@ -4,11 +4,22 @@
         <item name="colorPrimaryVariant">@color/forest_900</item>
         <item name="colorOnPrimary">@color/white</item>
         <item name="colorSecondary">@color/moss_500</item>
+        <item name="materialAlertDialogTheme">@style/ThemeOverlay.Wandern.MaterialAlertDialog</item>
         <item name="android:fontFamily">sans</item>
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:statusBarColor">@color/forest_900</item>
         <item name="android:navigationBarColor">@color/forest_900</item>
         <item name="android:windowBackground">@color/sand_100</item>
+    </style>
+
+    <style name="ThemeOverlay.Wandern.MaterialAlertDialog" parent="ThemeOverlay.MaterialComponents.MaterialAlertDialog">
+        <item name="buttonBarPositiveButtonStyle">@style/Widget.Wandern.Button.TextButton.Dialog</item>
+        <item name="buttonBarNegativeButtonStyle">@style/Widget.Wandern.Button.TextButton.Dialog</item>
+        <item name="buttonBarNeutralButtonStyle">@style/Widget.Wandern.Button.TextButton.Dialog</item>
+    </style>
+
+    <style name="Widget.Wandern.Button.TextButton.Dialog" parent="Widget.MaterialComponents.Button.TextButton.Dialog">
+        <item name="android:textColor">@color/dialog_action</item>
     </style>
 
     <style name="StatValue">

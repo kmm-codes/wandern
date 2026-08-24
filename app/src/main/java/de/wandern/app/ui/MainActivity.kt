@@ -31,6 +31,7 @@ import android.widget.PopupMenu
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
 import androidx.core.location.LocationManagerCompat
 import androidx.core.os.CancellationSignal
@@ -42,6 +43,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import de.wandern.app.R
 import de.wandern.app.data.GpxCodec
 import de.wandern.app.data.ActivityPreferences
+import de.wandern.app.data.CompassPreferences
 import de.wandern.app.data.ElevationEnricher
 import de.wandern.app.data.FitnessPreferences
 import de.wandern.app.data.OfflineMapAvailability
@@ -67,6 +69,7 @@ import de.wandern.app.model.TrackStats
 import de.wandern.app.model.TourForecaster
 import de.wandern.app.model.TourInsightsAnalyzer
 import de.wandern.app.model.TrackingSnapshot
+import de.wandern.app.model.WalkingCompassCalibrator
 import de.wandern.app.service.TrackingService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -121,6 +124,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     private lateinit var offlineMapDownloader: OfflineMapDownloader
     private lateinit var fitnessPreferences: FitnessPreferences
     private lateinit var activityPreferences: ActivityPreferences
+    private lateinit var compassPreferences: CompassPreferences
     private lateinit var locationManager: LocationManager
     private lateinit var sensorManager: SensorManager
     private var rotationVectorSensor: Sensor? = null
@@ -132,6 +136,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     private var latestSnapshot = TrackingSnapshot()
     private var pendingRecordingStart = false
     private var pendingCenterRequest = false
+    private var pendingCompassCalibrationStart = false
     private var selectedActivityType = ActivityType.HIKING
     private var followLocation = true
     private var initialRegionFramingComplete = false
@@ -140,6 +145,11 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     private var routeProgressTracker: RouteProgressTracker? = null
     private val headingSmoother = HeadingSmoother()
     private var latestCompassHeadingDegrees: Float? = null
+    private var compassAccuracy = SensorManager.SENSOR_STATUS_UNRELIABLE
+    private var compassCalibrationDialog: AlertDialog? = null
+    private var compassWalkCalibrator: WalkingCompassCalibrator? = null
+    private var compassCalibrationProgress: WalkingCompassCalibrator.Progress? = null
+    private var completedCompassOffsetDegrees: Float? = null
     private var visibleLocationUpdatesActive = false
     private var recordingDetailsExpanded = false
     private var lastRenderedRecordingState = RecordingState.IDLE
@@ -165,19 +175,24 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true || hasLocationPermission()
         val startRecording = pendingRecordingStart
         val centerUser = pendingCenterRequest
+        val startCompassCalibration = pendingCompassCalibrationStart
         pendingRecordingStart = false
         pendingCenterRequest = false
+        pendingCompassCalibrationStart = false
         if (!locationGranted) {
             if (startRecording) {
                 toast("Ohne Standortberechtigung kann keine Tour aufgezeichnet werden.")
             } else if (centerUser) {
                 toast("Ohne Standortberechtigung kann dein Standort nicht angezeigt werden.")
+            } else if (startCompassCalibration) {
+                toast(getString(R.string.compass_calibration_location_permission))
             }
             return@registerForActivityResult
         }
         startVisibleLocationUpdates()
         if (centerUser) focusOnUser()
         if (startRecording) sendTrackingAction(TrackingService.ACTION_START, startForeground = true)
+        if (startCompassCalibration) beginCompassWalkCalibration()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -195,6 +210,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         offlineMapDownloader = OfflineMapDownloader(this, MAP_STYLE_URL)
         fitnessPreferences = FitnessPreferences(this)
         activityPreferences = ActivityPreferences(this)
+        compassPreferences = CompassPreferences(this)
         selectedActivityType = activityPreferences.defaultType
         locationManager = getSystemService(LOCATION_SERVICE) as LocationManager
         sensorManager = getSystemService(SENSOR_SERVICE) as SensorManager
@@ -357,7 +373,14 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         binding.recordingFinishButton.setOnClickListener { confirmStopRecording() }
         binding.recordingDiscardButton.setOnClickListener { confirmDiscardRecording() }
         binding.moreButton.setOnClickListener { showMoreMenu() }
-        binding.centerButton.setOnClickListener { requestCenterOnUser() }
+        binding.centerButton.setOnClickListener {
+            requestCenterOnUser()
+            maybeShowCompassCalibrationHint()
+        }
+        binding.centerButton.setOnLongClickListener {
+            showCompassCalibrationDialog()
+            true
+        }
         renderMoreButtonVisibility()
     }
 
@@ -830,8 +853,10 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         )
     }
 
-    private fun displayHeading(point: TrackPoint): Float? =
-        latestCompassHeadingDegrees ?: point.bearingDegrees?.takeIf {
+    private fun displayHeading(point: TrackPoint): Float? = latestCompassHeadingDegrees
+        ?.let { HeadingSmoother.normalize(it + compassPreferences.headingOffsetDegrees) }
+        // A phone without a rotation sensor can still show a coarse movement direction.
+        ?: point.bearingDegrees?.takeIf {
             (point.speedMetersPerSecond ?: 0f) >= MIN_DIRECTION_SPEED_METERS_PER_SECOND
         }
 
@@ -1417,6 +1442,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             speedMetersPerSecond = location.speed.takeIf { location.hasSpeed() },
             bearingDegrees = location.bearing.takeIf { location.hasBearing() },
         )
+        updateCompassWalkCalibration(point)
         val existing = displayedPosition()
         if (existing != null && !isBetterLocation(point, existing)) return
         latestLocatedPoint = point
@@ -1583,7 +1609,168 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         renderUserPosition()
     }
 
-    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
+    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {
+        if (sensor?.type != Sensor.TYPE_ROTATION_VECTOR) return
+        compassAccuracy = accuracy
+        updateCompassCalibrationDialog()
+    }
+
+    private fun showCompassCalibrationDialog() {
+        if (rotationVectorSensor == null) {
+            MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.compass_calibration_title)
+                .setMessage(R.string.compass_sensor_missing)
+                .setPositiveButton(R.string.ok, null)
+                .show()
+            return
+        }
+        compassCalibrationDialog?.dismiss()
+        compassWalkCalibrator = null
+        compassCalibrationProgress = null
+        completedCompassOffsetDegrees = null
+        val builder = MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.compass_calibration_title)
+            .setMessage(compassCalibrationMessage())
+            .setPositiveButton(R.string.compass_calibration_start, null)
+            .setNegativeButton(R.string.cancel, null)
+        if (compassPreferences.hasHeadingOffset) {
+            builder.setNeutralButton(R.string.compass_calibration_reset, null)
+        }
+        compassCalibrationDialog = builder.create().also { dialog ->
+            dialog.setOnDismissListener {
+                compassWalkCalibrator = null
+                compassCalibrationProgress = null
+                completedCompassOffsetDegrees = null
+                compassCalibrationDialog = null
+            }
+            dialog.show()
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                if (completedCompassOffsetDegrees != null) {
+                    dialog.dismiss()
+                } else if (compassWalkCalibrator == null) {
+                    requestCompassWalkCalibration()
+                }
+            }
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL)?.setOnClickListener {
+                compassPreferences.clearHeadingOffset()
+                renderUserPosition()
+                toast(getString(R.string.compass_calibration_reset_done))
+                dialog.dismiss()
+            }
+        }
+    }
+
+    private fun maybeShowCompassCalibrationHint() {
+        if (
+            latestCompassHeadingDegrees != null &&
+            compassAccuracy <= SensorManager.SENSOR_STATUS_ACCURACY_LOW
+        ) {
+            showRouteStatus(
+                getString(R.string.compass_calibration_hint),
+                R.color.warning,
+                INFO_BADGE_MILLIS,
+            )
+        }
+    }
+
+    private fun updateCompassCalibrationDialog() {
+        val dialog = compassCalibrationDialog ?: return
+        dialog.setMessage(compassCalibrationMessage())
+        val positiveButton = dialog.getButton(AlertDialog.BUTTON_POSITIVE) ?: return
+        when {
+            completedCompassOffsetDegrees != null -> {
+                positiveButton.setText(R.string.finish)
+                positiveButton.isEnabled = true
+            }
+            compassWalkCalibrator != null -> {
+                positiveButton.setText(R.string.compass_calibration_running)
+                positiveButton.isEnabled = false
+            }
+            else -> {
+                positiveButton.setText(R.string.compass_calibration_start)
+                positiveButton.isEnabled = true
+            }
+        }
+    }
+
+    private fun compassCalibrationMessage(): String {
+        val completedOffset = completedCompassOffsetDegrees
+        if (completedOffset != null) {
+            return getString(R.string.compass_calibration_complete, completedOffset)
+        }
+        val progress = compassCalibrationProgress
+        if (compassWalkCalibrator != null) {
+            return when (progress?.state) {
+                WalkingCompassCalibrator.State.WAITING_FOR_PHONE ->
+                    getString(R.string.compass_calibration_waiting_phone)
+                WalkingCompassCalibrator.State.WALK_STRAIGHT ->
+                    getString(R.string.compass_calibration_walk_straight)
+                WalkingCompassCalibrator.State.COLLECTING,
+                WalkingCompassCalibrator.State.READY -> getString(
+                    R.string.compass_calibration_progress,
+                    progress.distanceMeters.roundToInt(),
+                    progress.requiredDistanceMeters.roundToInt(),
+                )
+                else -> getString(R.string.compass_calibration_waiting_gps)
+            }
+        }
+        val savedCorrection = if (compassPreferences.hasHeadingOffset) {
+            getString(R.string.compass_calibration_saved_offset, compassPreferences.headingOffsetDegrees)
+        } else {
+            getString(R.string.compass_calibration_no_saved_offset)
+        }
+        return getString(
+            R.string.compass_calibration_message,
+            compassAccuracyLabel(),
+            savedCorrection,
+        )
+    }
+
+    private fun compassAccuracyLabel(): String = getString(
+        when (compassAccuracy) {
+            SensorManager.SENSOR_STATUS_ACCURACY_HIGH -> R.string.compass_accuracy_high
+            SensorManager.SENSOR_STATUS_ACCURACY_MEDIUM -> R.string.compass_accuracy_medium
+            SensorManager.SENSOR_STATUS_ACCURACY_LOW -> R.string.compass_accuracy_low
+            else -> R.string.compass_accuracy_unreliable
+        },
+    )
+
+    private fun requestCompassWalkCalibration() {
+        if (!hasLocationPermission()) {
+            pendingCompassCalibrationStart = true
+            permissionLauncher.launch(
+                arrayOf(
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION,
+                ),
+            )
+            return
+        }
+        beginCompassWalkCalibration()
+    }
+
+    private fun beginCompassWalkCalibration() {
+        compassWalkCalibrator = WalkingCompassCalibrator()
+        compassCalibrationProgress = null
+        completedCompassOffsetDegrees = null
+        startVisibleLocationUpdates()
+        locateUser(centerAfterFix = false)
+        updateCompassCalibrationDialog()
+    }
+
+    private fun updateCompassWalkCalibration(point: TrackPoint) {
+        val calibrator = compassWalkCalibrator ?: return
+        val progress = calibrator.update(point, latestCompassHeadingDegrees)
+        compassCalibrationProgress = progress
+        if (progress.state == WalkingCompassCalibrator.State.READY) {
+            val offset = progress.offsetDegrees ?: return
+            compassPreferences.headingOffsetDegrees = offset
+            completedCompassOffsetDegrees = offset
+            compassWalkCalibrator = null
+            renderUserPosition()
+        }
+        updateCompassCalibrationDialog()
+    }
 
     private fun startCompassUpdates() {
         rotationVectorSensor?.let {
@@ -1620,6 +1807,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     override fun onStop() { binding.mapView.onStop(); super.onStop() }
     override fun onLowMemory() { super.onLowMemory(); binding.mapView.onLowMemory() }
     override fun onDestroy() {
+        compassCalibrationDialog?.dismiss()
         binding.routeStatusText.removeCallbacks(restoreRouteStatusRunnable)
         locationRequestSignals.forEach(CancellationSignal::cancel)
         locationRequestSignals.clear()

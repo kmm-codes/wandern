@@ -27,6 +27,6 @@ class HeadingSmoother(
         fun angularDistance(firstDegrees: Float, secondDegrees: Float): Float =
             abs(((normalize(firstDegrees) - normalize(secondDegrees) + 540f) % 360f) - 180f)
 
-        private fun normalize(degrees: Float): Float = ((degrees % 360f) + 360f) % 360f
+        fun normalize(degrees: Float): Float = ((degrees % 360f) + 360f) % 360f
     }
 }
