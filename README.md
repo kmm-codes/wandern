@@ -74,6 +74,20 @@ ausgeführt werden:
 .\scripts\check.ps1 -DeviceSerial <ADB-SERIENNUMMER>
 ```
 
+Für einen autonomen Lauf reserviert der Emulator-Runner zuerst Wanderns feste
+AVD-Lane `Pixel_Tablet_2`, startet sie headless innerhalb des hostweiten
+Vier-Emulator-Budgets und gibt Emulator sowie Lease im `finally` wieder frei:
+
+```powershell
+.\scripts\test-emulator.ps1
+```
+
+Der produktneutrale Koordinator wird aus dem Geschwister-Repo
+[`android-emulator-fleet`](https://github.com/kmm-codes/android-emulator-fleet)
+geladen. Alternativ kann sein Pfad mit `ANDROID_EMULATOR_FLEET_HOME` gesetzt
+werden. Wandern verwendet niemals einen bereits einer anderen Projekt-Lane
+zugeordneten AVD.
+
 Der Runner aktualisiert App und Test-APK mit derselben lokalen Debug-Signatur und
 deinstalliert sie zwischen Läufen nicht. Deshalb erscheint die Android/Xiaomi-
 Installationsabfrage normalerweise nur bei der ersten Installation oder nach
