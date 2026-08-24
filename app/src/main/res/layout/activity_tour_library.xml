@@ -34,6 +34,8 @@
             android:layout_weight="1"
             android:text="@string/tours_planned"
             android:textAllCaps="false"
+            android:textColor="@color/tour_tab_text"
+            app:backgroundTint="@color/tour_tab_background"
             app:strokeColor="@color/forest_700" />
 
         <com.google.android.material.button.MaterialButton
@@ -44,6 +46,8 @@
             android:layout_weight="1"
             android:text="@string/tours_completed"
             android:textAllCaps="false"
+            android:textColor="@color/tour_tab_text"
+            app:backgroundTint="@color/tour_tab_background"
             app:strokeColor="@color/forest_700" />
     </com.google.android.material.button.MaterialButtonToggleGroup>
 
