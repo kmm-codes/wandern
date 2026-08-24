@@ -240,8 +240,18 @@ class RouteProgressCalculator(track: GpxTrack) {
     }
 }
 
-class RouteProgressTracker(track: GpxTrack) {
+enum class RouteEntryMode {
+    OFFICIAL_START,
+    NEAREST_POINT,
+}
+
+class RouteProgressTracker(
+    track: GpxTrack,
+    private val entryMode: RouteEntryMode = RouteEntryMode.OFFICIAL_START,
+) {
     private val calculator = RouteProgressCalculator(track)
+    private val officialStart = track.points.firstOrNull()
+    private var officialStartReached = entryMode == RouteEntryMode.NEAREST_POINT
     private var accepted: RouteProgress? = null
     private var lastObservationTimeMillis: Long? = null
     private var pending: RouteProgress? = null
@@ -250,6 +260,13 @@ class RouteProgressTracker(track: GpxTrack) {
     fun currentOrInitial(): RouteProgress? = accepted ?: calculator.initial()
 
     fun update(position: TrackPoint): RouteProgress? {
+        if (!officialStartReached) {
+            val start = officialStart ?: return currentOrInitial()
+            if (GeoMath.distanceMeters(position, start) > START_ACTIVATION_DISTANCE_METERS) {
+                return currentOrInitial()
+            }
+            officialStartReached = true
+        }
         val candidate = calculator.calculate(position, accepted?.distanceAlongRouteMeters) ?: return currentOrInitial()
         val observationTime = position.timeMillis ?: System.currentTimeMillis()
         val elapsedSeconds = lastObservationTimeMillis?.let {
@@ -299,5 +316,6 @@ class RouteProgressTracker(track: GpxTrack) {
         const val MAX_PLAUSIBLE_SPEED_METERS_PER_SECOND = 4.0
         const val PENDING_MATCH_DISTANCE_METERS = 100.0
         const val REQUIRED_JUMP_CONFIRMATIONS = 2
+        const val START_ACTIVATION_DISTANCE_METERS = 50.0
     }
 }

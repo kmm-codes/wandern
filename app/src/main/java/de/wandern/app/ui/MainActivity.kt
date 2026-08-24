@@ -53,6 +53,7 @@ import de.wandern.app.model.OfflineMapPlanner
 import de.wandern.app.model.RecordingState
 import de.wandern.app.model.RouteProgress
 import de.wandern.app.model.RouteProgressTracker
+import de.wandern.app.model.RouteEntryMode
 import de.wandern.app.model.SpeedSmoother
 import de.wandern.app.model.TrackPoint
 import de.wandern.app.model.TrackStats
@@ -83,14 +84,18 @@ import org.maplibre.android.style.layers.PropertyFactory.circleStrokeWidth
 import org.maplibre.android.style.layers.PropertyFactory.iconAllowOverlap
 import org.maplibre.android.style.layers.PropertyFactory.iconIgnorePlacement
 import org.maplibre.android.style.layers.PropertyFactory.iconImage
+import org.maplibre.android.style.layers.PropertyFactory.iconKeepUpright
 import org.maplibre.android.style.layers.PropertyFactory.iconRotate
 import org.maplibre.android.style.layers.PropertyFactory.iconRotationAlignment
+import org.maplibre.android.style.layers.PropertyFactory.iconSize
 import org.maplibre.android.style.layers.PropertyFactory.lineCap
 import org.maplibre.android.style.layers.PropertyFactory.lineColor
 import org.maplibre.android.style.layers.PropertyFactory.lineDasharray
 import org.maplibre.android.style.layers.PropertyFactory.lineJoin
 import org.maplibre.android.style.layers.PropertyFactory.lineOpacity
 import org.maplibre.android.style.layers.PropertyFactory.lineWidth
+import org.maplibre.android.style.layers.PropertyFactory.symbolPlacement
+import org.maplibre.android.style.layers.PropertyFactory.symbolSpacing
 import org.maplibre.android.style.layers.Property.LINE_CAP_ROUND
 import org.maplibre.android.style.layers.Property.LINE_JOIN_ROUND
 import org.maplibre.android.style.sources.GeoJsonSource
@@ -249,6 +254,19 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
                 lineOpacity(0.88f),
                 lineCap(LINE_CAP_ROUND),
                 lineJoin(LINE_JOIN_ROUND),
+            ),
+        )
+        style.addImage(ROUTE_DIRECTION_ICON, createRouteDirectionIcon())
+        style.addLayer(
+            SymbolLayer(ROUTE_DIRECTION_LAYER, ROUTE_SOURCE).withProperties(
+                symbolPlacement("line"),
+                symbolSpacing(90f),
+                iconImage(ROUTE_DIRECTION_ICON),
+                iconSize(0.8f),
+                iconRotationAlignment("map"),
+                iconKeepUpright(false),
+                iconAllowOverlap(true),
+                iconIgnorePlacement(true),
             ),
         )
         style.addSource(GeoJsonSource(LIVE_TRACK_SOURCE, EMPTY_FEATURE_COLLECTION))
@@ -865,6 +883,31 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         return bitmap
     }
 
+    private fun createRouteDirectionIcon(): Bitmap {
+        val density = resources.displayMetrics.density
+        val width = (24 * density).toInt()
+        val height = (14 * density).toInt()
+        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val path = Path().apply {
+            moveTo(2f * density, 2f * density)
+            lineTo(12f * density, height / 2f)
+            lineTo(2f * density, height - 2f * density)
+        }
+        val outline = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeCap = Paint.Cap.ROUND
+            strokeJoin = Paint.Join.ROUND
+            strokeWidth = 5f * density
+            color = Color.WHITE
+        }
+        canvas.drawPath(path, outline)
+        outline.strokeWidth = 2.5f * density
+        outline.color = Color.parseColor("#1677FF")
+        canvas.drawPath(path, outline)
+        return bitmap
+    }
+
     private fun updateLiveTrackSources(style: Style, track: GpxTrack) {
         val solidFeatures = mutableListOf<Feature>()
         val interpolatedFeatures = mutableListOf<Feature>()
@@ -904,6 +947,31 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     }
 
     private fun requestRecordingStart() {
+        if (importedTrack != null) {
+            MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.route_entry_title)
+                .setMessage(R.string.route_entry_message)
+                .setNegativeButton(R.string.cancel, null)
+                .setNeutralButton(R.string.route_entry_official_start) { _, _ ->
+                    beginRecordingStart(RouteEntryMode.OFFICIAL_START)
+                }
+                .setPositiveButton(R.string.route_entry_nearest_point) { _, _ ->
+                    beginRecordingStart(RouteEntryMode.NEAREST_POINT)
+                }
+                .show()
+            return
+        }
+        beginRecordingStart(null)
+    }
+
+    private fun beginRecordingStart(routeEntryMode: RouteEntryMode?) {
+        importedTrack?.let { route ->
+            routeProgressTracker = RouteProgressTracker(
+                route,
+                routeEntryMode ?: RouteEntryMode.OFFICIAL_START,
+            )
+            renderRouteProgress(latestSnapshot.latestPoint ?: latestLocatedPoint)
+        }
         if (hasLocationPermission()) {
             focusOnUser()
             sendTrackingAction(TrackingService.ACTION_START, startForeground = true)
@@ -937,6 +1005,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         PopupMenu(this, binding.moreButton).apply {
             if (importedTrack != null) {
                 menu.add(0, MENU_FIT_ROUTE, 2, getString(R.string.fit_route))
+                menu.add(0, MENU_REVERSE_ROUTE, 3, getString(R.string.reverse_route))
                 menu.add(0, MENU_CLEAR_ROUTE, 3, "Route ausblenden")
             }
             if (menu.size() == 0) menu.add("Keine weiteren Aktionen").isEnabled = false
@@ -956,6 +1025,18 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
                     MENU_FIT_ROUTE -> {
                         importedTrack?.let(::fitTrack)
                         followLocation = false
+                        true
+                    }
+                    MENU_REVERSE_ROUTE -> {
+                        importedTrack = importedTrack?.reversed()
+                        routeProgressTracker = importedTrack?.let(::RouteProgressTracker)
+                        renderRouteProgress(latestSnapshot.latestPoint ?: latestLocatedPoint)
+                        redrawTracks()
+                        showRouteStatus(
+                            getString(R.string.route_reversed),
+                            R.color.forest_900,
+                            INFO_BADGE_MILLIS,
+                        )
                         true
                     }
                     else -> false
@@ -1322,6 +1403,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         private const val LOG_TAG = "WandernImport"
         private const val ROUTE_SOURCE = "imported-route-source"
         private const val ROUTE_LAYER = "imported-route-layer"
+        private const val ROUTE_DIRECTION_LAYER = "imported-route-direction-layer"
+        private const val ROUTE_DIRECTION_ICON = "imported-route-direction-icon"
         private const val LIVE_TRACK_SOURCE = "live-track-source"
         private const val LIVE_TRACK_LAYER = "live-track-layer"
         private const val INTERPOLATED_TRACK_SOURCE = "interpolated-track-source"
@@ -1347,6 +1430,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         private const val ERROR_BADGE_MILLIS = 8_000L
         private const val MENU_CLEAR_ROUTE = 3
         private const val MENU_FIT_ROUTE = 5
+        private const val MENU_REVERSE_ROUTE = 6
         private const val EMPTY_FEATURE_COLLECTION = "{\"type\":\"FeatureCollection\",\"features\":[]}"
     }
 }

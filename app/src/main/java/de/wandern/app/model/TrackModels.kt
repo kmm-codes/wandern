@@ -22,6 +22,10 @@ data class GpxTrack(
 ) {
     val points: List<TrackPoint> get() = segments.flatten()
 
+    fun reversed(): GpxTrack = copy(
+        segments = segments.asReversed().map { it.asReversed() },
+    )
+
     companion object {
         fun empty(name: String = "Unbenannte Tour") = GpxTrack(name, emptyList())
     }

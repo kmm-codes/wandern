@@ -114,6 +114,12 @@
     <string name="gps_gap_recording">GPS ungenau · Aufzeichnung wartet; die Lücke wird später ergänzt</string>
     <string name="gps_position_uncertain">Standort nur auf ±%1$d m genau</string>
     <string name="fit_route">Route vollständig anzeigen</string>
+    <string name="reverse_route">Route umkehren</string>
+    <string name="route_reversed">Routenrichtung umgekehrt · gespeicherte GPX bleibt unverändert</string>
+    <string name="route_entry_title">Wo möchtest du in die Route einsteigen?</string>
+    <string name="route_entry_message">Das beeinflusst nur den Tourfortschritt. Die Aufzeichnung beginnt sofort an deinem Standort.</string>
+    <string name="route_entry_official_start">Am offiziellen Start</string>
+    <string name="route_entry_nearest_point">Am nächsten Routenpunkt</string>
     <string name="offline_map_planning">Offline-Karte wird vorbereitet · Zoom bis %1$d</string>
     <string name="offline_map_progress_percent">Offline-Karte %1$d%% · %2$s</string>
     <string name="offline_map_progress">Offline-Karte wird geladen · %1$s</string>

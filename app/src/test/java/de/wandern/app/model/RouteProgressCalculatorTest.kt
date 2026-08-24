@@ -58,6 +58,46 @@ class RouteProgressCalculatorTest {
     }
 
     @Test
+    fun `official start mode keeps progress at zero until start is reached`() {
+        val route = straightTrack(List(20) { 100.0 })
+        val tracker = RouteProgressTracker(route, RouteEntryMode.OFFICIAL_START)
+
+        val beforeStart = tracker.update(point(index = 10.0, timeMillis = 1_000L))!!
+        val atStart = tracker.update(point(index = 0.1, timeMillis = 2_000L))!!
+        val underway = tracker.update(point(index = 1.0, timeMillis = 32_000L))!!
+
+        assertEquals(0.0, beforeStart.distanceAlongRouteMeters, 0.1)
+        assertTrue(atStart.distanceAlongRouteMeters < 50.0)
+        assertTrue(underway.distanceAlongRouteMeters > 100.0)
+    }
+
+    @Test
+    fun `nearest point mode starts progress at current route position`() {
+        val tracker = RouteProgressTracker(
+            straightTrack(List(20) { 100.0 }),
+            RouteEntryMode.NEAREST_POINT,
+        )
+
+        val progress = tracker.update(point(index = 10.0))!!
+
+        assertTrue(progress.distanceAlongRouteMeters > 1_000.0)
+    }
+
+    @Test
+    fun `reversing a track reverses segment and point direction without changing original`() {
+        val first = listOf(point(0.0), point(1.0))
+        val second = listOf(point(2.0), point(3.0))
+        val original = GpxTrack("Mehrteilig", listOf(first, second))
+
+        val reversed = original.reversed()
+
+        assertEquals(point(3.0), reversed.points.first())
+        assertEquals(point(0.0), reversed.points.last())
+        assertEquals(point(0.0), original.points.first())
+        assertEquals("Mehrteilig", reversed.name)
+    }
+
+    @Test
     fun `tracker requires confirmation before accepting an implausible jump`() {
         val tracker = RouteProgressTracker(straightTrack(List(30) { 100.0 }))
         val start = point(index = 0.0, timeMillis = 1_000L)
