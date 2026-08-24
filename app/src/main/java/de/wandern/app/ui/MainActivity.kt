@@ -64,6 +64,9 @@ import de.wandern.app.model.RecordingState
 import de.wandern.app.model.RouteProgress
 import de.wandern.app.model.RouteProgressTracker
 import de.wandern.app.model.RouteEntryMode
+import de.wandern.app.model.RouteStartAssessment
+import de.wandern.app.model.RouteStartAssessor
+import de.wandern.app.model.RouteStartSituation
 import de.wandern.app.model.SpeedSmoother
 import de.wandern.app.model.TrackPoint
 import de.wandern.app.model.TrackStats
@@ -1048,22 +1051,73 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     }
 
     private fun requestRouteEntry() {
-        if (importedTrack != null) {
-            MaterialAlertDialogBuilder(this)
-                .setTitle(R.string.route_entry_title)
-                .setMessage(R.string.route_entry_message)
-                .setNegativeButton(R.string.cancel, null)
-                .setNeutralButton(R.string.route_entry_official_start) { _, _ ->
-                    beginRecordingStart(RouteEntryMode.OFFICIAL_START)
-                }
-                .setPositiveButton(R.string.route_entry_nearest_point) { _, _ ->
-                    beginRecordingStart(RouteEntryMode.NEAREST_POINT)
-                }
-                .show()
+        val route = importedTrack
+        if (route == null) {
+            beginRecordingStart(null)
             return
         }
-        beginRecordingStart(null)
+        val assessment = reliableStartPosition()?.let { RouteStartAssessor.assess(route, it) }
+        val modes = arrayOf(RouteEntryMode.OFFICIAL_START, RouteEntryMode.NEAREST_POINT)
+        var selectedIndex = modes.indexOf(
+            assessment?.recommendedEntryMode ?: RouteEntryMode.OFFICIAL_START,
+        ).coerceAtLeast(0)
+        val labels = modes.map { mode ->
+            val label = getString(
+                if (mode == RouteEntryMode.OFFICIAL_START) {
+                    R.string.route_entry_official_start
+                } else {
+                    R.string.route_entry_nearest_point
+                },
+            )
+            if (mode == assessment?.recommendedEntryMode) {
+                getString(R.string.route_entry_recommended, label)
+            } else {
+                label
+            }
+        }.toTypedArray()
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.route_entry_title)
+            .setMessage(routeEntryMessage(assessment))
+            .setSingleChoiceItems(labels, selectedIndex) { _, which -> selectedIndex = which }
+            .setNegativeButton(R.string.cancel, null)
+            .setPositiveButton(R.string.continue_action) { _, _ ->
+                beginRecordingStart(modes[selectedIndex])
+            }
+            .show()
     }
+
+    private fun reliableStartPosition(): TrackPoint? = displayedPosition()?.takeIf { position ->
+        LocationManagerCompat.isLocationEnabled(locationManager) &&
+            hasLocationPermission() &&
+            locationAgeMinutes(position) < STALE_LOCATION_MINUTES &&
+            (position.accuracyMeters ?: Float.MAX_VALUE) <= GpsQuality.RELIABLE_ACCURACY_METERS
+    }
+
+    private fun routeEntryMessage(assessment: RouteStartAssessment?): String = when (assessment?.situation) {
+        RouteStartSituation.AT_START -> getString(
+            R.string.route_entry_at_start,
+            formatRemainingDistance(assessment.distanceToStartMeters),
+        )
+        RouteStartSituation.ON_ROUTE -> getString(
+            R.string.route_entry_on_route,
+            formatRouteKilometer(assessment.distanceAlongRouteMeters),
+        )
+        RouteStartSituation.NEAR_ROUTE -> getString(
+            R.string.route_entry_near_route,
+            formatRemainingDistance(assessment.distanceToRouteMeters),
+            formatRemainingDistance(assessment.distanceToStartMeters),
+        )
+        RouteStartSituation.AWAY_FROM_ROUTE -> getString(
+            R.string.route_entry_away_from_route,
+            formatRemainingDistance(assessment.distanceToRouteMeters),
+            formatRemainingDistance(assessment.distanceToStartMeters),
+        )
+        null -> getString(R.string.route_entry_location_unknown)
+    }
+
+    private fun formatRouteKilometer(distanceMeters: Double?): String = distanceMeters
+        ?.let { String.format(Locale.GERMANY, "%.1f", it / 1_000.0) }
+        ?: getString(R.string.not_available)
 
     private fun beginRecordingStart(routeEntryMode: RouteEntryMode?) {
         importedTrack?.let { route ->
@@ -1073,19 +1127,19 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             )
             renderRouteProgress(latestSnapshot.latestPoint ?: latestLocatedPoint)
         }
-        showStartCheck(::startRecordingWithPermissions)
+        showStartCheck(routeEntryMode, ::startRecordingWithPermissions)
     }
 
-    private fun showStartCheck(onStart: () -> Unit) {
+    private fun showStartCheck(routeEntryMode: RouteEntryMode?, onStart: () -> Unit) {
         val route = importedTrack
         if (route == null) {
-            showStartCheckDialog(buildStartCheckLines(null, null), onStart)
+            showStartCheckDialog(buildStartCheckLines(null, null, null), onStart)
             return
         }
         offlineMapDownloader.status(offlineMapIdentityTrack ?: route) { status ->
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
-                showStartCheckDialog(buildStartCheckLines(route, status), onStart)
+                showStartCheckDialog(buildStartCheckLines(route, status, routeEntryMode), onStart)
             }
         }
     }
@@ -1108,6 +1162,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     private fun buildStartCheckLines(
         route: GpxTrack?,
         offlineStatus: OfflineMapStatus?,
+        routeEntryMode: RouteEntryMode?,
     ): List<StartCheckLine> = buildList {
         add(
             StartCheckLine(
@@ -1187,18 +1242,49 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             )
         }
 
-        val start = route.points.firstOrNull()
-        if (position == null || start == null) {
-            add(StartCheckLine(getString(R.string.start_check_start_distance_unknown), true))
+        val startAssessment = reliableStartPosition()?.let { RouteStartAssessor.assess(route, it) }
+        if (startAssessment == null) {
+            add(StartCheckLine(getString(R.string.start_check_route_position_unknown), true))
         } else {
-            val distance = GeoMath.distanceMeters(position, start)
             add(
                 StartCheckLine(
-                    getString(R.string.start_check_start_distance, formatRemainingDistance(distance)),
-                    warning = distance > DISTANT_ROUTE_START_METERS,
+                    text = when (startAssessment.situation) {
+                        RouteStartSituation.AT_START -> getString(
+                            R.string.start_check_at_start,
+                            formatRemainingDistance(startAssessment.distanceToStartMeters),
+                        )
+                        RouteStartSituation.ON_ROUTE -> getString(
+                            R.string.start_check_on_route,
+                            formatRouteKilometer(startAssessment.distanceAlongRouteMeters),
+                            formatRemainingDistance(startAssessment.distanceToStartMeters),
+                        )
+                        RouteStartSituation.NEAR_ROUTE -> getString(
+                            R.string.start_check_near_route,
+                            formatRemainingDistance(startAssessment.distanceToRouteMeters),
+                            formatRemainingDistance(startAssessment.distanceToStartMeters),
+                        )
+                        RouteStartSituation.AWAY_FROM_ROUTE -> getString(
+                            R.string.start_check_away_from_route,
+                            formatRemainingDistance(startAssessment.distanceToRouteMeters),
+                            formatRemainingDistance(startAssessment.distanceToStartMeters),
+                        )
+                    },
+                    warning = startAssessment.situation == RouteStartSituation.NEAR_ROUTE ||
+                        startAssessment.situation == RouteStartSituation.AWAY_FROM_ROUTE,
                 ),
             )
         }
+        add(
+            StartCheckLine(
+                text = when (routeEntryMode) {
+                    RouteEntryMode.NEAREST_POINT -> getString(R.string.start_check_entry_nearest)
+                    else -> getString(R.string.start_check_entry_official)
+                },
+                warning = routeEntryMode == RouteEntryMode.OFFICIAL_START &&
+                    startAssessment != null &&
+                    startAssessment.situation != RouteStartSituation.AT_START,
+            ),
+        )
 
         if (selectedActivityType == ActivityType.HIKING) {
             val insights = TourInsightsAnalyzer.analyze(route)
@@ -1894,7 +1980,6 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         private const val MIN_HEADING_UPDATE_DEGREES = 1f
         private const val CIRCULAR_ROUTE_ENDPOINT_DISTANCE_METERS = 50.0
         private const val ROUTE_FINISHED_DISTANCE_METERS = 25.0
-        private const val DISTANT_ROUTE_START_METERS = 500.0
         private const val LOW_BATTERY_WARNING_PERCENT = 20
         private const val ROUTE_LOADED_BADGE_MILLIS = 3_000L
         private const val INFO_BADGE_MILLIS = 4_000L
