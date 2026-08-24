@@ -480,7 +480,22 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             },
             snapshot.activityType,
         )
-        binding.recordingPausedBanner.visibility = if (paused) View.VISIBLE else View.GONE
+        binding.recordingPausedBanner.visibility = if (paused || snapshot.autoPaused) View.VISIBLE else View.GONE
+        binding.recordingPausedBanner.text = getString(
+            if (paused) R.string.recording_paused else R.string.recording_auto_paused_banner,
+        )
+        binding.recordingPausedBanner.setBackgroundColor(
+            ContextCompat.getColor(
+                this,
+                if (paused) R.color.warning else R.color.moss_300,
+            ),
+        )
+        binding.recordingPausedBanner.setTextColor(
+            ContextCompat.getColor(
+                this,
+                if (paused) R.color.white else R.color.forest_900,
+            ),
+        )
         binding.recordingExpandedGroup.visibility = if (detailsVisible) View.VISIBLE else View.GONE
         binding.recordingPauseButton.visibility = if (paused) View.GONE else View.VISIBLE
         binding.recordingPausedActions.visibility = if (paused) View.VISIBLE else View.GONE

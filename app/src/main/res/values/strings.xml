@@ -96,6 +96,7 @@
     <string name="recording_running">Aufzeichnung läuft</string>
     <string name="recording_paused">Aufzeichnung pausiert</string>
     <string name="recording_auto_paused">Auto-Pause · Bewegung abwarten</string>
+    <string name="recording_auto_paused_banner">Automatisch pausiert · setzt sich bei Bewegung fort</string>
     <string name="recording_saved">Aufzeichnung gespeichert</string>
     <string name="pause">Pausieren</string>
     <string name="resume">Fortsetzen</string>

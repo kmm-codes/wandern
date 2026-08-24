@@ -108,6 +108,8 @@ class TrackingService : Service(), LocationListener {
         if (autoPauseUpdate.transition == AutoPauseTransition.RESUMED) {
             // A stationary interval is not a GPS gap and must never be interpolated.
             lastAcceptedPoint = null
+            segmentIndex += 1
+            sessionId?.let { trackStore.updateState(it, RecordingState.RECORDING, segmentIndex) }
         }
         if ((autoPaused || autoPauseUpdate.stationaryEvidence) && lastAcceptedPoint != null) {
             gpsGapActive = false
@@ -291,10 +293,12 @@ class TrackingService : Service(), LocationListener {
         }
         runCatching {
             if (fineGranted && locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
-                locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 3_000L, 2f, this)
+                // Auto-pause needs periodic evidence while the device is stationary. A positive
+                // minimum distance can starve the detector of fixes precisely when it must pause.
+                locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 3_000L, 0f, this)
             }
             if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
-                locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 8_000L, 5f, this)
+                locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 8_000L, 0f, this)
             }
         }.onFailure { publishError("Standort konnte nicht gestartet werden: ${it.localizedMessage}") }
     }

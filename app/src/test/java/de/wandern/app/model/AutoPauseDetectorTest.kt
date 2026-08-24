@@ -24,6 +24,27 @@ class AutoPauseDetectorTest {
     }
 
     @Test
+    fun defaultThresholdPausesAfterTwentySecondsOfReliableStationaryFixes() {
+        val defaultDetector = AutoPauseDetector()
+        defaultDetector.update(point(0L, speed = 1.2f), observationTimeMillis = 0L)
+        defaultDetector.update(point(3_000L, speed = 0f), observationTimeMillis = 3_000L)
+        defaultDetector.update(point(12_000L, speed = 0f), observationTimeMillis = 12_000L)
+
+        val beforeThreshold = defaultDetector.update(
+            point(22_000L, speed = 0f),
+            observationTimeMillis = 22_000L,
+        )
+        val atThreshold = defaultDetector.update(
+            point(23_000L, speed = 0f),
+            observationTimeMillis = 23_000L,
+        )
+
+        assertFalse(beforeThreshold.autoPaused)
+        assertTrue(atThreshold.autoPaused)
+        assertEquals(AutoPauseTransition.PAUSED, atThreshold.transition)
+    }
+
+    @Test
     fun briefStopDoesNotPause() {
         detector.update(point(0L, speed = 1.2f))
         detector.update(point(1_000L, speed = 0f))
