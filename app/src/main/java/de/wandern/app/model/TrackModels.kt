@@ -19,6 +19,7 @@ data class GpxTrack(
     val name: String,
     val segments: List<List<TrackPoint>>,
     val elevationSource: ElevationSource? = null,
+    val activityType: ActivityType? = null,
 ) {
     val points: List<TrackPoint> get() = segments.flatten()
 
@@ -65,4 +66,5 @@ data class TrackingSnapshot(
     val autoPaused: Boolean = false,
     val routeDeviationMeters: Double? = null,
     val confirmedOffRoute: Boolean = false,
+    val activityType: ActivityType? = null,
 )

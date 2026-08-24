@@ -1,6 +1,7 @@
 package de.wandern.app.data
 
 import de.wandern.app.model.GpxTrack
+import de.wandern.app.model.ActivityType
 import de.wandern.app.model.ElevationSource
 import de.wandern.app.model.TrackPoint
 import org.junit.Assert.assertEquals
@@ -10,6 +11,32 @@ import org.junit.Test
 import java.io.ByteArrayInputStream
 
 class GpxCodecTest {
+    @Test
+    fun `round trip preserves e bike activity type`() {
+        val original = GpxTrack(
+            "Elektrische Runde",
+            listOf(listOf(TrackPoint(48.0, 8.0))),
+            activityType = ActivityType.E_BIKE,
+        )
+
+        val encoded = GpxCodec.encode(original)
+        val parsed = GpxCodec.parse(encoded.byteInputStream())
+
+        assertTrue(encoded.contains("<type>e-biking</type>"))
+        assertEquals(ActivityType.E_BIKE, parsed.activityType)
+    }
+
+    @Test
+    fun `recognizes common GPX cycling type`() {
+        val gpx = """
+            <gpx version="1.1"><trk><name>Runde</name><type>cycling</type><trkseg>
+              <trkpt lat="48.0" lon="8.0"/>
+            </trkseg></trk></gpx>
+        """.trimIndent()
+
+        assertEquals(ActivityType.CYCLING, GpxCodec.parse(gpx.byteInputStream()).activityType)
+    }
+
     @Test
     fun `preserves the source of generated elevation data`() {
         val original = GpxTrack(

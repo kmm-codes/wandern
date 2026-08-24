@@ -1,8 +1,8 @@
 # Wandern
 
-Eine lokale Android-Wanderapp ohne Konto, Backend oder Abo. Sie importiert und
-verwaltet GPX-Touren, speichert Kartenbereiche offline und zeichnet Wanderungen
-als GPX auf.
+Eine lokale Android-App für Touren und Outdoor-Aktivitäten ohne Konto, Backend
+oder Abo. Sie importiert und verwaltet GPX-Touren, speichert Kartenbereiche
+offline und zeichnet Aktivitäten als GPX auf.
 
 ## Funktionen
 
@@ -14,11 +14,13 @@ als GPX auf.
 - fehlende Höhenwerte über ein digitales Höhenmodell ergänzen
 - Kartenbereich einer Route nach Rückfrage offline speichern und wieder löschen
 - Start und Ziel einer Route markieren
-- Wanderungen im Vordergrunddienst aufzeichnen, pausieren und fortsetzen
+- Wandern, Radfahren, E-Bike und Laufen als Sportart einer Aufzeichnung wählen
+- Aktivitäten im Vordergrunddienst aufzeichnen, pausieren und fortsetzen
 - GPS-Genauigkeit anzeigen und unzuverlässige Messpunkte zurückhalten
 - längere GPS-Lücken nach Wiederkehr eines zuverlässigen Signals interpolieren
 - aufgezeichnete Touren umbenennen, erneut öffnen und als GPX exportieren
-- Gehzeit anhand von Steigung, Fitnessprofil, Ermüdung und Pausenpuffer schätzen
+- Gehzeit für Wanderungen anhand von Steigung, Fitnessprofil, Ermüdung und
+  Pausenpuffer schätzen
 
 Alle Touren und Aufzeichnungen werden lokal auf dem Gerät gespeichert. Für die
 Online-Karte werden Kartendaten von OpenFreeMap geladen. Wenn eine GPX-Datei

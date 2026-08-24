@@ -200,7 +200,12 @@ class TourLibraryActivity : AppCompatActivity() {
                     R.string.tour_origin_recorded
                 },
             )
-            val sourceAndDate = "$origin · ${dateFormat.format(Date(row.stored.createdAtMillis))}"
+            val activity = row.track.activityType ?: row.stored.activityType
+            val sourceAndDate = buildList {
+                add(origin)
+                activity?.let { add(getString(it.labelRes())) }
+                add(dateFormat.format(Date(row.stored.createdAtMillis)))
+            }.joinToString(" · ")
             item.tourDetailsText.text = getString(
                 R.string.tour_details,
                 sourceAndDate,

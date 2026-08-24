@@ -120,7 +120,14 @@ class TourDetailActivity : AppCompatActivity() {
         loadedTour = loaded
         val planned = loaded.stored.origin == TrackStore.StoredTourOrigin.IMPORTED
         binding.tourNameText.text = loaded.track.name
-        binding.tourKindText.setText(if (planned) R.string.planned_tour_forecast_hint else R.string.recorded_tour_actual_hint)
+        binding.tourKindText.text = if (planned) {
+            getString(R.string.planned_tour_forecast_hint)
+        } else {
+            getString(
+                R.string.recorded_tour_actual_hint_with_activity,
+                getString((loaded.track.activityType ?: loaded.stored.activityType ?: de.wandern.app.model.ActivityType.HIKING).labelRes()),
+            )
+        }
         binding.openMapButton.visibility = if (planned) View.VISIBLE else View.GONE
         binding.fitnessProfileButton.visibility = if (planned) View.VISIBLE else View.GONE
         binding.fitnessProfileHint.visibility = if (planned) View.VISIBLE else View.GONE

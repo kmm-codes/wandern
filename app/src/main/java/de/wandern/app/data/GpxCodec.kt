@@ -1,6 +1,7 @@
 package de.wandern.app.data
 
 import de.wandern.app.model.GpxTrack
+import de.wandern.app.model.ActivityType
 import de.wandern.app.model.ElevationSource
 import de.wandern.app.model.TrackPoint
 import java.io.InputStream
@@ -50,7 +51,11 @@ object GpxCodec {
             .item(0)?.textContent?.trim()?.let { encoded ->
                 runCatching { ElevationSource.valueOf(encoded) }.getOrNull()
             }
-        return GpxTrack(name, segments, elevationSource)
+        val activityType = document.getElementsByTagNameNS("*", "activityType")
+            .item(0)?.textContent?.let(ActivityType::fromGpxValue)
+            ?: document.getElementsByTagNameNS("*", "type")
+                .item(0)?.textContent?.let(ActivityType::fromGpxValue)
+        return GpxTrack(name, segments, elevationSource, activityType)
     }
 
     fun encode(track: GpxTrack): String = buildString {
@@ -58,13 +63,23 @@ object GpxCodec {
         append("<gpx version=\"1.1\" creator=\"Wandern\" xmlns=\"http://www.topografix.com/GPX/1/1\" ")
         append("xmlns:wandern=\"https://wandern.local/gpx/1\">\n")
         append("  <metadata><name>").append(escape(track.name)).append("</name>")
-        track.elevationSource?.let { source ->
-            append("<extensions><wandern:elevationSource>")
-                .append(source.name)
-                .append("</wandern:elevationSource></extensions>")
+        if (track.elevationSource != null || track.activityType != null) {
+            append("<extensions>")
+            track.elevationSource?.let { source ->
+                append("<wandern:elevationSource>")
+                    .append(source.name)
+                    .append("</wandern:elevationSource>")
+            }
+            track.activityType?.let { type ->
+                append("<wandern:activityType>")
+                    .append(type.gpxValue)
+                    .append("</wandern:activityType>")
+            }
+            append("</extensions>")
         }
         append("</metadata>\n")
         append("  <trk>\n    <name>").append(escape(track.name)).append("</name>\n")
+        track.activityType?.let { append("    <type>").append(it.gpxValue).append("</type>\n") }
         track.segments.filter { it.isNotEmpty() }.forEach { segment ->
             append("    <trkseg>\n")
             segment.forEach { point ->

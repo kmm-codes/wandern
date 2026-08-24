@@ -41,6 +41,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import de.wandern.app.R
 import de.wandern.app.data.GpxCodec
+import de.wandern.app.data.ActivityPreferences
 import de.wandern.app.data.ElevationEnricher
 import de.wandern.app.data.FitnessPreferences
 import de.wandern.app.data.OfflineMapAvailability
@@ -50,6 +51,7 @@ import de.wandern.app.data.OfflineMapStatus
 import de.wandern.app.data.TrackStore
 import de.wandern.app.databinding.ActivityMainBinding
 import de.wandern.app.model.GeoMath
+import de.wandern.app.model.ActivityType
 import de.wandern.app.model.GpxTrack
 import de.wandern.app.model.GpsQuality
 import de.wandern.app.model.HeadingSmoother
@@ -118,6 +120,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     private lateinit var trackStore: TrackStore
     private lateinit var offlineMapDownloader: OfflineMapDownloader
     private lateinit var fitnessPreferences: FitnessPreferences
+    private lateinit var activityPreferences: ActivityPreferences
     private lateinit var locationManager: LocationManager
     private lateinit var sensorManager: SensorManager
     private var rotationVectorSensor: Sensor? = null
@@ -129,6 +132,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     private var latestSnapshot = TrackingSnapshot()
     private var pendingRecordingStart = false
     private var pendingCenterRequest = false
+    private var selectedActivityType = ActivityType.HIKING
     private var followLocation = true
     private var initialRegionFramingComplete = false
     private var offlineDownloadInProgress = false
@@ -190,6 +194,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         trackStore = TrackStore(this)
         offlineMapDownloader = OfflineMapDownloader(this, MAP_STYLE_URL)
         fitnessPreferences = FitnessPreferences(this)
+        activityPreferences = ActivityPreferences(this)
+        selectedActivityType = activityPreferences.defaultType
         locationManager = getSystemService(LOCATION_SERVICE) as LocationManager
         sensorManager = getSystemService(SENSOR_SERVICE) as SensorManager
         rotationVectorSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
@@ -369,8 +375,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         renderRecordingPanelState(snapshot)
         binding.titleText.text = when (snapshot.state) {
             RecordingState.IDLE -> importedTrack?.name ?: getString(R.string.ready_to_hike)
-            RecordingState.RECORDING -> getString(R.string.recording_running)
-            RecordingState.PAUSED -> getString(R.string.recording_paused)
+            RecordingState.RECORDING -> recordingStateLabel(R.string.recording_running, snapshot.activityType)
+            RecordingState.PAUSED -> recordingStateLabel(R.string.recording_paused, snapshot.activityType)
             RecordingState.FINISHED -> getString(R.string.recording_saved)
         }
         binding.recordButton.text = getString(R.string.record)
@@ -420,12 +426,13 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
 
         val paused = state == RecordingState.PAUSED
         val detailsVisible = recordingDetailsExpanded || paused
-        binding.recordingStatusText.setText(
+        binding.recordingStatusText.text = recordingStateLabel(
             when {
                 paused -> R.string.recording_paused
                 snapshot.autoPaused -> R.string.recording_auto_paused
                 else -> R.string.recording_running
             },
+            snapshot.activityType,
         )
         binding.recordingPausedBanner.visibility = if (paused) View.VISIBLE else View.GONE
         binding.recordingExpandedGroup.visibility = if (detailsVisible) View.VISIBLE else View.GONE
@@ -441,6 +448,10 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         )
         binding.root.post(::syncOverlayPositions)
     }
+
+    private fun recordingStateLabel(stateLabelRes: Int, activityType: ActivityType?): String =
+        activityType?.let { "${getString(stateLabelRes)} · ${getString(it.labelRes())}" }
+            ?: getString(stateLabelRes)
 
     private fun confirmStopRecording() {
         MaterialAlertDialogBuilder(this)
@@ -955,6 +966,25 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     }
 
     private fun requestRecordingStart() {
+        val types = ActivityType.entries.toTypedArray()
+        val preferredType = importedTrack?.activityType ?: activityPreferences.defaultType
+        var selectedIndex = types.indexOf(preferredType).coerceAtLeast(0)
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.activity_type_title)
+            .setSingleChoiceItems(
+                types.map { getString(it.labelRes()) }.toTypedArray(),
+                selectedIndex,
+            ) { _, which -> selectedIndex = which }
+            .setNegativeButton(R.string.cancel, null)
+            .setPositiveButton(R.string.continue_action) { _, _ ->
+                selectedActivityType = types[selectedIndex]
+                activityPreferences.defaultType = selectedActivityType
+                requestRouteEntry()
+            }
+            .show()
+    }
+
+    private fun requestRouteEntry() {
         if (importedTrack != null) {
             MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.route_entry_title)
@@ -1016,6 +1046,12 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         route: GpxTrack?,
         offlineStatus: OfflineMapStatus?,
     ): List<StartCheckLine> = buildList {
+        add(
+            StartCheckLine(
+                getString(R.string.start_check_activity, getString(selectedActivityType.labelRes())),
+                false,
+            ),
+        )
         val locationEnabled = LocationManagerCompat.isLocationEnabled(locationManager)
         val position = displayedPosition()
         when {
@@ -1101,21 +1137,33 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             )
         }
 
-        val insights = TourInsightsAnalyzer.analyze(route)
-        val fitness = fitnessPreferences.level
-        val forecast = TourForecaster.forecast(insights.stats, insights.elevationProfile, fitness)
-        val forecastText = forecast?.let { formatDuration(it.totalDurationMillis) }
-            ?: getString(R.string.not_available)
-        add(
-            StartCheckLine(
-                getString(
-                    R.string.start_check_forecast,
-                    fitnessLabel(fitness),
-                    forecastText,
+        if (selectedActivityType == ActivityType.HIKING) {
+            val insights = TourInsightsAnalyzer.analyze(route)
+            val fitness = fitnessPreferences.level
+            val forecast = TourForecaster.forecast(insights.stats, insights.elevationProfile, fitness)
+            val forecastText = forecast?.let { formatDuration(it.totalDurationMillis) }
+                ?: getString(R.string.not_available)
+            add(
+                StartCheckLine(
+                    getString(
+                        R.string.start_check_forecast,
+                        fitnessLabel(fitness),
+                        forecastText,
+                    ),
+                    false,
                 ),
-                false,
-            ),
-        )
+            )
+        } else {
+            add(
+                StartCheckLine(
+                    getString(
+                        R.string.start_check_forecast_not_calibrated,
+                        getString(selectedActivityType.labelRes()),
+                    ),
+                    false,
+                ),
+            )
+        }
     }
 
     private fun startRecordingWithPermissions() {
@@ -1161,6 +1209,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             .setAction(action)
             .apply {
                 if (action == TrackingService.ACTION_START) {
+                    putExtra(TrackingService.EXTRA_ACTIVITY_TYPE, selectedActivityType.name)
                     importedTrack?.name?.let { putExtra(TrackingService.EXTRA_ROUTE_NAME, it) }
                     importedTrackReference?.let {
                         putExtra(TrackingService.EXTRA_ROUTE_REFERENCE, it)

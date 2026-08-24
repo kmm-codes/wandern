@@ -1,10 +1,10 @@
 <resources>
     <string name="app_name">Wandern</string>
-    <string name="notification_channel_name">Wanderaufzeichnung</string>
-    <string name="notification_channel_description">Zeigt eine laufende Wanderaufzeichnung an</string>
-    <string name="notification_title">Wanderung wird aufgezeichnet</string>
-    <string name="notification_title_paused">Wanderung manuell pausiert</string>
-    <string name="notification_title_auto_paused">Wanderung automatisch pausiert</string>
+    <string name="notification_channel_name">Touraufzeichnung</string>
+    <string name="notification_channel_description">Zeigt eine laufende Touraufzeichnung an</string>
+    <string name="notification_title">Tour wird aufgezeichnet</string>
+    <string name="notification_title_paused">Aufzeichnung manuell pausiert</string>
+    <string name="notification_title_auto_paused">Aufzeichnung automatisch pausiert</string>
     <string name="notification_recording_stats">%1$s · %2$s · ↑ %3$d m · ↓ %4$d m</string>
     <string name="route_alert_channel_name">Routenwarnungen</string>
     <string name="route_alert_channel_description">Warnt bei bestätigter Abweichung von einer geöffneten Route</string>
@@ -12,7 +12,7 @@
     <string name="route_alert_off_route_text">Du bist etwa %1$d m von der Route entfernt.</string>
     <string name="route_alert_returned">Zurück auf der Route</string>
     <string name="route_alert_returned_text">Die Position liegt wieder zuverlässig auf der Route.</string>
-    <string name="ready_to_hike">Bereit zum Wandern</string>
+    <string name="ready_to_hike">Bereit für deine Tour</string>
     <string name="gps_unknown">GPS —</string>
     <string name="distance_empty">0,00 km</string>
     <string name="distance_label">DISTANZ</string>
@@ -40,6 +40,7 @@
     <string name="route_map_preview">Interaktive Karte der Tour</string>
     <string name="planned_tour_forecast_hint">Geplante Tour · Zeit und Tempo sind Prognosen</string>
     <string name="recorded_tour_actual_hint">Aufgezeichnete Tour · gemessene Werte</string>
+    <string name="recorded_tour_actual_hint_with_activity">Aufgezeichnet · %1$s · gemessene Werte</string>
     <string name="start_tour">Tour starten</string>
     <string name="show_on_map">Auf Karte anzeigen</string>
     <string name="forecast_walking_time">PROGNOSE GEHZEIT</string>
@@ -68,10 +69,10 @@
     <string name="rename_tour_title">Tour umbenennen</string>
     <string name="tour_renamed">Tour umbenannt.</string>
     <string name="tour_rename_error">Tour konnte nicht umbenannt werden: %1$s</string>
-    <string name="recording_running">Wanderung läuft</string>
+    <string name="recording_running">Aufzeichnung läuft</string>
     <string name="recording_paused">Aufzeichnung pausiert</string>
     <string name="recording_auto_paused">Auto-Pause · Bewegung abwarten</string>
-    <string name="recording_saved">Wanderung gespeichert</string>
+    <string name="recording_saved">Aufzeichnung gespeichert</string>
     <string name="pause">Pausieren</string>
     <string name="resume">Fortsetzen</string>
     <string name="show_recording_details">Aufnahmedetails anzeigen</string>
@@ -80,11 +81,11 @@
     <string name="pause_hold_hint">Gedrückt halten, um die Aufzeichnung manuell zu pausieren.</string>
     <string name="finish_and_save">Beenden &amp; speichern</string>
     <string name="finish">Beenden</string>
-    <string name="finish_recording_title">Wanderung beenden?</string>
+    <string name="finish_recording_title">Aufzeichnung beenden?</string>
     <string name="finish_recording_message">Die bisherige Aufzeichnung wird gespeichert und beendet.</string>
     <string name="discard_recording">Aufzeichnung verwerfen</string>
     <string name="discard_recording_title">Aufzeichnung wirklich verwerfen?</string>
-    <string name="discard_recording_message">Alle bisher aufgezeichneten Punkte dieser Wanderung werden unwiderruflich gelöscht.</string>
+    <string name="discard_recording_message">Alle bisher aufgezeichneten Punkte dieser Tour werden unwiderruflich gelöscht.</string>
     <string name="ascent_empty">↗ 0 m</string>
     <string name="descent_empty">↘ 0 m</string>
     <string name="ascent_short">ANSTIEG</string>
@@ -120,7 +121,14 @@
     <string name="route_entry_message">Das beeinflusst nur den Tourfortschritt. Die Aufzeichnung beginnt sofort an deinem Standort.</string>
     <string name="route_entry_official_start">Am offiziellen Start</string>
     <string name="route_entry_nearest_point">Am nächsten Routenpunkt</string>
-    <string name="start_check_title">Bereit für die Wanderung?</string>
+    <string name="start_check_title">Bereit für die Tour?</string>
+    <string name="activity_type_title">Welche Aktivität zeichnest du auf?</string>
+    <string name="activity_hiking">Wandern</string>
+    <string name="activity_cycling">Radfahren</string>
+    <string name="activity_e_bike">E-Bike</string>
+    <string name="activity_running">Laufen</string>
+    <string name="continue_action">Weiter</string>
+    <string name="start_check_activity">Aktivität: %1$s</string>
     <string name="start_recording">Aufzeichnung starten</string>
     <string name="start_despite_warnings">Trotzdem starten</string>
     <string name="start_check_gps_disabled">Standortdienste sind ausgeschaltet</string>
@@ -140,6 +148,7 @@
     <string name="start_check_start_distance">Entfernung zum Routenstart: %1$s</string>
     <string name="start_check_start_distance_unknown">Entfernung zum Routenstart noch unbekannt</string>
     <string name="start_check_forecast">Fitness: %1$s · erwartet: %2$s inkl. Pausen</string>
+    <string name="start_check_forecast_not_calibrated">Zeitprognose für %1$s ist noch nicht kalibriert</string>
     <string name="offline_map_planning">Offline-Karte wird vorbereitet · Zoom bis %1$d</string>
     <string name="offline_map_progress_percent">Offline-Karte %1$d%% · %2$s</string>
     <string name="offline_map_progress">Offline-Karte wird geladen · %1$s</string>
@@ -151,7 +160,7 @@
     <string name="offline_map_online_only">Nur online</string>
     <string name="offline_map_skipped">Route geladen · Karte bleibt online</string>
     <string name="my_tours">Meine Touren</string>
-    <string name="no_saved_tours">Noch keine Touren gespeichert. Importiere eine GPX-Datei oder zeichne eine Wanderung auf.</string>
+    <string name="no_saved_tours">Noch keine Touren gespeichert. Importiere eine GPX-Datei oder zeichne eine Tour auf.</string>
     <string name="open_tour">Öffnen</string>
     <string name="delete">Löschen</string>
     <string name="tour_details">%1$s · %2$.1f km · %3$d Punkte</string>

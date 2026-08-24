@@ -5,6 +5,7 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 import de.wandern.app.model.GpxTrack
+import de.wandern.app.model.ActivityType
 import de.wandern.app.model.RecordingState
 import de.wandern.app.model.TrackPoint
 import java.io.File
@@ -17,12 +18,16 @@ class TrackStore(context: Context) {
     private val database = Database(appContext)
 
     @Synchronized
-    fun createSession(routeName: String? = null, routeReference: String? = null): Long {
+    fun createSession(
+        routeName: String? = null,
+        routeReference: String? = null,
+        activityType: ActivityType = ActivityType.HIKING,
+    ): Long {
         val now = System.currentTimeMillis()
         val timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm"))
         val name = routeName?.trim()?.takeIf { it.isNotEmpty() }
             ?.let { "$it · $timestamp" }
-            ?: "Wanderung $timestamp"
+            ?: "${defaultRecordingName(activityType)} $timestamp"
         return database.writableDatabase.insertOrThrow(
             "sessions",
             null,
@@ -31,6 +36,7 @@ class TrackStore(context: Context) {
                 put("started_at", now)
                 put("state", RecordingState.RECORDING.name)
                 put("segment_index", 0)
+                put("activity_type", activityType.name)
                 routeReference?.let { put("route_reference", it) }
             },
         )
@@ -39,7 +45,7 @@ class TrackStore(context: Context) {
     @Synchronized
     fun activeSession(): SessionInfo? = database.readableDatabase.query(
         "sessions",
-        arrayOf("id", "name", "state", "segment_index", "route_reference"),
+        arrayOf("id", "name", "state", "segment_index", "route_reference", "activity_type"),
         "state IN (?, ?)",
         arrayOf(RecordingState.RECORDING.name, RecordingState.PAUSED.name),
         null,
@@ -54,6 +60,7 @@ class TrackStore(context: Context) {
             state = RecordingState.valueOf(cursor.getString(2)),
             segmentIndex = cursor.getInt(3),
             routeReference = if (cursor.isNull(4)) null else cursor.getString(4),
+            activityType = ActivityType.fromStoredValue(if (cursor.isNull(5)) null else cursor.getString(5)),
         )
     }
 
@@ -133,15 +140,23 @@ class TrackStore(context: Context) {
 
     @Synchronized
     fun loadTrack(sessionId: Long): GpxTrack {
-        val name = database.readableDatabase.query(
+        val session = database.readableDatabase.query(
             "sessions",
-            arrayOf("name"),
+            arrayOf("name", "activity_type"),
             "id = ?",
             arrayOf(sessionId.toString()),
             null,
             null,
             null,
-        ).use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else "Wanderung" }
+        ).use { cursor ->
+            if (cursor.moveToFirst()) {
+                cursor.getString(0) to ActivityType.fromStoredValue(
+                    if (cursor.isNull(1)) null else cursor.getString(1),
+                )
+            } else {
+                "Wanderung" to ActivityType.HIKING
+            }
+        }
 
         val segments = linkedMapOf<Int, MutableList<TrackPoint>>()
         database.readableDatabase.query(
@@ -175,7 +190,11 @@ class TrackStore(context: Context) {
                 )
             }
         }
-        return GpxTrack(name, segments.values.filter { it.isNotEmpty() })
+        return GpxTrack(
+            name = session.first,
+            segments = segments.values.filter { it.isNotEmpty() },
+            activityType = session.second,
+        )
     }
 
     @Synchronized
@@ -190,6 +209,7 @@ class TrackStore(context: Context) {
                 put("state", RecordingState.FINISHED.name)
                 put("ended_at", System.currentTimeMillis())
                 put("file_path", target.absolutePath)
+                track.activityType?.let { put("activity_type", it.name) }
             },
             "id = ?",
             arrayOf(sessionId.toString()),
@@ -215,13 +235,14 @@ class TrackStore(context: Context) {
                 put("track_key", trackKey)
                 put("name", track.name)
                 put("imported_at", now)
+                track.activityType?.let { put("activity_type", it.name) }
                 put("file_path", target.absolutePath)
             },
             SQLiteDatabase.CONFLICT_IGNORE,
         )
         return database.readableDatabase.query(
             "imported_tracks",
-            arrayOf("id", "name", "imported_at", "file_path"),
+            arrayOf("id", "name", "imported_at", "file_path", "activity_type"),
             "track_key = ?",
             arrayOf(trackKey),
             null,
@@ -237,6 +258,9 @@ class TrackStore(context: Context) {
                 createdAtMillis = cursor.getLong(2),
                 file = file,
                 origin = StoredTourOrigin.IMPORTED,
+                activityType = ActivityType.fromStoredValueOrNull(
+                    if (cursor.isNull(4)) null else cursor.getString(4),
+                ),
             )
         }
     }
@@ -260,6 +284,7 @@ class TrackStore(context: Context) {
                 put("ended_at", endedAt)
                 put("state", RecordingState.FINISHED.name)
                 put("segment_index", track.segments.lastIndex.coerceAtLeast(0))
+                put("activity_type", (track.activityType ?: ActivityType.HIKING).name)
             },
         )
         val tracksDirectory = File(appContext.filesDir, "tracks").apply { mkdirs() }
@@ -284,6 +309,7 @@ class TrackStore(context: Context) {
             createdAtMillis = endedAt,
             file = target,
             origin = StoredTourOrigin.RECORDED,
+            activityType = track.activityType ?: ActivityType.HIKING,
         )
     }
 
@@ -292,7 +318,7 @@ class TrackStore(context: Context) {
         val tours = mutableListOf<StoredTour>()
         database.readableDatabase.query(
             "imported_tracks",
-            arrayOf("id", "name", "imported_at", "file_path"),
+            arrayOf("id", "name", "imported_at", "file_path", "activity_type"),
             null,
             null,
             null,
@@ -308,13 +334,16 @@ class TrackStore(context: Context) {
                         createdAtMillis = cursor.getLong(2),
                         file = file,
                         origin = StoredTourOrigin.IMPORTED,
+                        activityType = ActivityType.fromStoredValueOrNull(
+                            if (cursor.isNull(4)) null else cursor.getString(4),
+                        ),
                     )
                 }
             }
         }
         database.readableDatabase.query(
             "sessions",
-            arrayOf("id", "name", "COALESCE(ended_at, started_at)", "file_path"),
+            arrayOf("id", "name", "COALESCE(ended_at, started_at)", "file_path", "activity_type"),
             "state = ? AND file_path IS NOT NULL",
             arrayOf(RecordingState.FINISHED.name),
             null,
@@ -330,6 +359,9 @@ class TrackStore(context: Context) {
                         createdAtMillis = cursor.getLong(2),
                         file = file,
                         origin = StoredTourOrigin.RECORDED,
+                        activityType = ActivityType.fromStoredValue(
+                            if (cursor.isNull(4)) null else cursor.getString(4),
+                        ),
                     )
                 }
             }
@@ -423,6 +455,7 @@ class TrackStore(context: Context) {
         val state: RecordingState,
         val segmentIndex: Int,
         val routeReference: String?,
+        val activityType: ActivityType,
     )
 
     data class StoredTour(
@@ -431,6 +464,7 @@ class TrackStore(context: Context) {
         val createdAtMillis: Long,
         val file: File,
         val origin: StoredTourOrigin,
+        val activityType: ActivityType?,
     )
 
     enum class StoredTourOrigin { IMPORTED, RECORDED }
@@ -444,7 +478,7 @@ class TrackStore(context: Context) {
     private fun android.database.Cursor.floatOrNull(index: Int): Float? =
         if (isNull(index)) null else getFloat(index)
 
-    private class Database(context: Context) : SQLiteOpenHelper(context, "wandern.db", null, 4) {
+    private class Database(context: Context) : SQLiteOpenHelper(context, "wandern.db", null, 5) {
         override fun onCreate(db: SQLiteDatabase) {
             db.execSQL(
                 """
@@ -456,6 +490,7 @@ class TrackStore(context: Context) {
                     state TEXT NOT NULL,
                     segment_index INTEGER NOT NULL DEFAULT 0,
                     route_reference TEXT,
+                    activity_type TEXT NOT NULL DEFAULT 'HIKING',
                     file_path TEXT
                 )
                 """.trimIndent(),
@@ -490,6 +525,12 @@ class TrackStore(context: Context) {
             if (oldVersion < 4) {
                 db.execSQL("ALTER TABLE sessions ADD COLUMN route_reference TEXT")
             }
+            if (oldVersion < 5) {
+                db.execSQL("ALTER TABLE sessions ADD COLUMN activity_type TEXT NOT NULL DEFAULT 'HIKING'")
+                if (oldVersion >= 2) {
+                    db.execSQL("ALTER TABLE imported_tracks ADD COLUMN activity_type TEXT")
+                }
+            }
         }
 
         private fun createImportedTracksTable(db: SQLiteDatabase) {
@@ -500,6 +541,7 @@ class TrackStore(context: Context) {
                     track_key TEXT NOT NULL UNIQUE,
                     name TEXT NOT NULL,
                     imported_at INTEGER NOT NULL,
+                    activity_type TEXT,
                     file_path TEXT NOT NULL
                 )
                 """.trimIndent(),
@@ -515,5 +557,12 @@ class TrackStore(context: Context) {
 
     companion object {
         private const val MAX_TOUR_NAME_LENGTH = 120
+
+        private fun defaultRecordingName(activityType: ActivityType): String = when (activityType) {
+            ActivityType.HIKING -> "Wanderung"
+            ActivityType.CYCLING -> "Radtour"
+            ActivityType.E_BIKE -> "E-Bike-Tour"
+            ActivityType.RUNNING -> "Lauf"
+        }
     }
 }

@@ -21,6 +21,7 @@ import de.wandern.app.R
 import de.wandern.app.data.TrackStore
 import de.wandern.app.model.AutoPauseDetector
 import de.wandern.app.model.AutoPauseTransition
+import de.wandern.app.model.ActivityType
 import de.wandern.app.model.GeoMath
 import de.wandern.app.model.GpsGapInterpolator
 import de.wandern.app.model.GpsQuality
@@ -47,6 +48,7 @@ class TrackingService : Service(), LocationListener {
     private var gpsGapActive = false
     private var autoPaused = false
     private val autoPauseDetector = AutoPauseDetector()
+    private var activityType = ActivityType.HIKING
     private var activeRoute: GpxTrack? = null
     private var routeDeviationMeters: Double? = null
     private var confirmedOffRoute = false
@@ -64,6 +66,7 @@ class TrackingService : Service(), LocationListener {
             ACTION_START -> startRecording(
                 intent.getStringExtra(EXTRA_ROUTE_NAME),
                 intent.getStringExtra(EXTRA_ROUTE_REFERENCE),
+                ActivityType.fromStoredValue(intent.getStringExtra(EXTRA_ACTIVITY_TYPE)),
             )
             ACTION_PAUSE -> pauseRecording()
             ACTION_RESUME -> resumeRecording()
@@ -154,13 +157,18 @@ class TrackingService : Service(), LocationListener {
         super.onDestroy()
     }
 
-    private fun startRecording(routeName: String?, routeReference: String?) {
+    private fun startRecording(
+        routeName: String?,
+        routeReference: String?,
+        requestedActivityType: ActivityType,
+    ) {
         if (sessionId != null) return
         trackStore.activeSession()?.let {
             restoreActiveSession(it)
             return
         }
-        sessionId = trackStore.createSession(routeName, routeReference)
+        activityType = requestedActivityType
+        sessionId = trackStore.createSession(routeName, routeReference, activityType)
         segmentIndex = 0
         lastAcceptedPoint = null
         lastObservedPoint = null
@@ -215,8 +223,10 @@ class TrackingService : Service(), LocationListener {
             stats = TrackAnalyzer.calculate(track),
             latestPoint = lastObservedPoint ?: track.points.lastOrNull(),
             savedTrackPath = file.absolutePath,
+            activityType = activityType,
         )
         sessionId = null
+        activityType = ActivityType.HIKING
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
@@ -252,6 +262,7 @@ class TrackingService : Service(), LocationListener {
 
     private fun restoreActiveSession(active: TrackStore.SessionInfo) {
         sessionId = active.id
+        activityType = active.activityType
         segmentIndex = active.segmentIndex
         lastAcceptedPoint = trackStore.loadTrack(active.id).segments.lastOrNull()?.lastOrNull()
         lastObservedPoint = lastAcceptedPoint
@@ -299,6 +310,7 @@ class TrackingService : Service(), LocationListener {
             autoPaused = autoPaused,
             routeDeviationMeters = routeDeviationMeters,
             confirmedOffRoute = confirmedOffRoute,
+            activityType = activityType,
         )
     }
 
@@ -465,6 +477,7 @@ class TrackingService : Service(), LocationListener {
         const val ACTION_DISCARD = "de.wandern.app.action.DISCARD"
         const val EXTRA_ROUTE_NAME = "de.wandern.app.extra.ROUTE_NAME"
         const val EXTRA_ROUTE_REFERENCE = "de.wandern.app.extra.ROUTE_REFERENCE"
+        const val EXTRA_ACTIVITY_TYPE = "de.wandern.app.extra.ACTIVITY_TYPE"
 
         private const val CHANNEL_ID = "tracking"
         private const val NOTIFICATION_ID = 101
