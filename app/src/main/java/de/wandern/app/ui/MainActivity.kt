@@ -19,8 +19,10 @@ import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
 import android.net.Uri
+import android.os.BatteryManager
 import android.os.Build
 import android.os.Bundle
+import android.content.IntentFilter
 import android.text.format.Formatter
 import android.util.Log
 import android.view.View
@@ -41,14 +43,17 @@ import de.wandern.app.R
 import de.wandern.app.data.GpxCodec
 import de.wandern.app.data.ElevationEnricher
 import de.wandern.app.data.FitnessPreferences
+import de.wandern.app.data.OfflineMapAvailability
 import de.wandern.app.data.OfflineMapDownloadState
 import de.wandern.app.data.OfflineMapDownloader
+import de.wandern.app.data.OfflineMapStatus
 import de.wandern.app.data.TrackStore
 import de.wandern.app.databinding.ActivityMainBinding
 import de.wandern.app.model.GeoMath
 import de.wandern.app.model.GpxTrack
 import de.wandern.app.model.GpsQuality
 import de.wandern.app.model.HeadingSmoother
+import de.wandern.app.model.HikingFitnessLevel
 import de.wandern.app.model.OfflineMapPlanner
 import de.wandern.app.model.RecordingState
 import de.wandern.app.model.RouteProgress
@@ -58,6 +63,7 @@ import de.wandern.app.model.SpeedSmoother
 import de.wandern.app.model.TrackPoint
 import de.wandern.app.model.TrackStats
 import de.wandern.app.model.TourForecaster
+import de.wandern.app.model.TourInsightsAnalyzer
 import de.wandern.app.model.TrackingSnapshot
 import de.wandern.app.service.TrackingService
 import kotlinx.coroutines.Dispatchers
@@ -118,6 +124,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     private var map: MapLibreMap? = null
     private var mapStyle: Style? = null
     private var importedTrack: GpxTrack? = null
+    private var offlineMapIdentityTrack: GpxTrack? = null
     private var importedTrackReference: String? = null
     private var latestSnapshot = TrackingSnapshot()
     private var pendingRecordingStart = false
@@ -652,6 +659,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     private fun displayTrack(track: GpxTrack, reference: String?, askForOfflineDownload: Boolean) {
         initialRegionFramingComplete = true
         importedTrack = track
+        offlineMapIdentityTrack = track
         importedTrackReference = reference
         routeProgressTracker = RouteProgressTracker(track)
         renderMoreButtonVisibility()
@@ -972,6 +980,145 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             )
             renderRouteProgress(latestSnapshot.latestPoint ?: latestLocatedPoint)
         }
+        showStartCheck(::startRecordingWithPermissions)
+    }
+
+    private fun showStartCheck(onStart: () -> Unit) {
+        val route = importedTrack
+        if (route == null) {
+            showStartCheckDialog(buildStartCheckLines(null, null), onStart)
+            return
+        }
+        offlineMapDownloader.status(offlineMapIdentityTrack ?: route) { status ->
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                showStartCheckDialog(buildStartCheckLines(route, status), onStart)
+            }
+        }
+    }
+
+    private fun showStartCheckDialog(lines: List<StartCheckLine>, onStart: () -> Unit) {
+        val hasWarnings = lines.any(StartCheckLine::warning)
+        val message = lines.joinToString("\n\n") { line ->
+            "${if (line.warning) "⚠" else "✓"}  ${line.text}"
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.start_check_title)
+            .setMessage(message)
+            .setNegativeButton(R.string.cancel, null)
+            .setPositiveButton(
+                if (hasWarnings) R.string.start_despite_warnings else R.string.start_recording,
+            ) { _, _ -> onStart() }
+            .show()
+    }
+
+    private fun buildStartCheckLines(
+        route: GpxTrack?,
+        offlineStatus: OfflineMapStatus?,
+    ): List<StartCheckLine> = buildList {
+        val locationEnabled = LocationManagerCompat.isLocationEnabled(locationManager)
+        val position = displayedPosition()
+        when {
+            !locationEnabled -> add(StartCheckLine(getString(R.string.start_check_gps_disabled), true))
+            !hasLocationPermission() -> add(StartCheckLine(getString(R.string.start_check_gps_permission), true))
+            position == null -> add(StartCheckLine(getString(R.string.start_check_gps_waiting), true))
+            locationAgeMinutes(position) >= STALE_LOCATION_MINUTES -> add(
+                StartCheckLine(
+                    getString(R.string.start_check_gps_stale, locationAgeMinutes(position)),
+                    true,
+                ),
+            )
+            (position.accuracyMeters ?: Float.MAX_VALUE) > GpsQuality.RELIABLE_ACCURACY_METERS -> add(
+                StartCheckLine(
+                    getString(
+                        R.string.start_check_gps_inaccurate,
+                        (position.accuracyMeters ?: 0f).roundToInt(),
+                    ),
+                    true,
+                ),
+            )
+            else -> add(
+                StartCheckLine(
+                    getString(
+                        R.string.start_check_gps_ready,
+                        (position.accuracyMeters ?: 0f).roundToInt(),
+                    ),
+                    false,
+                ),
+            )
+        }
+
+        val battery = batteryState()
+        if (battery == null) {
+            add(StartCheckLine(getString(R.string.start_check_battery_unknown), true))
+        } else {
+            add(
+                StartCheckLine(
+                    getString(
+                        if (battery.charging) R.string.start_check_battery_charging else R.string.start_check_battery,
+                        battery.percent,
+                    ),
+                    warning = battery.percent <= LOW_BATTERY_WARNING_PERCENT && !battery.charging,
+                ),
+            )
+        }
+
+        if (route == null) {
+            add(StartCheckLine(getString(R.string.start_check_no_route), false))
+            return@buildList
+        }
+        when (offlineStatus?.availability) {
+            OfflineMapAvailability.DOWNLOADED -> add(
+                StartCheckLine(
+                    getString(
+                        R.string.start_check_offline_ready,
+                        Formatter.formatShortFileSize(this@MainActivity, offlineStatus.downloadedBytes),
+                    ),
+                    false,
+                ),
+            )
+            OfflineMapAvailability.PARTIAL -> add(
+                StartCheckLine(getString(R.string.start_check_offline_partial), true),
+            )
+            OfflineMapAvailability.NOT_DOWNLOADED -> add(
+                StartCheckLine(getString(R.string.start_check_offline_missing), true),
+            )
+            OfflineMapAvailability.ERROR, OfflineMapAvailability.CHECKING, null -> add(
+                StartCheckLine(getString(R.string.start_check_offline_unknown), true),
+            )
+        }
+
+        val start = route.points.firstOrNull()
+        if (position == null || start == null) {
+            add(StartCheckLine(getString(R.string.start_check_start_distance_unknown), true))
+        } else {
+            val distance = GeoMath.distanceMeters(position, start)
+            add(
+                StartCheckLine(
+                    getString(R.string.start_check_start_distance, formatRemainingDistance(distance)),
+                    warning = distance > DISTANT_ROUTE_START_METERS,
+                ),
+            )
+        }
+
+        val insights = TourInsightsAnalyzer.analyze(route)
+        val fitness = fitnessPreferences.level
+        val forecast = TourForecaster.forecast(insights.stats, insights.elevationProfile, fitness)
+        val forecastText = forecast?.let { formatDuration(it.totalDurationMillis) }
+            ?: getString(R.string.not_available)
+        add(
+            StartCheckLine(
+                getString(
+                    R.string.start_check_forecast,
+                    fitnessLabel(fitness),
+                    forecastText,
+                ),
+                false,
+            ),
+        )
+    }
+
+    private fun startRecordingWithPermissions() {
         if (hasLocationPermission()) {
             focusOnUser()
             sendTrackingAction(TrackingService.ACTION_START, startForeground = true)
@@ -986,6 +1133,28 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         }
         permissionLauncher.launch(permissions.toTypedArray())
     }
+
+    private fun batteryState(): BatteryState? {
+        val status = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED)) ?: return null
+        val level = status.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
+        val scale = status.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
+        if (level < 0 || scale <= 0) return null
+        val chargingStatus = status.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
+        return BatteryState(
+            percent = (level * 100f / scale).roundToInt(),
+            charging = chargingStatus == BatteryManager.BATTERY_STATUS_CHARGING ||
+                chargingStatus == BatteryManager.BATTERY_STATUS_FULL,
+        )
+    }
+
+    private fun fitnessLabel(level: HikingFitnessLevel): String = getString(
+        when (level) {
+            HikingFitnessLevel.LEISURELY -> R.string.fitness_leisurely
+            HikingFitnessLevel.AVERAGE -> R.string.fitness_average
+            HikingFitnessLevel.FIT -> R.string.fitness_fit
+            HikingFitnessLevel.SPORTY -> R.string.fitness_sporty
+        },
+    )
 
     private fun sendTrackingAction(action: String, startForeground: Boolean = false) {
         val intent = Intent(this, TrackingService::class.java)
@@ -1013,6 +1182,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
                 when (item.itemId) {
                     MENU_CLEAR_ROUTE -> {
                         importedTrack = null
+                        offlineMapIdentityTrack = null
                         importedTrackReference = null
                         routeProgressTracker = null
                         binding.routeProgressGroup.visibility = View.GONE
@@ -1424,6 +1594,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         private const val MIN_HEADING_UPDATE_DEGREES = 1f
         private const val CIRCULAR_ROUTE_ENDPOINT_DISTANCE_METERS = 50.0
         private const val ROUTE_FINISHED_DISTANCE_METERS = 25.0
+        private const val DISTANT_ROUTE_START_METERS = 500.0
+        private const val LOW_BATTERY_WARNING_PERCENT = 20
         private const val ROUTE_LOADED_BADGE_MILLIS = 3_000L
         private const val INFO_BADGE_MILLIS = 4_000L
         private const val SUCCESS_BADGE_MILLIS = 4_000L
@@ -1433,4 +1605,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         private const val MENU_REVERSE_ROUTE = 6
         private const val EMPTY_FEATURE_COLLECTION = "{\"type\":\"FeatureCollection\",\"features\":[]}"
     }
+
+    private data class StartCheckLine(val text: String, val warning: Boolean)
+    private data class BatteryState(val percent: Int, val charging: Boolean)
 }
