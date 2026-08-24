@@ -10,6 +10,7 @@ als GPX auf.
 - GPX-Dateien direkt über „Öffnen mit“ annehmen
 - geplante und aufgezeichnete Touren in einer gemeinsamen Bibliothek verwalten
 - interaktive Karte, Tourstatistiken und Höhen-/Geschwindigkeitsprofile anzeigen
+- eigene Position als blauen Punkt mit geglätteter Kompassrichtung anzeigen
 - fehlende Höhenwerte über ein digitales Höhenmodell ergänzen
 - Kartenbereich einer Route nach Rückfrage offline speichern und wieder löschen
 - Start und Ziel einer Route markieren

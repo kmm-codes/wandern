@@ -71,6 +71,7 @@ class TrackingService : Service(), LocationListener {
             timeMillis = location.time.takeIf { it > 0 } ?: System.currentTimeMillis(),
             accuracyMeters = location.accuracy,
             speedMetersPerSecond = location.speed.takeIf { location.hasSpeed() },
+            bearingDegrees = location.bearing.takeIf { location.hasBearing() },
         )
         val observedTime = lastObservedPoint?.timeMillis
         if (observedTime != null && (point.timeMillis ?: 0L) < observedTime) return

@@ -8,8 +8,15 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.Typeface
+import android.hardware.GeomagneticField
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.location.Location
+import android.location.LocationListener
 import android.location.LocationManager
 import android.net.Uri
 import android.os.Build
@@ -41,6 +48,7 @@ import de.wandern.app.databinding.ActivityMainBinding
 import de.wandern.app.model.GeoMath
 import de.wandern.app.model.GpxTrack
 import de.wandern.app.model.GpsQuality
+import de.wandern.app.model.HeadingSmoother
 import de.wandern.app.model.OfflineMapPlanner
 import de.wandern.app.model.RecordingState
 import de.wandern.app.model.RouteProgress
@@ -65,10 +73,17 @@ import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.layers.CircleLayer
 import org.maplibre.android.style.layers.LineLayer
+import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.android.style.layers.PropertyFactory.circleColor
+import org.maplibre.android.style.layers.PropertyFactory.circleOpacity
 import org.maplibre.android.style.layers.PropertyFactory.circleRadius
 import org.maplibre.android.style.layers.PropertyFactory.circleStrokeColor
 import org.maplibre.android.style.layers.PropertyFactory.circleStrokeWidth
+import org.maplibre.android.style.layers.PropertyFactory.iconAllowOverlap
+import org.maplibre.android.style.layers.PropertyFactory.iconIgnorePlacement
+import org.maplibre.android.style.layers.PropertyFactory.iconImage
+import org.maplibre.android.style.layers.PropertyFactory.iconRotate
+import org.maplibre.android.style.layers.PropertyFactory.iconRotationAlignment
 import org.maplibre.android.style.layers.PropertyFactory.lineCap
 import org.maplibre.android.style.layers.PropertyFactory.lineColor
 import org.maplibre.android.style.layers.PropertyFactory.lineDasharray
@@ -86,11 +101,14 @@ import java.util.Date
 import java.util.Locale
 import kotlin.math.roundToInt
 
-class MainActivity : AppCompatActivity() {
+class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener {
     private lateinit var binding: ActivityMainBinding
     private lateinit var trackStore: TrackStore
     private lateinit var offlineMapDownloader: OfflineMapDownloader
     private lateinit var fitnessPreferences: FitnessPreferences
+    private lateinit var locationManager: LocationManager
+    private lateinit var sensorManager: SensorManager
+    private var rotationVectorSensor: Sensor? = null
     private var map: MapLibreMap? = null
     private var mapStyle: Style? = null
     private var importedTrack: GpxTrack? = null
@@ -101,6 +119,11 @@ class MainActivity : AppCompatActivity() {
     private var offlineDownloadInProgress = false
     private var latestLocatedPoint: TrackPoint? = null
     private var routeProgressTracker: RouteProgressTracker? = null
+    private val headingSmoother = HeadingSmoother()
+    private var latestCompassHeadingDegrees: Float? = null
+    private var visibleLocationUpdatesActive = false
+    private val compassRotationMatrix = FloatArray(9)
+    private val compassOrientation = FloatArray(3)
     private val routeEndpointMarkers = mutableListOf<Marker>()
     private val routeStartIcon: Icon by lazy { createRouteEndpointIcon("S", R.color.forest_700) }
     private val routeEndIcon: Icon by lazy { createRouteEndpointIcon("Z", R.color.warning) }
@@ -127,7 +150,8 @@ class MainActivity : AppCompatActivity() {
         } else if (startRecording) {
             toast("Ohne Standortberechtigung kann keine Tour aufgezeichnet werden.")
         }
-        if (locationGranted && centerUser) locateUser()
+        if (locationGranted) startVisibleLocationUpdates()
+        if (locationGranted && centerUser) locateUser(centerAfterFix = true)
         else if (centerUser) toast("Ohne Standortberechtigung kann dein Standort nicht angezeigt werden.")
     }
 
@@ -144,6 +168,9 @@ class MainActivity : AppCompatActivity() {
         trackStore = TrackStore(this)
         offlineMapDownloader = OfflineMapDownloader(this, MAP_STYLE_URL)
         fitnessPreferences = FitnessPreferences(this)
+        locationManager = getSystemService(LOCATION_SERVICE) as LocationManager
+        sensorManager = getSystemService(SENSOR_SERVICE) as SensorManager
+        rotationVectorSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
         binding.mapView.onCreate(savedInstanceState)
         binding.headerCard.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
             syncRouteStatusPosition()
@@ -223,9 +250,27 @@ class MainActivity : AppCompatActivity() {
         )
         style.addSource(GeoJsonSource(POSITION_SOURCE, EMPTY_FEATURE_COLLECTION))
         style.addLayer(
+            CircleLayer(POSITION_HALO_LAYER, POSITION_SOURCE).withProperties(
+                circleColor(Color.parseColor("#1677FF")),
+                circleRadius(16f),
+                circleOpacity(0.18f),
+            ),
+        )
+        style.addImage(POSITION_DIRECTION_ICON, createPositionDirectionIcon())
+        style.addSource(GeoJsonSource(POSITION_DIRECTION_SOURCE, EMPTY_FEATURE_COLLECTION))
+        style.addLayer(
+            SymbolLayer(POSITION_DIRECTION_LAYER, POSITION_DIRECTION_SOURCE).withProperties(
+                iconImage(POSITION_DIRECTION_ICON),
+                iconRotate(0f),
+                iconRotationAlignment("map"),
+                iconAllowOverlap(true),
+                iconIgnorePlacement(true),
+            ),
+        )
+        style.addLayer(
             CircleLayer(POSITION_LAYER, POSITION_SOURCE).withProperties(
-                circleColor(Color.parseColor("#153A2E")),
-                circleRadius(8f),
+                circleColor(Color.parseColor("#1677FF")),
+                circleRadius(9f),
                 circleStrokeColor(Color.WHITE),
                 circleStrokeWidth(3f),
             ),
@@ -536,27 +581,55 @@ class MainActivity : AppCompatActivity() {
         updateLineSource(style, ROUTE_SOURCE, importedTrack)
         updateRouteEndpointMarkers(importedTrack)
         updateLiveTrackSources(style, latestSnapshot.track)
+        renderUserPosition(style)
+    }
+
+    private fun renderUserPosition() {
+        renderUserPosition(mapStyle ?: return)
+    }
+
+    private fun renderUserPosition(style: Style) {
         val pointSource = style.getSourceAs<GeoJsonSource>(POSITION_SOURCE) ?: return
-        val point = latestSnapshot.latestPoint ?: latestLocatedPoint
+        val directionSource = style.getSourceAs<GeoJsonSource>(POSITION_DIRECTION_SOURCE) ?: return
+        val point = displayedPosition()
         if (point == null) {
             pointSource.setGeoJson(EMPTY_FEATURE_COLLECTION)
+            directionSource.setGeoJson(EMPTY_FEATURE_COLLECTION)
         } else {
-            pointSource.setGeoJson(
-                FeatureCollection.fromFeature(
-                    Feature.fromGeometry(Point.fromLngLat(point.longitude, point.latitude)),
-                ),
+            val positionFeature = FeatureCollection.fromFeature(
+                Feature.fromGeometry(Point.fromLngLat(point.longitude, point.latitude)),
             )
+            pointSource.setGeoJson(positionFeature)
+            val heading = displayHeading(point)
+            if (heading == null || locationAgeMinutes(point) >= STALE_LOCATION_MINUTES) {
+                directionSource.setGeoJson(EMPTY_FEATURE_COLLECTION)
+            } else {
+                directionSource.setGeoJson(positionFeature)
+                style.getLayerAs<SymbolLayer>(POSITION_DIRECTION_LAYER)?.setProperties(iconRotate(heading))
+            }
         }
-        style.getLayerAs<CircleLayer>(POSITION_LAYER)?.setProperties(
+        style.getLayerAs<CircleLayer>(POSITION_HALO_LAYER)?.setProperties(
             circleColor(
                 if ((point?.accuracyMeters ?: 0f) > GpsQuality.RELIABLE_ACCURACY_METERS) {
                     Color.parseColor("#F26B38")
                 } else {
-                    Color.parseColor("#153A2E")
+                    Color.parseColor("#1677FF")
                 },
+            ),
+            circleRadius(
+                if ((point?.accuracyMeters ?: 0f) > GpsQuality.RELIABLE_ACCURACY_METERS) 20f else 16f,
             ),
         )
     }
+
+    private fun displayHeading(point: TrackPoint): Float? =
+        latestCompassHeadingDegrees ?: point.bearingDegrees?.takeIf {
+            (point.speedMetersPerSecond ?: 0f) >= MIN_DIRECTION_SPEED_METERS_PER_SECOND
+        }
+
+    private fun displayedPosition(): TrackPoint? =
+        listOfNotNull(latestSnapshot.latestPoint, latestLocatedPoint)
+            .maxByOrNull { it.timeMillis ?: Long.MIN_VALUE }
 
     private fun updateRouteEndpointMarkers(track: GpxTrack?) {
         val readyMap = map ?: return
@@ -605,6 +678,32 @@ class MainActivity : AppCompatActivity() {
         val baseline = center - (paint.ascent() + paint.descent()) / 2f
         canvas.drawText(label, center, baseline, paint)
         return IconFactory.getInstance(this).fromBitmap(bitmap)
+    }
+
+    private fun createPositionDirectionIcon(): Bitmap {
+        val density = resources.displayMetrics.density
+        val size = (42 * density).toInt()
+        val center = size / 2f
+        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val arrow = Path().apply {
+            moveTo(center, 1.5f * density)
+            lineTo(center + 8f * density, center + 6f * density)
+            lineTo(center, center + 2f * density)
+            lineTo(center - 8f * density, center + 6f * density)
+            close()
+        }
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeJoin = Paint.Join.ROUND
+            strokeWidth = 5f * density
+            color = Color.WHITE
+        }
+        canvas.drawPath(arrow, paint)
+        paint.style = Paint.Style.FILL
+        paint.color = Color.parseColor("#1677FF")
+        canvas.drawPath(arrow, paint)
+        return bitmap
     }
 
     private fun updateLiveTrackSources(style: Style, track: GpxTrack) {
@@ -759,9 +858,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun requestCenterOnUser() {
         followLocation = true
-        (latestSnapshot.latestPoint ?: latestLocatedPoint)?.let { centerOn(it, 16.0) }
+        displayedPosition()?.let { centerOn(it, 16.0) }
         if (hasLocationPermission()) {
-            locateUser()
+            startVisibleLocationUpdates()
+            locateUser(centerAfterFix = true)
         } else {
             pendingCenterRequest = true
             permissionLauncher.launch(
@@ -774,19 +874,17 @@ class MainActivity : AppCompatActivity() {
     }
 
     @SuppressLint("MissingPermission")
-    private fun locateUser() {
-        val manager = getSystemService(LOCATION_SERVICE) as LocationManager
-        val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
-            .filter { provider -> runCatching { manager.isProviderEnabled(provider) }.getOrDefault(false) }
+    private fun locateUser(centerAfterFix: Boolean) {
+        val providers = enabledLocationProviders()
         if (providers.isEmpty()) {
-            toast("Standortdienste sind deaktiviert.")
+            if (centerAfterFix) toast("Standortdienste sind deaktiviert.")
             return
         }
 
         val lastKnown = providers.mapNotNull { provider ->
-            runCatching { manager.getLastKnownLocation(provider) }.getOrNull()
+            runCatching { locationManager.getLastKnownLocation(provider) }.getOrNull()
         }.maxByOrNull { it.time }
-        if (lastKnown != null) showLocatedPosition(lastKnown)
+        if (lastKnown != null) showLocatedPosition(lastKnown, centerAfterFix)
         else {
             binding.gpsText.setText(R.string.gps_locating)
             showRouteStatus(getString(R.string.gps_locating), R.color.forest_900)
@@ -798,13 +896,13 @@ class MainActivity : AppCompatActivity() {
             val signal = CancellationSignal()
             locationRequestSignals += signal
             LocationManagerCompat.getCurrentLocation(
-                manager,
+                locationManager,
                 provider,
                 signal,
                 ContextCompat.getMainExecutor(this),
             ) { location ->
                 if (location != null) {
-                    showLocatedPosition(location)
+                    showLocatedPosition(location, centerAfterFix)
                 } else if (latestLocatedPoint == null && latestSnapshot.latestPoint == null) {
                     binding.gpsText.setText(R.string.gps_no_fix)
                     showRouteStatus(getString(R.string.gps_no_fix), R.color.warning)
@@ -813,7 +911,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun showLocatedPosition(location: Location) {
+    private fun showLocatedPosition(location: Location, centerAfterFix: Boolean) {
         val point = TrackPoint(
             latitude = location.latitude,
             longitude = location.longitude,
@@ -821,15 +919,54 @@ class MainActivity : AppCompatActivity() {
             timeMillis = location.time.takeIf { it > 0 } ?: System.currentTimeMillis(),
             accuracyMeters = location.accuracy.takeIf { location.hasAccuracy() },
             speedMetersPerSecond = location.speed.takeIf { location.hasSpeed() },
+            bearingDegrees = location.bearing.takeIf { location.hasBearing() },
         )
-        val existing = latestSnapshot.latestPoint ?: latestLocatedPoint
+        val existing = displayedPosition()
         if (existing != null && !isBetterLocation(point, existing)) return
         latestLocatedPoint = point
         renderGpsStatus(point)
         renderLocationStatus(point, latestSnapshot.gpsGapActive)
         renderRouteProgress(point)
         redrawTracks()
-        centerOn(point, 16.0)
+        if (centerAfterFix) centerOn(point, 16.0)
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun startVisibleLocationUpdates() {
+        if (visibleLocationUpdatesActive || !hasLocationPermission()) return
+        val providers = enabledLocationProviders()
+        if (providers.isEmpty()) return
+        providers.forEach { provider ->
+            runCatching {
+                val minTime = if (provider == LocationManager.GPS_PROVIDER) 2_000L else 6_000L
+                val minDistance = if (provider == LocationManager.GPS_PROVIDER) 1f else 4f
+                locationManager.requestLocationUpdates(provider, minTime, minDistance, this)
+            }
+        }
+        visibleLocationUpdatesActive = true
+    }
+
+    private fun enabledLocationProviders(): List<String> {
+        val fineGranted = ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.ACCESS_FINE_LOCATION,
+        ) == PackageManager.PERMISSION_GRANTED
+        return buildList {
+            if (fineGranted) add(LocationManager.GPS_PROVIDER)
+            add(LocationManager.NETWORK_PROVIDER)
+        }.filter { provider ->
+            runCatching { locationManager.isProviderEnabled(provider) }.getOrDefault(false)
+        }
+    }
+
+    private fun stopVisibleLocationUpdates() {
+        if (!visibleLocationUpdatesActive) return
+        runCatching { locationManager.removeUpdates(this) }
+        visibleLocationUpdatesActive = false
+    }
+
+    override fun onLocationChanged(location: Location) {
+        showLocatedPosition(location, centerAfterFix = false)
     }
 
     private fun isBetterLocation(candidate: TrackPoint, current: TrackPoint): Boolean {
@@ -908,11 +1045,63 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
+    override fun onSensorChanged(event: SensorEvent) {
+        if (event.sensor.type != Sensor.TYPE_ROTATION_VECTOR) return
+        SensorManager.getRotationMatrixFromVector(compassRotationMatrix, event.values)
+        SensorManager.getOrientation(compassRotationMatrix, compassOrientation)
+        var heading = Math.toDegrees(compassOrientation[0].toDouble()).toFloat()
+        val point = displayedPosition()
+        if (point != null) {
+            heading += GeomagneticField(
+                point.latitude.toFloat(),
+                point.longitude.toFloat(),
+                (point.elevationMeters ?: 0.0).toFloat(),
+                System.currentTimeMillis(),
+            ).declination
+        }
+        val smoothed = headingSmoother.update(heading)
+        val previous = latestCompassHeadingDegrees
+        if (previous != null && HeadingSmoother.angularDistance(previous, smoothed) < MIN_HEADING_UPDATE_DEGREES) {
+            return
+        }
+        latestCompassHeadingDegrees = smoothed
+        renderUserPosition()
+    }
+
+    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
+
+    private fun startCompassUpdates() {
+        rotationVectorSensor?.let {
+            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI)
+        }
+    }
+
+    private fun stopCompassUpdates() {
+        sensorManager.unregisterListener(this)
+        headingSmoother.reset()
+        latestCompassHeadingDegrees = null
+    }
+
     private fun toast(message: String) = Toast.makeText(this, message, Toast.LENGTH_LONG).show()
 
     override fun onStart() { super.onStart(); binding.mapView.onStart() }
-    override fun onResume() { super.onResume(); binding.mapView.onResume() }
-    override fun onPause() { binding.mapView.onPause(); super.onPause() }
+    override fun onResume() {
+        super.onResume()
+        binding.mapView.onResume()
+        startCompassUpdates()
+        if (hasLocationPermission()) {
+            startVisibleLocationUpdates()
+            locateUser(centerAfterFix = false)
+        }
+    }
+    override fun onPause() {
+        stopCompassUpdates()
+        stopVisibleLocationUpdates()
+        locationRequestSignals.forEach(CancellationSignal::cancel)
+        locationRequestSignals.clear()
+        binding.mapView.onPause()
+        super.onPause()
+    }
     override fun onStop() { binding.mapView.onStop(); super.onStop() }
     override fun onLowMemory() { super.onLowMemory(); binding.mapView.onLowMemory() }
     override fun onDestroy() {
@@ -935,10 +1124,16 @@ class MainActivity : AppCompatActivity() {
         private const val INTERPOLATED_TRACK_SOURCE = "interpolated-track-source"
         private const val INTERPOLATED_TRACK_LAYER = "interpolated-track-layer"
         private const val POSITION_SOURCE = "position-source"
+        private const val POSITION_HALO_LAYER = "position-halo-layer"
         private const val POSITION_LAYER = "position-layer"
+        private const val POSITION_DIRECTION_SOURCE = "position-direction-source"
+        private const val POSITION_DIRECTION_LAYER = "position-direction-layer"
+        private const val POSITION_DIRECTION_ICON = "position-direction-icon"
         private const val OFF_ROUTE_THRESHOLD_METERS = 50.0
         private const val STALE_LOCATION_MINUTES = 2
         private const val SIGNIFICANT_LOCATION_TIME_MILLIS = 120_000L
+        private const val MIN_DIRECTION_SPEED_METERS_PER_SECOND = 0.6f
+        private const val MIN_HEADING_UPDATE_DEGREES = 1f
         private const val CIRCULAR_ROUTE_ENDPOINT_DISTANCE_METERS = 50.0
         private const val ROUTE_FINISHED_DISTANCE_METERS = 25.0
         private const val ROUTE_LOADED_BADGE_MILLIS = 3_000L

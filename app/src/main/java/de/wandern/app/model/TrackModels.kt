@@ -8,6 +8,7 @@ data class TrackPoint(
     val accuracyMeters: Float? = null,
     val speedMetersPerSecond: Float? = null,
     val isInterpolated: Boolean = false,
+    val bearingDegrees: Float? = null,
 )
 
 object GpsQuality {
