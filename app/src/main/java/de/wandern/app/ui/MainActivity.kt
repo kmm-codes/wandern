@@ -170,7 +170,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     private val restoreRouteStatusRunnable = Runnable {
         if (!::binding.isInitialized) return@Runnable
         renderLocationStatus(
-            latestSnapshot.latestPoint ?: latestLocatedPoint,
+            latestSnapshot.latestObservedPoint ?: latestSnapshot.latestPoint ?: latestLocatedPoint,
             latestSnapshot.gpsGapActive,
         )
     }
@@ -512,11 +512,12 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         renderStats(snapshot.stats, currentSpeed)
         snapshot.latestPoint?.let { point ->
             latestLocatedPoint = point
-            renderGpsStatus(point)
             if (followLocation && snapshot.state == RecordingState.RECORDING) centerOn(point, USER_FOCUS_ZOOM)
         }
+        val observedPoint = snapshot.latestObservedPoint ?: snapshot.latestPoint
+        observedPoint?.let(::renderGpsStatus)
         snapshot.errorMessage?.let { toast(it) }
-        renderLocationStatus(snapshot.latestPoint ?: latestLocatedPoint, snapshot.gpsGapActive)
+        renderLocationStatus(observedPoint ?: latestLocatedPoint, snapshot.gpsGapActive)
         renderRouteProgress(snapshot.latestPoint ?: latestLocatedPoint)
         redrawTracks()
     }

@@ -24,9 +24,14 @@ import de.wandern.app.model.AutoPauseDetector
 import de.wandern.app.model.AutoPauseTransition
 import de.wandern.app.model.ActivityType
 import de.wandern.app.model.GeoMath
+import de.wandern.app.model.GpsGapAction
 import de.wandern.app.model.GpsGapInterpolator
-import de.wandern.app.model.GpsQuality
+import de.wandern.app.model.GpsGapPolicy
 import de.wandern.app.model.GpxTrack
+import de.wandern.app.model.LocationSample
+import de.wandern.app.model.LocationSampleDecision
+import de.wandern.app.model.LocationSamplePipeline
+import de.wandern.app.model.LocationSampleSource
 import de.wandern.app.model.RecordingState
 import de.wandern.app.model.RouteDeviationEvent
 import de.wandern.app.model.RouteDeviationMonitor
@@ -45,20 +50,25 @@ class TrackingService : Service(), LocationListener {
     private var sessionId: Long? = null
     private var segmentIndex = 0
     private var lastAcceptedPoint: TrackPoint? = null
+    private var lastAcceptedElapsedRealtimeMillis: Long? = null
+    private var lastTrustedPoint: TrackPoint? = null
     private var lastObservedPoint: TrackPoint? = null
     private var gpsGapActive = false
     private var autoPaused = false
     private val autoPauseDetector = AutoPauseDetector()
     private var activityType = ActivityType.HIKING
+    private var locationPipeline = LocationSamplePipeline(activityType)
     private var activeRoute: GpxTrack? = null
     private var routeDeviationMeters: Double? = null
     private var confirmedOffRoute = false
     private val routeDeviationMonitor = RouteDeviationMonitor()
+    private var bootEpochOffsetMillis = 0L
 
     override fun onCreate() {
         super.onCreate()
         locationManager = getSystemService(LOCATION_SERVICE) as LocationManager
         trackStore = TrackStore(this)
+        bootEpochOffsetMillis = System.currentTimeMillis() - SystemClock.elapsedRealtime()
         createNotificationChannel()
     }
 
@@ -83,48 +93,83 @@ class TrackingService : Service(), LocationListener {
 
     override fun onLocationChanged(location: Location) {
         if (_snapshots.value.state != RecordingState.RECORDING) return
+        val elapsedRealtimeMillis = location.elapsedRealtimeNanos / 1_000_000L
         val point = TrackPoint(
             latitude = location.latitude,
             longitude = location.longitude,
             elevationMeters = location.altitude.takeIf { location.hasAltitude() },
-            timeMillis = location.time.takeIf { it > 0 } ?: System.currentTimeMillis(),
+            timeMillis = bootEpochOffsetMillis + elapsedRealtimeMillis,
             accuracyMeters = location.accuracy,
             speedMetersPerSecond = location.speed.takeIf { location.hasSpeed() },
             bearingDegrees = location.bearing.takeIf { location.hasBearing() },
         )
-        val observedTime = lastObservedPoint?.timeMillis
-        if (observedTime != null && (point.timeMillis ?: 0L) < observedTime) return
         lastObservedPoint = point
-        if (location.accuracy > GpsQuality.RELIABLE_ACCURACY_METERS) {
-            gpsGapActive = !autoPaused && lastAcceptedPoint != null
-            publishObservedLocation(point)
+        val decision = locationPipeline.process(
+            LocationSample(
+                point = point,
+                elapsedRealtimeMillis = elapsedRealtimeMillis,
+                source = location.sampleSource(),
+            ),
+        )
+        handleLocationDecision(decision, point)
+    }
+
+    private fun handleLocationDecision(decision: LocationSampleDecision, observedPoint: TrackPoint) {
+        if (decision.trustedSamples.isEmpty()) {
+            if (decision.marksGpsGap) {
+                gpsGapActive = !autoPaused && lastTrustedPoint != null
+            }
+            publishObservedLocation(observedPoint)
             return
         }
+        if (decision.startNewSegment) startNewTrackSegment()
+        decision.trustedSamples.forEach(::processTrustedSample)
+    }
 
+    private fun processTrustedSample(sample: LocationSample) {
+        val point = sample.point
+        lastTrustedPoint = point
         updateRouteDeviation(point)
 
-        val autoPauseUpdate = autoPauseDetector.update(point, SystemClock.elapsedRealtime())
+        val autoPauseUpdate = autoPauseDetector.update(point, sample.elapsedRealtimeMillis)
         autoPaused = autoPauseUpdate.autoPaused
         if (autoPauseUpdate.transition == AutoPauseTransition.RESUMED) {
             // A stationary interval is not a GPS gap and must never be interpolated.
             lastAcceptedPoint = null
-            segmentIndex += 1
-            sessionId?.let { trackStore.updateState(it, RecordingState.RECORDING, segmentIndex) }
+            lastAcceptedElapsedRealtimeMillis = null
+            startNewTrackSegment()
         }
         if ((autoPaused || autoPauseUpdate.stationaryEvidence) && lastAcceptedPoint != null) {
             gpsGapActive = false
-            publishObservedLocation(point)
+            publishTrustedLocation(point)
             if (autoPauseUpdate.transition != AutoPauseTransition.NONE) updateNotification()
             return
         }
 
-        val previous = lastAcceptedPoint
+        var previous = lastAcceptedPoint
+        val previousElapsedRealtime = lastAcceptedElapsedRealtimeMillis
+        val gapAction = if (previous != null && previousElapsedRealtime != null) {
+            GpsGapPolicy.decide(
+                previous = previous,
+                current = point,
+                elapsedMillis = sample.elapsedRealtimeMillis - previousElapsedRealtime,
+                activityType = activityType,
+                interpolationThresholdMillis = GPS_GAP_THRESHOLD_MILLIS,
+                maximumInterpolationMillis = MAX_INTERPOLATED_GAP_MILLIS,
+            )
+        } else {
+            GpsGapAction.NONE
+        }
+        if (gapAction == GpsGapAction.START_NEW_SEGMENT) {
+            startNewTrackSegment()
+            previous = null
+        }
         if (previous != null) {
             val distance = GeoMath.distanceMeters(previous, point)
-            val elapsed = (point.timeMillis ?: 0L) - (previous.timeMillis ?: 0L)
+            val elapsed = previousElapsedRealtime?.let { sample.elapsedRealtimeMillis - it } ?: Long.MAX_VALUE
             if (distance < MIN_DISTANCE_METERS && elapsed < MAX_STATIONARY_INTERVAL_MILLIS) {
                 gpsGapActive = false
-                publishObservedLocation(point)
+                publishTrustedLocation(point)
                 return
             }
         }
@@ -132,8 +177,7 @@ class TrackingService : Service(), LocationListener {
         val activeSessionId = sessionId ?: return
         runCatching {
             val interpolated = previous?.let {
-                val elapsed = (point.timeMillis ?: 0L) - (it.timeMillis ?: 0L)
-                if (elapsed >= GPS_GAP_THRESHOLD_MILLIS) {
+                if (gapAction == GpsGapAction.INTERPOLATE) {
                     GpsGapInterpolator.between(it, point)
                 } else {
                     emptyList()
@@ -141,10 +185,24 @@ class TrackingService : Service(), LocationListener {
             }.orEmpty()
             trackStore.appendPoints(activeSessionId, segmentIndex, interpolated + point)
             lastAcceptedPoint = point
+            lastAcceptedElapsedRealtimeMillis = sample.elapsedRealtimeMillis
             gpsGapActive = false
             publishSnapshot(RecordingState.RECORDING)
             updateNotification()
         }.onFailure { publishError("Punkt konnte nicht gespeichert werden: ${it.localizedMessage}") }
+    }
+
+    private fun startNewTrackSegment() {
+        segmentIndex += 1
+        lastAcceptedPoint = null
+        lastAcceptedElapsedRealtimeMillis = null
+        sessionId?.let { trackStore.updateState(it, RecordingState.RECORDING, segmentIndex) }
+    }
+
+    private fun Location.sampleSource(): LocationSampleSource = when (provider) {
+        LocationManager.GPS_PROVIDER -> LocationSampleSource.GPS
+        LocationManager.NETWORK_PROVIDER -> LocationSampleSource.NETWORK
+        else -> LocationSampleSource.OTHER
     }
 
     @Deprecated("Deprecated in Java")
@@ -172,9 +230,13 @@ class TrackingService : Service(), LocationListener {
             return
         }
         activityType = requestedActivityType
+        locationPipeline.setActivityType(activityType)
+        locationPipeline.reset()
         sessionId = trackStore.createSession(routeName, routeReference, activityType)
         segmentIndex = 0
         lastAcceptedPoint = null
+        lastAcceptedElapsedRealtimeMillis = null
+        lastTrustedPoint = null
         lastObservedPoint = null
         gpsGapActive = false
         autoPaused = false
@@ -197,14 +259,13 @@ class TrackingService : Service(), LocationListener {
     }
 
     private fun resumeRecording() {
-        val id = sessionId ?: return
-        segmentIndex += 1
-        lastAcceptedPoint = null
+        if (sessionId == null) return
+        startNewTrackSegment()
+        locationPipeline.reset()
         gpsGapActive = false
         autoPaused = false
         autoPauseDetector.reset()
         resetRouteDeviationState()
-        trackStore.updateState(id, RecordingState.RECORDING, segmentIndex)
         publishSnapshot(RecordingState.RECORDING)
         startAsForeground()
         requestLocationUpdates()
@@ -226,12 +287,15 @@ class TrackingService : Service(), LocationListener {
             state = RecordingState.FINISHED,
             track = track,
             stats = TrackAnalyzer.calculate(track),
-            latestPoint = lastObservedPoint ?: track.points.lastOrNull(),
+            latestPoint = lastTrustedPoint ?: track.points.lastOrNull(),
+            latestObservedPoint = lastObservedPoint,
             savedTrackPath = file.absolutePath,
             activityType = activityType,
         )
         sessionId = null
         activityType = ActivityType.HIKING
+        locationPipeline.setActivityType(activityType)
+        locationPipeline.reset()
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
@@ -248,16 +312,22 @@ class TrackingService : Service(), LocationListener {
         }
         sessionId = null
         lastAcceptedPoint = null
+        lastAcceptedElapsedRealtimeMillis = null
+        lastTrustedPoint = null
         lastObservedPoint = null
         gpsGapActive = false
         autoPaused = false
         autoPauseDetector.reset()
+        locationPipeline.reset()
         _snapshots.value = TrackingSnapshot()
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
 
     private fun restoreAfterProcessRestart() {
+        // Activity recreation must not reset an already running filter or register the listener
+        // again. A new service instance has no session id and restores from persistent storage.
+        if (sessionId != null) return
         val active = trackStore.activeSession() ?: run {
             stopSelf()
             return
@@ -268,12 +338,16 @@ class TrackingService : Service(), LocationListener {
     private fun restoreActiveSession(active: TrackStore.SessionInfo) {
         sessionId = active.id
         activityType = active.activityType
+        locationPipeline.setActivityType(activityType)
         segmentIndex = active.segmentIndex
         lastAcceptedPoint = trackStore.loadTrack(active.id).segments.lastOrNull()?.lastOrNull()
+        lastAcceptedElapsedRealtimeMillis = null
+        lastTrustedPoint = lastAcceptedPoint
         lastObservedPoint = lastAcceptedPoint
         gpsGapActive = false
         autoPaused = false
         autoPauseDetector.reset()
+        locationPipeline.reset(lastAcceptedPoint)
         configureRoute(active.routeReference)
         publishSnapshot(active.state)
         if (active.state == RecordingState.RECORDING) {
@@ -314,7 +388,8 @@ class TrackingService : Service(), LocationListener {
             state = state,
             track = track,
             stats = TrackAnalyzer.calculate(track),
-            latestPoint = lastObservedPoint ?: track.points.lastOrNull(),
+            latestPoint = lastTrustedPoint ?: track.points.lastOrNull(),
+            latestObservedPoint = lastObservedPoint,
             gpsGapActive = gpsGapActive,
             autoPaused = autoPaused,
             routeDeviationMeters = routeDeviationMeters,
@@ -325,7 +400,19 @@ class TrackingService : Service(), LocationListener {
 
     private fun publishObservedLocation(point: TrackPoint) {
         _snapshots.value = _snapshots.value.copy(
+            latestObservedPoint = point,
+            errorMessage = null,
+            gpsGapActive = gpsGapActive,
+            autoPaused = autoPaused,
+            routeDeviationMeters = routeDeviationMeters,
+            confirmedOffRoute = confirmedOffRoute,
+        )
+    }
+
+    private fun publishTrustedLocation(point: TrackPoint) {
+        _snapshots.value = _snapshots.value.copy(
             latestPoint = point,
+            latestObservedPoint = lastObservedPoint ?: point,
             errorMessage = null,
             gpsGapActive = gpsGapActive,
             autoPaused = autoPaused,
@@ -500,6 +587,7 @@ class TrackingService : Service(), LocationListener {
         private const val MIN_DISTANCE_METERS = 2.5
         private const val MAX_STATIONARY_INTERVAL_MILLIS = 10_000L
         private const val GPS_GAP_THRESHOLD_MILLIS = 15_000L
+        private const val MAX_INTERPOLATED_GAP_MILLIS = 90_000L
 
         private val _snapshots = MutableStateFlow(TrackingSnapshot())
         val snapshots: StateFlow<TrackingSnapshot> = _snapshots.asStateFlow()

@@ -76,6 +76,7 @@ data class TrackingSnapshot(
     val track: GpxTrack = GpxTrack.empty(),
     val stats: TrackStats = TrackStats(),
     val latestPoint: TrackPoint? = null,
+    val latestObservedPoint: TrackPoint? = null,
     val savedTrackPath: String? = null,
     val errorMessage: String? = null,
     val gpsGapActive: Boolean = false,
