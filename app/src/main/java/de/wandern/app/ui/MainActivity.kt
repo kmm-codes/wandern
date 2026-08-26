@@ -462,6 +462,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
 
     private fun restoreActiveRecording() {
         val activeSession = trackStore.activeSession() ?: return
+        activeSession.routeReference?.let(::restoreActiveRoute)
         val intent = Intent(this, TrackingService::class.java)
             .setAction(TrackingService.ACTION_RESTORE)
         if (activeSession.state == RecordingState.RECORDING) {
@@ -470,6 +471,29 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             startService(intent)
         }
         binding.root.post(::requestRecordingNotificationPermission)
+    }
+
+    private fun restoreActiveRoute(reference: String) {
+        if (importedTrackReference == reference) return
+        lifecycleScope.launch {
+            val result = runCatching {
+                withContext(Dispatchers.IO) { trackStore.loadStoredTrack(reference) }
+            }
+            result.onSuccess { track ->
+                val activeRouteReference = trackStore.activeSession()?.routeReference
+                if (activeRouteReference == reference) {
+                    displayTrack(
+                        track = track,
+                        reference = reference,
+                        askForOfflineDownload = false,
+                        announce = false,
+                        frameTrack = false,
+                    )
+                }
+            }.onFailure {
+                Log.e(LOG_TAG, "Active route could not be restored: $reference", it)
+            }
+        }
     }
 
     private fun renderSnapshot(snapshot: TrackingSnapshot) {
@@ -744,21 +768,29 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         }
     }
 
-    private fun displayTrack(track: GpxTrack, reference: String?, askForOfflineDownload: Boolean) {
+    private fun displayTrack(
+        track: GpxTrack,
+        reference: String?,
+        askForOfflineDownload: Boolean,
+        announce: Boolean = true,
+        frameTrack: Boolean = true,
+    ) {
         initialRegionFramingComplete = true
         importedTrack = track
         offlineMapIdentityTrack = track
         importedTrackReference = reference
         routeProgressTracker = RouteProgressTracker(track)
         renderMoreButtonVisibility()
-        showRouteStatus(
-            getString(R.string.route_points_loaded, track.points.size),
-            R.color.forest_900,
-            ROUTE_LOADED_BADGE_MILLIS,
-        )
+        if (announce) {
+            showRouteStatus(
+                getString(R.string.route_points_loaded, track.points.size),
+                R.color.forest_900,
+                ROUTE_LOADED_BADGE_MILLIS,
+            )
+        }
         renderRouteProgress(latestSnapshot.latestPoint ?: latestLocatedPoint)
         redrawTracks()
-        fitTrack(track)
+        if (frameTrack) fitTrack(track)
         if (askForOfflineDownload) askToDownloadOfflineMap(track)
     }
 
