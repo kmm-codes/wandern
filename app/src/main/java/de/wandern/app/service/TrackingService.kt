@@ -27,6 +27,7 @@ import de.wandern.app.model.GeoMath
 import de.wandern.app.model.GpsGapAction
 import de.wandern.app.model.GpsGapInterpolator
 import de.wandern.app.model.GpsGapPolicy
+import de.wandern.app.model.GpsQualityWarningMonitor
 import de.wandern.app.model.GpxTrack
 import de.wandern.app.model.LocationSample
 import de.wandern.app.model.LocationSampleDecision
@@ -54,6 +55,7 @@ class TrackingService : Service(), LocationListener {
     private var lastTrustedPoint: TrackPoint? = null
     private var lastObservedPoint: TrackPoint? = null
     private var gpsGapActive = false
+    private val gpsQualityWarningMonitor = GpsQualityWarningMonitor()
     private var autoPaused = false
     private val autoPauseDetector = AutoPauseDetector()
     private var activityType = ActivityType.HIKING
@@ -115,9 +117,20 @@ class TrackingService : Service(), LocationListener {
     }
 
     private fun handleLocationDecision(decision: LocationSampleDecision, observedPoint: TrackPoint) {
+        val warningConfirmed = when {
+            decision.trustedSamples.isNotEmpty() -> gpsQualityWarningMonitor.update(
+                isPoor = false,
+                sampleMillis = observedPoint.timeMillis ?: System.currentTimeMillis(),
+            )
+            decision.marksGpsGap -> gpsQualityWarningMonitor.update(
+                isPoor = true,
+                sampleMillis = observedPoint.timeMillis ?: System.currentTimeMillis(),
+            )
+            else -> gpsGapActive
+        }
         if (decision.trustedSamples.isEmpty()) {
             if (decision.marksGpsGap) {
-                gpsGapActive = !autoPaused && lastTrustedPoint != null
+                gpsGapActive = !autoPaused && lastTrustedPoint != null && warningConfirmed
             }
             publishObservedLocation(observedPoint)
             return
@@ -239,6 +252,7 @@ class TrackingService : Service(), LocationListener {
         lastTrustedPoint = null
         lastObservedPoint = null
         gpsGapActive = false
+        gpsQualityWarningMonitor.reset()
         autoPaused = false
         autoPauseDetector.reset()
         configureRoute(routeReference)
@@ -251,6 +265,7 @@ class TrackingService : Service(), LocationListener {
         val id = sessionId ?: return
         removeLocationUpdates()
         gpsGapActive = false
+        gpsQualityWarningMonitor.reset()
         autoPaused = false
         autoPauseDetector.reset()
         trackStore.updateState(id, RecordingState.PAUSED)
@@ -263,6 +278,7 @@ class TrackingService : Service(), LocationListener {
         startNewTrackSegment()
         locationPipeline.reset()
         gpsGapActive = false
+        gpsQualityWarningMonitor.reset()
         autoPaused = false
         autoPauseDetector.reset()
         resetRouteDeviationState()
@@ -316,6 +332,7 @@ class TrackingService : Service(), LocationListener {
         lastTrustedPoint = null
         lastObservedPoint = null
         gpsGapActive = false
+        gpsQualityWarningMonitor.reset()
         autoPaused = false
         autoPauseDetector.reset()
         locationPipeline.reset()
@@ -345,6 +362,7 @@ class TrackingService : Service(), LocationListener {
         lastTrustedPoint = lastAcceptedPoint
         lastObservedPoint = lastAcceptedPoint
         gpsGapActive = false
+        gpsQualityWarningMonitor.reset()
         autoPaused = false
         autoPauseDetector.reset()
         locationPipeline.reset(lastAcceptedPoint)

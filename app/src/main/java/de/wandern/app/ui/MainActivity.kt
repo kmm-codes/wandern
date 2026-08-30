@@ -59,6 +59,7 @@ import de.wandern.app.model.GeoMath
 import de.wandern.app.model.ActivityType
 import de.wandern.app.model.GpxTrack
 import de.wandern.app.model.GpsQuality
+import de.wandern.app.model.GpsQualityWarningMonitor
 import de.wandern.app.model.HeadingSmoother
 import de.wandern.app.model.HikingFitnessLevel
 import de.wandern.app.model.MapPoiPresenter
@@ -162,6 +163,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     private var recordingDetailsExpanded = false
     private var lastRenderedRecordingState = RecordingState.IDLE
     private val speedSmoother = SpeedSmoother()
+    private val gpsQualityWarningMonitor = GpsQualityWarningMonitor()
     private val compassRotationMatrix = FloatArray(9)
     private val compassOrientation = FloatArray(3)
     private val routeEndpointMarkers = mutableListOf<Marker>()
@@ -667,6 +669,10 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     private fun renderLocationStatus(point: TrackPoint?, gpsGapActive: Boolean) {
         if (offlineDownloadInProgress) return
         val accuracy = point?.accuracyMeters
+        val inaccurate = accuracy != null && accuracy > GpsQuality.RELIABLE_ACCURACY_METERS
+        val warningConfirmed = point?.timeMillis?.let { sampleMillis ->
+            gpsQualityWarningMonitor.update(inaccurate, sampleMillis)
+        } ?: false
         when {
             gpsGapActive -> showRouteStatus(getString(R.string.gps_gap_recording), R.color.warning)
             point != null && locationAgeMinutes(point) >= STALE_LOCATION_MINUTES -> {
@@ -675,12 +681,13 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
                     R.color.warning,
                 )
             }
-            accuracy != null && accuracy > GpsQuality.RELIABLE_ACCURACY_METERS -> {
+            inaccurate && warningConfirmed -> {
                 showRouteStatus(
                     getString(R.string.gps_position_uncertain, accuracy.toInt()),
                     R.color.warning,
                 )
             }
+            inaccurate -> Unit
             else -> renderRouteStatus(point)
         }
     }
@@ -1078,6 +1085,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     }
 
     private fun requestRecordingStart() {
+        gpsQualityWarningMonitor.reset()
         val types = ActivityType.entries.toTypedArray()
         val preferredType = importedTrack?.activityType ?: activityPreferences.defaultType
         var selectedIndex = types.indexOf(preferredType).coerceAtLeast(0)
