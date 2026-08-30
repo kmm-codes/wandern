@@ -443,7 +443,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             maybeShowCompassCalibrationHint()
         }
         binding.centerButton.setOnLongClickListener {
-            showCompassCalibrationDialog()
+            startActivity(Intent(this, CompassCalibrationActivity::class.java))
             true
         }
         renderMoreButtonVisibility()

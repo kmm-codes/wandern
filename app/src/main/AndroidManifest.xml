@@ -43,6 +43,11 @@
             android:screenOrientation="portrait" />
 
         <activity
+            android:name=".ui.CompassCalibrationActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+
+        <activity
             android:name=".ui.TourDetailActivity"
             android:exported="false"
             android:screenOrientation="portrait" />
