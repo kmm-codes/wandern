@@ -166,6 +166,7 @@
     <string name="reverse_route">Route umkehren</string>
     <string name="route_reversed">Routenrichtung umgekehrt · gespeicherte GPX bleibt unverändert</string>
     <string name="route_entry_title">Wo möchtest du in die Route einsteigen?</string>
+    <string name="route_entry_section_title">Routeneinstieg</string>
     <string name="route_entry_official_start">Am offiziellen Start</string>
     <string name="route_entry_nearest_point">Am nächsten Routenpunkt</string>
     <string name="route_entry_recommended">%1$s · empfohlen</string>

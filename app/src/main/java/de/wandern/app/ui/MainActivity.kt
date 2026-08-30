@@ -54,6 +54,7 @@ import de.wandern.app.data.OfflineMapDownloader
 import de.wandern.app.data.OfflineMapStatus
 import de.wandern.app.data.TrackStore
 import de.wandern.app.databinding.ActivityMainBinding
+import de.wandern.app.databinding.DialogRecordingStartCheckBinding
 import de.wandern.app.model.GeoMath
 import de.wandern.app.model.ActivityType
 import de.wandern.app.model.GpxTrack
@@ -1090,45 +1091,107 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             .setPositiveButton(R.string.continue_action) { _, _ ->
                 selectedActivityType = types[selectedIndex]
                 activityPreferences.defaultType = selectedActivityType
-                requestRouteEntry()
+                showCombinedStartCheck()
             }
             .show()
     }
 
-    private fun requestRouteEntry() {
+    private fun showCombinedStartCheck() {
         val route = importedTrack
         if (route == null) {
-            beginRecordingStart(null)
+            showCombinedStartCheckDialog(null, null, null, null)
             return
         }
         val assessment = reliableStartPosition()?.let { RouteStartAssessor.assess(route, it) }
-        val modes = arrayOf(RouteEntryMode.OFFICIAL_START, RouteEntryMode.NEAREST_POINT)
-        var selectedIndex = modes.indexOf(
-            assessment?.recommendedEntryMode ?: RouteEntryMode.OFFICIAL_START,
-        ).coerceAtLeast(0)
-        val labels = modes.map { mode ->
-            val label = getString(
-                if (mode == RouteEntryMode.OFFICIAL_START) {
-                    R.string.route_entry_official_start
+        val initialMode = assessment?.recommendedEntryMode ?: RouteEntryMode.OFFICIAL_START
+        offlineMapDownloader.status(offlineMapIdentityTrack ?: route) { status ->
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                showCombinedStartCheckDialog(route, status, assessment, initialMode)
+            }
+        }
+    }
+
+    private fun showCombinedStartCheckDialog(
+        route: GpxTrack?,
+        offlineStatus: OfflineMapStatus?,
+        assessment: RouteStartAssessment?,
+        initialMode: RouteEntryMode?,
+    ) {
+        val dialogBinding = DialogRecordingStartCheckBinding.inflate(layoutInflater)
+        var routeEntryMode = initialMode
+        if (route != null) {
+            dialogBinding.routeEntryContainer.visibility = View.VISIBLE
+            dialogBinding.routeEntryMessage.text = routeEntryMessage(assessment)
+            dialogBinding.officialStartButton.text = routeEntryLabel(
+                RouteEntryMode.OFFICIAL_START,
+                assessment,
+            )
+            dialogBinding.nearestPointButton.text = routeEntryLabel(
+                RouteEntryMode.NEAREST_POINT,
+                assessment,
+            )
+            dialogBinding.routeEntryGroup.check(
+                if (initialMode == RouteEntryMode.NEAREST_POINT) {
+                    R.id.nearestPointButton
                 } else {
-                    R.string.route_entry_nearest_point
+                    R.id.officialStartButton
                 },
             )
-            if (mode == assessment?.recommendedEntryMode) {
-                getString(R.string.route_entry_recommended, label)
-            } else {
-                label
-            }
-        }.toTypedArray()
-        MaterialAlertDialogBuilder(this)
-            .setTitle(R.string.route_entry_title)
-            .setMessage(routeEntryMessage(assessment))
-            .setSingleChoiceItems(labels, selectedIndex) { _, which -> selectedIndex = which }
+        }
+
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.start_check_title)
+            .setView(dialogBinding.root)
             .setNegativeButton(R.string.cancel, null)
-            .setPositiveButton(R.string.continue_action) { _, _ ->
-                beginRecordingStart(modes[selectedIndex])
+            .setPositiveButton(R.string.start_recording, null)
+            .create()
+
+        fun renderStartCheck() {
+            val lines = buildStartCheckLines(route, offlineStatus, routeEntryMode)
+            val hasWarnings = lines.any(StartCheckLine::warning)
+            dialogBinding.startCheckText.text = lines.joinToString("\n\n") { line ->
+                "${if (line.warning) "⚠" else "✓"}  ${line.text}"
             }
-            .show()
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setText(
+                if (hasWarnings) R.string.start_despite_warnings else R.string.start_recording,
+            )
+        }
+
+        dialog.setOnShowListener {
+            renderStartCheck()
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                beginRecordingStart(routeEntryMode)
+                dialog.dismiss()
+            }
+        }
+        dialogBinding.routeEntryGroup.setOnCheckedChangeListener { _, checkedId ->
+            routeEntryMode = if (checkedId == R.id.nearestPointButton) {
+                RouteEntryMode.NEAREST_POINT
+            } else {
+                RouteEntryMode.OFFICIAL_START
+            }
+            renderStartCheck()
+        }
+        dialog.show()
+    }
+
+    private fun routeEntryLabel(
+        mode: RouteEntryMode,
+        assessment: RouteStartAssessment?,
+    ): String {
+        val label = getString(
+            if (mode == RouteEntryMode.OFFICIAL_START) {
+                R.string.route_entry_official_start
+            } else {
+                R.string.route_entry_nearest_point
+            },
+        )
+        return if (mode == assessment?.recommendedEntryMode) {
+            getString(R.string.route_entry_recommended, label)
+        } else {
+            label
+        }
     }
 
     private fun reliableStartPosition(): TrackPoint? = displayedPosition()?.takeIf { position ->
@@ -1172,36 +1235,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             )
             renderRouteProgress(latestSnapshot.latestPoint ?: latestLocatedPoint)
         }
-        showStartCheck(routeEntryMode, ::startRecordingWithPermissions)
-    }
-
-    private fun showStartCheck(routeEntryMode: RouteEntryMode?, onStart: () -> Unit) {
-        val route = importedTrack
-        if (route == null) {
-            showStartCheckDialog(buildStartCheckLines(null, null, null), onStart)
-            return
-        }
-        offlineMapDownloader.status(offlineMapIdentityTrack ?: route) { status ->
-            runOnUiThread {
-                if (isFinishing || isDestroyed) return@runOnUiThread
-                showStartCheckDialog(buildStartCheckLines(route, status, routeEntryMode), onStart)
-            }
-        }
-    }
-
-    private fun showStartCheckDialog(lines: List<StartCheckLine>, onStart: () -> Unit) {
-        val hasWarnings = lines.any(StartCheckLine::warning)
-        val message = lines.joinToString("\n\n") { line ->
-            "${if (line.warning) "⚠" else "✓"}  ${line.text}"
-        }
-        MaterialAlertDialogBuilder(this)
-            .setTitle(R.string.start_check_title)
-            .setMessage(message)
-            .setNegativeButton(R.string.cancel, null)
-            .setPositiveButton(
-                if (hasWarnings) R.string.start_despite_warnings else R.string.start_recording,
-            ) { _, _ -> onStart() }
-            .show()
+        startRecordingWithPermissions()
     }
 
     private fun buildStartCheckLines(
