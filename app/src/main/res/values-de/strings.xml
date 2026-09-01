@@ -47,10 +47,10 @@
     <string name="compass_calibration_checking_message">Halte das Handy kurz ruhig und gerade. Android übernimmt eine neue Magnetometer-Kalibrierung häufig erst nach einem Sensor-Neustart.</string>
     <string name="compass_calibration_checking_button">Sensor wird geprüft…</string>
     <string name="compass_calibration_repeat_figure_eight">Achter wiederholen</string>
-    <string name="compass_calibration_live_preview">Live-Prüfung: Die Karte bleibt nach Norden ausgerichtet. Drehe dich mit flach gehaltenem Handy: Der blaue Pfeil muss sich sichtbar auf der Karte mitdrehen. Vergleiche ihn mit einer bekannten Straße oder einem Ziel vor dir.</string>
+    <string name="compass_calibration_live_preview">Live-Prüfung: Stelle dich an einen geraden Weg und schaue in dessen Richtung. Halte das Handy flach. Der blaue Pfeil muss auf der Karte entlang des Weges in deine Blickrichtung zeigen. Drehe dich anschließend um 180°: Jetzt muss er in die Gegenrichtung zeigen.</string>
     <string name="compass_calibration_step_complete">Fertig</string>
     <string name="compass_calibration_complete_title">Kompass geprüft</string>
-    <string name="compass_calibration_complete_message">Android meldet wieder eine brauchbare Sensorgenauigkeit. Prüfe auf der nach Norden ausgerichteten Karte, ob der blaue Pfeil in eine bekannte Richtung zeigt und sich beim Drehen mitbewegt.</string>
+    <string name="compass_calibration_complete_message">Android meldet wieder eine brauchbare Sensorgenauigkeit. Prüfe den Pfeil an einem geraden Weg: Er muss entlang des Weges in deine Blickrichtung und nach einer Drehung um 180° in die Gegenrichtung zeigen.</string>
     <string name="compass_calibration_done">Zur Karte</string>
     <string name="open_gpx">GPX öffnen</string>
     <string name="record">Aufzeichnen</string>
