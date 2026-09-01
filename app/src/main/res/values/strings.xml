@@ -294,6 +294,7 @@
     <string name="chart_hold_hint">Press and drag for exact values</string>
     <string name="elevation_data_attribution">Added elevation data: Copernicus DEM GLO-90 via &lt;a href="https://open-meteo.com/"&gt;Open-Meteo&lt;/a&gt;</string>
     <string name="no_elevation_data">No elevation data in this GPX file</string>
+    <string name="recording_no_elevation_data">No elevation data available yet</string>
     <string name="no_time_data_for_speed">No timestamps — speed cannot be calculated</string>
     <string name="no_speed_data">No speed profile available</string>
     <string name="tour_statistics_error">Could not load statistics: %1$s</string>

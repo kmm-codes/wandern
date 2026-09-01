@@ -54,6 +54,10 @@ class RecordingRecoveryFlowTest {
                         "0 %",
                         activity.findViewById<TextView>(R.id.recordingRouteProgressText).text.toString(),
                     )
+                    assertEquals(
+                        View.VISIBLE,
+                        activity.findViewById<View>(R.id.recordingElevationChart).visibility,
+                    )
                 }
             }
         } finally {

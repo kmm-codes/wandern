@@ -295,6 +295,7 @@
     <string name="chart_hold_hint">Gedrückt halten und ziehen für genaue Werte</string>
     <string name="elevation_data_attribution">Ergänzte Höhendaten: Copernicus DEM GLO-90 über &lt;a href="https://open-meteo.com/"&gt;Open-Meteo&lt;/a&gt;</string>
     <string name="no_elevation_data">Keine Höhendaten in dieser GPX-Datei</string>
+    <string name="recording_no_elevation_data">Noch keine Höhendaten verfügbar</string>
     <string name="no_time_data_for_speed">Keine Zeitstempel – Geschwindigkeit nicht berechenbar</string>
     <string name="no_speed_data">Kein Geschwindigkeitsverlauf verfügbar</string>
     <string name="tour_statistics_error">Statistiken konnten nicht geladen werden: %1$s</string>

@@ -47,6 +47,13 @@ class ProfileChartView @JvmOverloads constructor(
         color = Color.parseColor("#F26B38")
         strokeWidth = 2f * density
     }
+    private val progressPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#F26B38")
+        style = Paint.Style.STROKE
+        strokeWidth = 3.5f * density
+        strokeJoin = Paint.Join.ROUND
+        strokeCap = Paint.Cap.ROUND
+    }
     private val cursorCenterPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
         style = Paint.Style.FILL
@@ -71,6 +78,7 @@ class ProfileChartView @JvmOverloads constructor(
     private var selectionFormatter: ((ProfileSample) -> String)? = null
     private var chartContentDescription = ""
     private var selectedDistanceMeters: Double? = null
+    private var progressDistanceMeters: Double? = null
     private var selectionActive = false
     private var longPressArmed = false
     private var downX = 0f
@@ -119,6 +127,7 @@ class ProfileChartView @JvmOverloads constructor(
         this.colorBySlope = colorBySlope
         this.selectionFormatter = selectionFormatter
         selectedDistanceMeters = null
+        progressDistanceMeters = null
         linePaint.color = color
         fillPaint.color = Color.argb(38, Color.red(color), Color.green(color), Color.blue(color))
         chartContentDescription = emptyMessage.takeIf { samples.size < 2 }
@@ -196,6 +205,7 @@ class ProfileChartView @JvmOverloads constructor(
         } else {
             canvas.drawPath(path, linePaint)
         }
+        drawProgress(canvas, ::x, ::y)
 
         labelPaint.textAlign = Paint.Align.RIGHT
         canvas.drawText(maxValueLabel, left - 7f * density, top + 4f * density, labelPaint)
@@ -210,6 +220,37 @@ class ProfileChartView @JvmOverloads constructor(
             labelPaint,
         )
         drawSelection(canvas, left, top, right, bottom, maxDistance, minValue, valueRange)
+    }
+
+    private fun drawProgress(
+        canvas: Canvas,
+        x: (ProfileSample) -> Float,
+        y: (ProfileSample) -> Float,
+    ) {
+        val progressDistance = progressDistanceMeters ?: return
+        if (samples.size < 2 || progressDistance <= samples.first().distanceMeters) return
+        val clampedDistance = progressDistance.coerceAtMost(samples.last().distanceMeters)
+        val progressPath = Path()
+        var started = false
+        samples.zipWithNext().forEach { (start, end) ->
+            if (start.distanceMeters > clampedDistance) return@forEach
+            if (!started) {
+                progressPath.moveTo(x(start), y(start))
+                started = true
+            }
+            if (end.distanceMeters <= clampedDistance) {
+                progressPath.lineTo(x(end), y(end))
+            } else if (end.distanceMeters > start.distanceMeters) {
+                val fraction = ((clampedDistance - start.distanceMeters) /
+                    (end.distanceMeters - start.distanceMeters)).coerceIn(0.0, 1.0)
+                val interpolated = ProfileSample(
+                    distanceMeters = clampedDistance,
+                    value = start.value + (end.value - start.value) * fraction,
+                )
+                progressPath.lineTo(x(interpolated), y(interpolated))
+            }
+        }
+        if (started) canvas.drawPath(progressPath, progressPaint)
     }
 
     private fun drawSelection(
@@ -255,10 +296,16 @@ class ProfileChartView @JvmOverloads constructor(
         selectedDistanceMeters = distanceMeters
         if (distanceMeters != null) {
             samples.minByOrNull { abs(it.distanceMeters - distanceMeters) }
-                ?.let { contentDescription = selectionFormatter?.invoke(it) }
+                ?.let { contentDescription = selectionFormatter?.invoke(it) ?: chartContentDescription }
         } else {
             contentDescription = chartContentDescription
         }
+        invalidate()
+    }
+
+    fun setProgressDistance(distanceMeters: Double?, color: Int = Color.parseColor("#F26B38")) {
+        progressDistanceMeters = distanceMeters
+        progressPaint.color = color
         invalidate()
     }
 

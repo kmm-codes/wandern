@@ -164,6 +164,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     private var recordingDetailsExpanded = false
     private var lastRenderedRecordingState = RecordingState.IDLE
     private var lastRenderedLiveTrack: GpxTrack? = null
+    private var recordingElevationSource: GpxTrack? = null
+    private var recordingElevationUsesPlannedRoute = false
     private val speedSmoother = SpeedSmoother()
     private val gpsQualityWarningMonitor = GpsQualityWarningMonitor()
     private val compassRotationMatrix = FloatArray(9)
@@ -1931,8 +1933,25 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         String.format(displayLocale, "%.1f", metersPerSecond * 3.6)
 
     private fun renderRouteProgress(point: TrackPoint?) {
+        val route = importedTrack
         val tracker = routeProgressTracker
-        if (importedTrack == null || tracker == null) {
+        if (route == null) {
+            renderRecordingElevationProfile(
+                source = latestSnapshot.track,
+                completedDistanceMeters = null,
+                markerDistanceMeters = null,
+                plannedRoute = false,
+            )
+            binding.recordingRouteProgressGroup.visibility = View.GONE
+            return
+        }
+        if (tracker == null) {
+            renderRecordingElevationProfile(
+                source = route,
+                completedDistanceMeters = null,
+                markerDistanceMeters = null,
+                plannedRoute = true,
+            )
             binding.recordingRouteProgressGroup.visibility = View.GONE
             return
         }
@@ -1940,19 +1959,59 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             locationAgeMinutes(it) < STALE_LOCATION_MINUTES &&
                 (it.accuracyMeters == null || it.accuracyMeters <= GpsQuality.RELIABLE_ACCURACY_METERS)
         }
-        val progress = reliablePoint?.let(tracker::update) ?: tracker.currentOrInitial() ?: run {
+        val observedProgress = reliablePoint?.let(tracker::update)
+        val progress = observedProgress ?: tracker.currentOrInitial() ?: run {
+            renderRecordingElevationProfile(
+                source = route,
+                completedDistanceMeters = null,
+                markerDistanceMeters = null,
+                plannedRoute = true,
+            )
             binding.recordingRouteProgressGroup.visibility = View.GONE
             return
         }
+        renderRecordingElevationProfile(
+            source = route,
+            completedDistanceMeters = progress.distanceAlongRouteMeters,
+            markerDistanceMeters = observedProgress
+                ?.takeIf { it.distanceFromRouteMeters != null && !latestSnapshot.confirmedOffRoute }
+                ?.distanceAlongRouteMeters,
+            plannedRoute = true,
+        )
         binding.recordingRouteProgressGroup.visibility = View.VISIBLE
-        binding.recordingRouteProgressBar.progress =
-            (progress.fraction * binding.recordingRouteProgressBar.max).roundToInt()
         val progressText = "${(progress.fraction * 100.0).roundToInt()} %"
         val remainingDistance = formatRemainingDistance(progress.remainingDistanceMeters)
         val eta = formatEstimatedArrival(progress)
         binding.recordingRouteProgressText.text = progressText
         binding.recordingRemainingDistanceText.text = remainingDistance
         binding.recordingEtaText.text = eta
+    }
+
+    private fun renderRecordingElevationProfile(
+        source: GpxTrack,
+        completedDistanceMeters: Double?,
+        markerDistanceMeters: Double?,
+        plannedRoute: Boolean,
+    ) {
+        if (source !== recordingElevationSource || plannedRoute != recordingElevationUsesPlannedRoute) {
+            recordingElevationSource = source
+            recordingElevationUsesPlannedRoute = plannedRoute
+            val elevationProfile = TourInsightsAnalyzer.analyze(source).elevationProfile
+            binding.recordingElevationChart.setSeries(
+                samples = elevationProfile,
+                unit = "m",
+                color = Color.parseColor(if (plannedRoute) "#1677FF" else "#F26B38"),
+                emptyMessage = getString(R.string.recording_no_elevation_data),
+                minimumValueRange = 40.0,
+            )
+        }
+        binding.recordingElevationChart.setProgressDistance(
+            completedDistanceMeters.takeIf { plannedRoute },
+            Color.parseColor("#F26B38"),
+        )
+        binding.recordingElevationChart.setSelectedDistance(
+            markerDistanceMeters.takeIf { plannedRoute },
+        )
     }
 
     private fun renderRouteRejoinGuidance(point: TrackPoint?) {
