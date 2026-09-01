@@ -3,6 +3,7 @@ package de.wandern.app.ui
 import android.content.Context
 import android.content.Intent
 import android.os.SystemClock
+import android.view.MotionEvent
 import android.view.View
 import android.widget.EditText
 import android.widget.TextView
@@ -168,6 +169,42 @@ class RoutePlannerFlowTest {
                     activity.findViewById<TextView>(R.id.plannerCompactSummaryText).text.toString(),
                 )
                 assertEquals(BottomSheetBehavior.STATE_EXPANDED, behavior.state)
+            }
+        }
+    }
+
+    @Test
+    fun plannerDrawerConsumesTouchesOnNonInteractiveSurface() {
+        ActivityScenario.launch(RoutePlannerActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                val drawer = activity.findViewById<MaterialCardView>(R.id.plannerCard)
+                val header = activity.findViewById<View>(R.id.drawerCompactHeader)
+                val eventTime = SystemClock.uptimeMillis()
+                val x = drawer.width / 2f
+                val y = header.height + 1f
+                val down = MotionEvent.obtain(
+                    eventTime,
+                    eventTime,
+                    MotionEvent.ACTION_DOWN,
+                    x,
+                    y,
+                    0,
+                )
+                val up = MotionEvent.obtain(
+                    eventTime,
+                    eventTime + 16L,
+                    MotionEvent.ACTION_UP,
+                    x,
+                    y,
+                    0,
+                )
+
+                assertTrue(drawer.isClickable)
+                assertTrue(drawer.dispatchTouchEvent(down))
+                assertTrue(drawer.dispatchTouchEvent(up))
+
+                down.recycle()
+                up.recycle()
             }
         }
     }

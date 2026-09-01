@@ -34,6 +34,10 @@ class BottomDrawerController<V : View>(
         private set
 
     init {
+        // Keep gestures on non-interactive gaps inside the visible sheet from
+        // falling through to map views underneath. BottomSheetBehavior still
+        // gets the first opportunity to intercept vertical drawer drags.
+        sheet.isClickable = true
         behavior.addBottomSheetCallback(object : BottomSheetBehavior.BottomSheetCallback() {
             override fun onSlide(bottomSheet: View, slideOffset: Float) {
                 onSlide(slideOffset)
