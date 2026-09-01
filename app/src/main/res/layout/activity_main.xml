@@ -99,47 +99,54 @@
         app:fabSize="mini"
         app:tint="@color/forest_900" />
 
-    <com.google.android.material.card.MaterialCardView
-        android:id="@+id/recordingCard"
+    <androidx.coordinatorlayout.widget.CoordinatorLayout
+        android:id="@+id/recordingSheetHost"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:visibility="gone"
-        app:cardBackgroundColor="@color/sand_50"
-        app:cardCornerRadius="20dp"
-        app:cardElevation="8dp"
-        app:layout_behavior="com.google.android.material.bottomsheet.BottomSheetBehavior">
+        android:clipChildren="false"
+        android:clipToPadding="false">
 
-        <LinearLayout
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/recordingCard"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:orientation="vertical">
+            android:visibility="gone"
+            app:cardBackgroundColor="@color/sand_50"
+            app:cardCornerRadius="20dp"
+            app:cardElevation="8dp"
+            app:layout_behavior="com.google.android.material.bottomsheet.BottomSheetBehavior">
 
             <LinearLayout
-                android:id="@+id/recordingCollapsedContent"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
+                android:layout_height="match_parent"
                 android:orientation="vertical">
 
-                <View
-                    android:layout_width="46dp"
-                    android:layout_height="4dp"
-                    android:layout_gravity="center_horizontal"
-                    android:layout_marginTop="10dp"
-                    android:layout_marginBottom="4dp"
-                    android:background="@drawable/bottom_drawer_handle" />
-
-                <TextView
-                    android:id="@+id/recordingPausedBanner"
+                <LinearLayout
+                    android:id="@+id/recordingCollapsedContent"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:background="@color/warning"
-                    android:gravity="center"
-                    android:padding="7dp"
-                    android:text="@string/recording_paused"
-                    android:textColor="@color/white"
-                    android:textSize="12sp"
-                    android:textStyle="bold"
-                    android:visibility="gone" />
+                    android:orientation="vertical">
+
+                    <View
+                        android:layout_width="46dp"
+                        android:layout_height="4dp"
+                        android:layout_gravity="center_horizontal"
+                        android:layout_marginTop="10dp"
+                        android:layout_marginBottom="4dp"
+                        android:background="@drawable/bottom_drawer_handle" />
+
+                    <TextView
+                        android:id="@+id/recordingPausedBanner"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:background="@color/warning"
+                        android:gravity="center"
+                        android:padding="7dp"
+                        android:text="@string/recording_paused"
+                        android:textColor="@color/white"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:visibility="gone" />
 
                 <LinearLayout
                     android:id="@+id/routeRejoinBanner"
@@ -286,20 +293,20 @@
                 </LinearLayout>
             </LinearLayout>
 
-            <de.wandern.app.ui.DrawerContentScrollView
-                android:id="@+id/recordingExpandedGroup"
-                android:layout_width="match_parent"
-                android:layout_height="0dp"
-                android:layout_weight="1"
-                android:fillViewport="false"
-                android:overScrollMode="never">
+                <de.wandern.app.ui.DrawerContentScrollView
+                    android:id="@+id/recordingExpandedGroup"
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_weight="1"
+                    android:fillViewport="false"
+                    android:overScrollMode="never">
 
                 <LinearLayout
                     android:id="@+id/recordingScrollableContent"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:paddingBottom="8dp">
+                    android:paddingBottom="14dp">
 
                     <View
                         android:layout_width="match_parent"
@@ -504,10 +511,11 @@
                             android:textColor="@color/warning"
                             android:visibility="gone" />
                     </LinearLayout>
-                </LinearLayout>
-            </de.wandern.app.ui.DrawerContentScrollView>
-        </LinearLayout>
-    </com.google.android.material.card.MaterialCardView>
+                    </LinearLayout>
+                </de.wandern.app.ui.DrawerContentScrollView>
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+    </androidx.coordinatorlayout.widget.CoordinatorLayout>
 
     <com.google.android.material.card.MaterialCardView
         android:id="@+id/actionsCard"

@@ -28,6 +28,7 @@ import android.provider.Settings
 import android.text.format.Formatter
 import android.util.Log
 import android.view.View
+import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.PopupMenu
 import android.widget.Toast
@@ -39,7 +40,6 @@ import androidx.core.os.CancellationSignal
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.doOnPreDraw
-import androidx.core.view.updatePadding
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
@@ -166,8 +166,11 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     private lateinit var recordingSheetBehavior: BottomSheetBehavior<com.google.android.material.card.MaterialCardView>
     private var recordingDrawerState = BottomSheetBehavior.STATE_COLLAPSED
     private var recordingDrawerInitializedForSession = false
+    private var recordingDrawerTargetHeight = 0
+    private var recordingDrawerGeometryReady = false
+    private var pendingRecordingDrawerState: Int? = null
+    private var pendingRecordingPeekHeight: Int? = null
     private var debugSnapshotOverride = false
-    private var recordingSafeBottomInset = 0
     private var lastRenderedRecordingState = RecordingState.IDLE
     private var lastRenderedLiveTrack: GpxTrack? = null
     private var recordingElevationSource: GpxTrack? = null
@@ -265,10 +268,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
                 tappable.bottom,
                 navigationBarHeightFallback(),
             )
-            view.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom)
-            recordingSafeBottomInset = safeBottom
-            binding.recordingScrollableContent.updatePadding(bottom = dp(14) + recordingSafeBottomInset)
-            binding.recordingCard.post(::updateRecordingDrawerExtents)
+            view.setPadding(systemBars.left, systemBars.top, systemBars.right, safeBottom)
+            binding.recordingCard.post(::updateRecordingDrawerGeometry)
             insets
         }
         trackStore = TrackStore(this)
@@ -290,11 +291,14 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             syncOverlayPositions()
         }
         binding.recordingCard.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
-            updateRecordingDrawerExtents()
+            updateRecordingDrawerGeometry()
             syncOverlayPositions()
         }
+        binding.recordingCollapsedContent.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            updateRecordingDrawerGeometry()
+        }
         binding.recordingScrollableContent.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
-            updateRecordingDrawerExtents()
+            updateRecordingDrawerGeometry()
         }
 
         setupRecordingDrawer()
@@ -427,7 +431,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             BottomSheetBehavior.STATE_EXPANDED
         }
         binding.recordingCard.post {
-            updateRecordingDrawerExtents()
+            updateRecordingDrawerGeometry()
             setRecordingDrawerState(drawerState)
             importedTrack?.let(::fitTrack)
         }
@@ -627,11 +631,13 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
                         newState == BottomSheetBehavior.STATE_SETTLING
                     ) return
                     recordingDrawerState = newState
+                    updateRecordingDrawerGeometry()
                     renderRecordingDrawerChrome()
                     scheduleOverlayPositionSync()
                 }
             })
         }
+        binding.recordingExpandedGroup.contentScrollingEnabled = true
         binding.recordingCollapsedContent.setOnClickListener {
             cycleRecordingDrawer()
         }
@@ -675,33 +681,81 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             BottomSheetBehavior.STATE_EXPANDED
         }
         recordingDrawerState = stableState
-        recordingSheetBehavior.state = stableState
         renderRecordingDrawerChrome()
+        if (!recordingDrawerGeometryReady) {
+            pendingRecordingDrawerState = stableState
+            binding.recordingCard.post(::updateRecordingDrawerGeometry)
+            return
+        }
+        applyRecordingDrawerState(stableState)
+    }
+
+    private fun applyRecordingDrawerState(state: Int) {
+        pendingRecordingDrawerState = null
+        if (recordingSheetBehavior.state != state) {
+            recordingSheetBehavior.state = state
+        }
         scheduleOverlayPositionSync()
     }
 
-    private fun updateRecordingDrawerExtents() {
-        if (!::recordingSheetBehavior.isInitialized || binding.recordingCard.height <= 0) return
-        val collapsedContentHeight = binding.recordingCollapsedContent.height.coerceAtLeast(dp(150))
-        // CoordinatorLayout clips at its padded system-bar edge, while BottomSheetBehavior
-        // calculates offsets against the full parent height. Compensate that clipped strip once.
-        val parentBottomPadding = binding.root.paddingBottom
-        val collapsedVisibleHeight = collapsedContentHeight + recordingSafeBottomInset + parentBottomPadding
-        if (recordingSheetBehavior.peekHeight != collapsedVisibleHeight) {
-            recordingSheetBehavior.peekHeight = collapsedVisibleHeight
+    private fun updateRecordingDrawerGeometry() {
+        if (!::recordingSheetBehavior.isInitialized || binding.recordingCard.visibility != View.VISIBLE) {
+            return
         }
-        val parentHeight = (binding.recordingCard.parent as? View)?.height ?: return
-        val naturalExpandedHeight = collapsedContentHeight +
-            binding.recordingScrollableContent.measuredHeight + parentBottomPadding
-        val desiredSheetHeight = naturalExpandedHeight.coerceAtMost(parentHeight - dp(56))
-        if (binding.recordingCard.layoutParams.height != desiredSheetHeight) {
+        val hostHeight = binding.recordingSheetHost.height
+        if (hostHeight <= 0) return
+        val collapsedContentHeight = binding.recordingCollapsedContent.height.coerceAtLeast(dp(150))
+        val behaviorState = recordingSheetBehavior.state
+        if (behaviorState == BottomSheetBehavior.STATE_DRAGGING ||
+            behaviorState == BottomSheetBehavior.STATE_SETTLING
+        ) {
+            pendingRecordingPeekHeight = collapsedContentHeight
+        } else if (recordingSheetBehavior.peekHeight != collapsedContentHeight) {
+            recordingSheetBehavior.setPeekHeight(collapsedContentHeight, false)
+            pendingRecordingPeekHeight = null
+        }
+
+        if (recordingDrawerTargetHeight == 0) {
+            val expandedContentHeight = binding.recordingScrollableContent.measuredHeight
+            if (expandedContentHeight <= 0) return
+            val maximumHeight = (hostHeight - dp(56)).coerceAtLeast(collapsedContentHeight)
+            // Freeze the expanded height for this recording session. Live banners and action
+            // changes may adjust the collapsed peek or overflow, but never the animation target.
+            recordingDrawerTargetHeight = (collapsedContentHeight + expandedContentHeight)
+                .coerceAtMost(maximumHeight)
+            recordingDrawerGeometryReady = false
             binding.recordingCard.layoutParams = binding.recordingCard.layoutParams.apply {
-                height = desiredSheetHeight
+                height = recordingDrawerTargetHeight
             }
             return
         }
-        updateRecordingScrollAvailability()
+
+        if (binding.recordingCard.height != recordingDrawerTargetHeight) return
+        recordingDrawerGeometryReady = true
+        pendingRecordingPeekHeight?.let { pendingPeekHeight ->
+            if (recordingSheetBehavior.peekHeight != pendingPeekHeight) {
+                recordingSheetBehavior.setPeekHeight(pendingPeekHeight, false)
+            }
+            pendingRecordingPeekHeight = null
+        }
+        pendingRecordingDrawerState?.let(::applyRecordingDrawerState)
         scheduleOverlayPositionSync()
+    }
+
+    private fun resetRecordingDrawerGeometry() {
+        val alreadyReset = recordingDrawerTargetHeight == 0 &&
+            !recordingDrawerGeometryReady &&
+            pendingRecordingDrawerState == null &&
+            pendingRecordingPeekHeight == null &&
+            binding.recordingCard.layoutParams.height == ViewGroup.LayoutParams.MATCH_PARENT
+        if (alreadyReset) return
+        recordingDrawerTargetHeight = 0
+        recordingDrawerGeometryReady = false
+        pendingRecordingDrawerState = null
+        pendingRecordingPeekHeight = null
+        binding.recordingCard.layoutParams = binding.recordingCard.layoutParams.apply {
+            height = ViewGroup.LayoutParams.MATCH_PARENT
+        }
     }
 
     private fun renderRecordingDrawerChrome() {
@@ -709,22 +763,12 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         // Keep the expanded content laid out while collapsed, so it follows the finger immediately
         // instead of popping in only after BottomSheetBehavior reaches its final state.
         binding.recordingAdvancedActions.visibility = View.VISIBLE
-        binding.recordingExpandedGroup.contentScrollingEnabled = expanded
         binding.recordingExpandButton.setIconResource(
             if (expanded) R.drawable.ic_expand_more else R.drawable.ic_expand_less,
         )
         binding.recordingExpandButton.contentDescription = getString(
             if (expanded) R.string.hide_recording_details else R.string.show_recording_details,
         )
-        binding.recordingScrollableContent.post(::updateRecordingScrollAvailability)
-    }
-
-    private fun updateRecordingScrollAvailability() {
-        val expanded = recordingDrawerState == BottomSheetBehavior.STATE_EXPANDED
-        val availableExpandedHeight = binding.recordingCard.height -
-            binding.recordingCollapsedContent.height
-        val overflows = binding.recordingScrollableContent.measuredHeight > availableExpandedHeight
-        binding.recordingExpandedGroup.contentScrollingEnabled = expanded && overflows
     }
 
     private fun renderRecordingCarouselPage(page: Int) {
@@ -990,6 +1034,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         binding.planningBar.visibility = if (recordingActive) View.GONE else View.VISIBLE
         binding.recordingCard.visibility = if (recordingActive) View.VISIBLE else View.GONE
         if (!recordingActive) {
+            resetRecordingDrawerGeometry()
             binding.recordingDetourFab.visibility = View.GONE
             binding.root.post(::syncOverlayPositions)
             return
@@ -1196,8 +1241,11 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     private fun syncOverlayPositions() {
         val recordingActive = latestSnapshot.state == RecordingState.RECORDING ||
             latestSnapshot.state == RecordingState.PAUSED
-        val bottomOverlay = if (recordingActive) binding.recordingCard else binding.actionsCard
-        val overlayTop = bottomOverlay.y.roundToInt()
+        val overlayTop = if (recordingActive) {
+            recordingSheetTopInRoot()
+        } else {
+            binding.actionsCard.y.roundToInt()
+        }
         if (binding.root.height > 0 && overlayTop > 0 && binding.centerButton.height > 0) {
             val minimumTop = binding.root.paddingTop + dp(12)
             val centerTop = (overlayTop - binding.centerButton.height - dp(16))
@@ -1222,6 +1270,9 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             binding.routeStatusText.layoutParams = layoutParams
         }
     }
+
+    private fun recordingSheetTopInRoot(): Int =
+        (binding.recordingSheetHost.y + binding.recordingCard.y).roundToInt()
 
     private fun scheduleOverlayPositionSync() {
         binding.root.doOnPreDraw { syncOverlayPositions() }
@@ -2039,9 +2090,13 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             val recordingActive = latestSnapshot.state == RecordingState.RECORDING ||
                 latestSnapshot.state == RecordingState.PAUSED
             val topPadding = horizontalPadding
-            val bottomOverlay = if (recordingActive) binding.recordingCard else binding.actionsCard
+            val bottomOverlayTop = if (recordingActive) {
+                recordingSheetTopInRoot()
+            } else {
+                binding.actionsCard.top
+            }
             val bottomPadding = (
-                binding.mapView.bottom - bottomOverlay.top + (16 * density).toInt()
+                binding.mapView.bottom - bottomOverlayTop + (16 * density).toInt()
             ).coerceAtLeast(horizontalPadding)
             readyMap.animateCamera(
                 CameraUpdateFactory.newLatLngBounds(

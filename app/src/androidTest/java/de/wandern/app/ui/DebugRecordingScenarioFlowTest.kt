@@ -124,9 +124,63 @@ class DebugRecordingScenarioFlowTest {
                 )
                 assertEquals(View.VISIBLE, header.visibility)
                 assertTrue(header.parent !== scroller)
+                assertTrue(scroller.isNestedScrollingEnabled)
                 assertEquals(
                     View.VISIBLE,
                     activity.findViewById<View>(de.wandern.app.R.id.recordingAdvancedActions).visibility,
+                )
+            }
+        }
+    }
+
+    @Test
+    fun recordingDrawerKeepsOneHeightAcrossBothStableStates() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val intent = Intent(context, MainActivity::class.java)
+            .setAction(MainActivity.ACTION_DEBUG_SCENARIO)
+            .putExtra(MainActivity.EXTRA_DEBUG_SCENARIO, "route-expanded")
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+        ActivityScenario.launch<MainActivity>(intent).use { scenario ->
+            waitUntil(scenario) { activity ->
+                val card = activity.findViewById<MaterialCardView>(de.wandern.app.R.id.recordingCard)
+                BottomSheetBehavior.from(card).state == BottomSheetBehavior.STATE_EXPANDED
+            }
+            var stableHeight = 0
+            var collapsedPeekHeight = 0
+            scenario.onActivity { activity ->
+                val card = activity.findViewById<MaterialCardView>(de.wandern.app.R.id.recordingCard)
+                stableHeight = card.height
+                collapsedPeekHeight = BottomSheetBehavior.from(card).peekHeight
+                activity.findViewById<View>(de.wandern.app.R.id.recordingPausedBanner).visibility =
+                    View.VISIBLE
+            }
+            waitUntil(scenario) { activity ->
+                val card = activity.findViewById<MaterialCardView>(de.wandern.app.R.id.recordingCard)
+                BottomSheetBehavior.from(card).peekHeight > collapsedPeekHeight
+            }
+            scenario.onActivity { activity ->
+                val card = activity.findViewById<MaterialCardView>(de.wandern.app.R.id.recordingCard)
+                assertEquals(stableHeight, card.height)
+                BottomSheetBehavior.from(card).state = BottomSheetBehavior.STATE_COLLAPSED
+            }
+            waitUntil(scenario) { activity ->
+                val card = activity.findViewById<MaterialCardView>(de.wandern.app.R.id.recordingCard)
+                BottomSheetBehavior.from(card).state == BottomSheetBehavior.STATE_COLLAPSED
+            }
+            scenario.onActivity { activity ->
+                val card = activity.findViewById<MaterialCardView>(de.wandern.app.R.id.recordingCard)
+                assertEquals(stableHeight, card.height)
+                BottomSheetBehavior.from(card).state = BottomSheetBehavior.STATE_EXPANDED
+            }
+            waitUntil(scenario) { activity ->
+                val card = activity.findViewById<MaterialCardView>(de.wandern.app.R.id.recordingCard)
+                BottomSheetBehavior.from(card).state == BottomSheetBehavior.STATE_EXPANDED
+            }
+            scenario.onActivity { activity ->
+                assertEquals(
+                    stableHeight,
+                    activity.findViewById<View>(de.wandern.app.R.id.recordingCard).height,
                 )
             }
         }
@@ -185,7 +239,9 @@ class DebugRecordingScenarioFlowTest {
         maxGapDp: Int? = null,
     ) {
         val bounds = Rect()
-        val sheetTop = sheet.y.toInt()
+        val sheetBounds = Rect()
+        assertTrue(sheet.getGlobalVisibleRect(sheetBounds))
+        val sheetTop = sheetBounds.top
         assertTrue(
             "$label has no visible bounds: visibility=${fab.visibility} shown=${fab.isShown} " +
                 "xy=${fab.x},${fab.y} size=${fab.width}x${fab.height} sheetTop=$sheetTop",

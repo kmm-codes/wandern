@@ -19,6 +19,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import kotlin.math.abs
 
 @RunWith(AndroidJUnit4::class)
 class TourMapDrawerFlowTest {
@@ -51,9 +52,14 @@ class TourMapDrawerFlowTest {
                     val basePeek = (48 * activity.resources.displayMetrics.density).toInt()
                     val baseContentBottomPadding = (12 * activity.resources.displayMetrics.density).toInt()
                     assertTrue(behavior.peekHeight >= basePeek)
-                    assertEquals(
-                        baseContentBottomPadding + behavior.peekHeight - basePeek,
-                        activity.findViewById<View>(R.id.dataPanelContent).paddingBottom,
+                    val expectedBottomPadding =
+                        baseContentBottomPadding + behavior.peekHeight - basePeek
+                    val actualBottomPadding =
+                        activity.findViewById<View>(R.id.dataPanelContent).paddingBottom
+                    assertTrue(
+                        "system inset padding differs by more than a rounding pixel: " +
+                            "expected=$expectedBottomPadding actual=$actualBottomPadding",
+                        abs(expectedBottomPadding - actualBottomPadding) <= 1,
                     )
                     assertEquals(BottomSheetBehavior.STATE_EXPANDED, behavior.state)
                     activity.findViewById<android.view.View>(R.id.hideDataButton).performClick()
