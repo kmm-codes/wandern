@@ -504,6 +504,10 @@ class RoutePlannerActivity : AppCompatActivity() {
         binding.plannerScroll.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
             updatePlannerScrollability()
         }
+        binding.plannerLoadingOverlay.setOnTouchListener { _, _ ->
+            binding.root.requestDisallowInterceptTouchEvent(true)
+            true
+        }
         binding.root.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
             schedulePlannerExtentUpdate()
         }
@@ -822,10 +826,8 @@ class RoutePlannerActivity : AppCompatActivity() {
         drawerSpring?.cancel()
         binding.plannerCard.translationY = 0f
         plannerDrawerOperationLocked = true
-        plannerSheetBehavior.isDraggable = false
         binding.plannerScroll.contentScrollingEnabled = false
         binding.plannerLoadingOverlay.visibility = View.VISIBLE
-        binding.plannerLoadingOverlay.bringToFront()
         binding.toolbar.menu.findItem(R.id.action_save_route)?.isEnabled = false
         binding.toolbar.menu.findItem(R.id.action_undo_route_edit)?.isEnabled = false
         updateCenterButtonPosition()
@@ -844,8 +846,7 @@ class RoutePlannerActivity : AppCompatActivity() {
     private fun unlockPlannerDrawerAfterOperation() {
         if (!plannerDrawerOperationLocked) return
         plannerDrawerOperationLocked = false
-        binding.plannerLoadingOverlay.visibility = View.GONE
-        plannerSheetBehavior.isDraggable = true
+        binding.plannerLoadingOverlay.visibility = View.INVISIBLE
         schedulePlannerExtentUpdate()
         binding.root.post(::updateCenterButtonPosition)
     }

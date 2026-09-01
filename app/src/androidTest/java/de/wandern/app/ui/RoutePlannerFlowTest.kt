@@ -210,22 +210,53 @@ class RoutePlannerFlowTest {
     }
 
     @Test
-    fun plannerDrawerOperationLockFreezesItsExtentAndDragging() {
+    fun plannerDrawerOperationLockStaysVisibleAndConsumesTouches() {
         ActivityScenario.launch(RoutePlannerActivity::class.java).use { scenario ->
+            var initialHeight = 0
+            SystemClock.sleep(500)
             scenario.onActivity { activity ->
                 val drawer = activity.findViewById<MaterialCardView>(R.id.plannerCard)
                 val behavior = BottomSheetBehavior.from(drawer)
                 val overlay = activity.findViewById<View>(R.id.plannerLoadingOverlay)
-                val instruction = activity.findViewById<View>(R.id.instructionRow)
-                val initialHeight = drawer.height
+                initialHeight = drawer.height
 
                 activity.invokePrivate("lockPlannerDrawerForOperation")
 
                 assertEquals(View.VISIBLE, overlay.visibility)
                 assertTrue(overlay.isClickable)
-                assertFalse(behavior.isDraggable)
+                assertTrue(behavior.isDraggable)
                 assertEquals(android.view.ViewGroup.LayoutParams.MATCH_PARENT, overlay.layoutParams.width)
                 assertEquals(android.view.ViewGroup.LayoutParams.MATCH_PARENT, overlay.layoutParams.height)
+                val eventTime = SystemClock.uptimeMillis()
+                val down = MotionEvent.obtain(eventTime, eventTime, MotionEvent.ACTION_DOWN, 1f, 1f, 0)
+                val up = MotionEvent.obtain(eventTime, eventTime + 16L, MotionEvent.ACTION_UP, 1f, 1f, 0)
+                assertTrue(overlay.dispatchTouchEvent(down))
+                assertTrue(overlay.dispatchTouchEvent(up))
+                down.recycle()
+                up.recycle()
+            }
+
+            SystemClock.sleep(500)
+
+            scenario.onActivity { activity ->
+                val drawer = activity.findViewById<MaterialCardView>(R.id.plannerCard)
+                val behavior = BottomSheetBehavior.from(drawer)
+                val overlay = activity.findViewById<View>(R.id.plannerLoadingOverlay)
+                val indicator = activity.findViewById<View>(R.id.plannerLoadingIndicator)
+                val instruction = activity.findViewById<View>(R.id.instructionRow)
+                val drawerBounds = android.graphics.Rect()
+                val overlayBounds = android.graphics.Rect()
+                val indicatorBounds = android.graphics.Rect()
+
+                assertEquals(View.VISIBLE, drawer.visibility)
+                assertEquals(initialHeight, drawer.height)
+                assertEquals(View.VISIBLE, overlay.visibility)
+                assertTrue(drawer.getGlobalVisibleRect(drawerBounds))
+                assertTrue(overlay.getGlobalVisibleRect(overlayBounds))
+                assertTrue(indicator.getGlobalVisibleRect(indicatorBounds))
+                assertTrue(drawerBounds.height() > 0)
+                assertTrue(overlayBounds.height() > 0)
+                assertTrue(indicatorBounds.height() > 0)
 
                 instruction.visibility = View.GONE
                 activity.invokePrivate("updatePlannerExtent")
@@ -233,7 +264,7 @@ class RoutePlannerFlowTest {
 
                 instruction.visibility = View.VISIBLE
                 activity.invokePrivate("unlockPlannerDrawerAfterOperation")
-                assertEquals(View.GONE, overlay.visibility)
+                assertEquals(View.INVISIBLE, overlay.visibility)
                 assertTrue(behavior.isDraggable)
             }
         }
