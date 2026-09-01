@@ -65,7 +65,7 @@ class DebugRecordingScenarioFlowTest {
             scenario.onActivity { activity ->
                 val card = activity.findViewById<MaterialCardView>(de.wandern.app.R.id.recordingCard)
                 assertEquals(
-                    1,
+                    0,
                     activity.findViewById<RecordingCarouselView>(
                         de.wandern.app.R.id.recordingInfoCarousel,
                     ).currentPage,

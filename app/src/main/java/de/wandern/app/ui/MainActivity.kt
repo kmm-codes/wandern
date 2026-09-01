@@ -418,7 +418,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         latestSnapshot = snapshot
         renderSnapshot(snapshot)
         binding.recordingInfoCarousel.showPage(
-            if (scenario.contains("stats")) RECORDING_PAGE_STATS else RECORDING_PAGE_ELEVATION,
+            if (scenario.contains("elevation")) RECORDING_PAGE_ELEVATION else RECORDING_PAGE_STATS,
             animate = false,
         )
         val drawerState = when {
@@ -656,7 +656,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         binding.recordingPageDotStats.setOnClickListener {
             binding.recordingInfoCarousel.showPage(RECORDING_PAGE_STATS)
         }
-        renderRecordingCarouselPage(RECORDING_PAGE_ELEVATION)
+        renderRecordingCarouselPage(RECORDING_PAGE_STATS)
     }
 
     private fun cycleRecordingDrawer() {
@@ -2531,8 +2531,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         private const val MENU_FIT_ROUTE = 5
         private const val MENU_REVERSE_ROUTE = 6
         private const val EMPTY_FEATURE_COLLECTION = "{\"type\":\"FeatureCollection\",\"features\":[]}"
-        private const val RECORDING_PAGE_ELEVATION = 0
-        private const val RECORDING_PAGE_STATS = 1
+        private const val RECORDING_PAGE_STATS = 0
+        private const val RECORDING_PAGE_ELEVATION = 1
     }
 
     private data class StartCheckLine(val text: String, val warning: Boolean)

@@ -99,7 +99,7 @@ nötig:
 
 ```powershell
 .\scripts\debug-scene.ps1 route-medium
-.\scripts\debug-scene.ps1 route-stats-medium
+.\scripts\debug-scene.ps1 route-elevation-medium
 .\scripts\debug-scene.ps1 route-paused-expanded -OutputPath .\captures\paused.png
 ```
 

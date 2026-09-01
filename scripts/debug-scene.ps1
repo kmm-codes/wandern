@@ -4,6 +4,7 @@ param(
         "route-collapsed",
         "route-medium",
         "route-stats-medium",
+        "route-elevation-medium",
         "route-expanded",
         "route-paused-expanded",
         "route-off-route-medium",
