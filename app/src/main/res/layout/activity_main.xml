@@ -312,6 +312,19 @@
                     </LinearLayout>
                 </LinearLayout>
 
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/recordingRouteButton"
+                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:layout_marginTop="14dp"
+                    android:text="@string/set_recording_destination"
+                    android:textAllCaps="false"
+                    app:cornerRadius="14dp"
+                    app:icon="@drawable/ic_route"
+                    app:iconGravity="textStart"
+                    app:strokeColor="@color/forest_700" />
+
                 <LinearLayout
                     android:id="@+id/recordingDetourActions"
                     android:layout_width="match_parent"

@@ -395,6 +395,15 @@
     <string name="save_route_title">Tour benennen</string>
     <string name="new_route_default_name">Neue Tour</string>
     <string name="route_saved">Tour unter „Geplant“ gespeichert.</string>
+    <string name="edit_recording_route">Aktuelle Route bearbeiten</string>
+    <string name="set_recording_destination">Ziel festlegen</string>
+    <string name="use_navigation_route">Route verwenden</string>
+    <string name="navigation_route_updated">Navigationsroute aktualisiert · gespeicherte Tour unverändert</string>
+    <string name="recording_no_longer_active">Die Aufzeichnung läuft nicht mehr.</string>
+    <string name="recording_route_needs_position">Warte auf einen brauchbaren Standort, bevor du ein Ziel festlegst.</string>
+    <string name="discard_navigation_changes_title">Routenänderungen verwerfen?</string>
+    <string name="discard_navigation_changes_message">Deine Änderungen gelten nur für diese Aufzeichnung und wurden noch nicht übernommen.</string>
+    <string name="current_position">Aktuelle Position</string>
     <string name="route_calculation_error">Route konnte nicht berechnet werden: %1$s</string>
     <string name="route_rejoin_guidance">Zur Route: %1$s Luftlinie · %2$s</string>
     <string name="route_rejoin_straight">geradeaus</string>

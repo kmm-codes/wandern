@@ -52,6 +52,7 @@ import de.wandern.app.data.OfflineMapAvailability
 import de.wandern.app.data.OfflineMapDownloadState
 import de.wandern.app.data.OfflineMapDownloader
 import de.wandern.app.data.OfflineMapStatus
+import de.wandern.app.data.RecordingRouteStore
 import de.wandern.app.data.TrackStore
 import de.wandern.app.localization.AppLanguage
 import de.wandern.app.databinding.ActivityMainBinding
@@ -132,6 +133,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     private val displayLocale get() = AppLanguage.forContext(this).locale
     private lateinit var trackStore: TrackStore
     private lateinit var detourStore: DetourSessionStore
+    private lateinit var recordingRouteStore: RecordingRouteStore
     private lateinit var offlineMapDownloader: OfflineMapDownloader
     private lateinit var fitnessPreferences: FitnessPreferences
     private lateinit var activityPreferences: ActivityPreferences
@@ -144,6 +146,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     private var offlineMapIdentityTrack: GpxTrack? = null
     private var importedTrackReference: String? = null
     private var activeDetour = false
+    private var activeRecordingRouteOverride = false
     private var latestSnapshot = TrackingSnapshot()
     private var pendingRecordingStart = false
     private var pendingCenterRequest = false
@@ -222,6 +225,12 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         if (result.resultCode == RESULT_OK) applyPersistedDetour(announce = true)
     }
 
+    private val recordingRouteEditorLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        if (result.resultCode == RESULT_OK) applyPersistedRecordingRoute(announce = true)
+    }
+
     private val tourEditorLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
     ) { result ->
@@ -245,6 +254,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         }
         trackStore = TrackStore(this)
         detourStore = DetourSessionStore(this)
+        recordingRouteStore = RecordingRouteStore(this)
         offlineMapDownloader = OfflineMapDownloader(this, MAP_STYLE_URL)
         fitnessPreferences = FitnessPreferences(this)
         activityPreferences = ActivityPreferences(this)
@@ -435,6 +445,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         }
         binding.recordingFinishButton.setOnClickListener { confirmStopRecording() }
         binding.recordingDiscardButton.setOnClickListener { confirmDiscardRecording() }
+        binding.recordingRouteButton.setOnClickListener { openRecordingRouteEditor() }
         binding.recordingDetourButton.setOnClickListener { openDetourPlanner() }
         binding.recordingUndoDetourButton.setOnClickListener { undoActiveDetour() }
         binding.moreButton.setOnClickListener { showMoreMenu() }
@@ -462,7 +473,9 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
 
     private fun restoreActiveRecording() {
         val activeSession = trackStore.activeSession() ?: return
-        if (detourStore.load(activeSession.id) != null) {
+        if (recordingRouteStore.load(activeSession.id) != null) {
+            applyPersistedRecordingRoute(announce = false)
+        } else if (detourStore.load(activeSession.id) != null) {
             applyPersistedDetour(announce = false)
         } else {
             activeSession.routeReference?.let(::restoreActiveRoute)
@@ -490,6 +503,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
                 val activeRouteReference = trackStore.activeSession()?.routeReference
                 if (activeRouteReference == reference) {
                     activeDetour = false
+                    activeRecordingRouteOverride = false
                     displayTrack(
                         track = track,
                         reference = reference,
@@ -510,6 +524,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         val activeSession = trackStore.activeSession() ?: return
         val detour = detourStore.load(activeSession.id) ?: return
         activeDetour = true
+        activeRecordingRouteOverride = false
         displayTrack(
             track = detour.route,
             reference = detour.originalRouteReference,
@@ -524,6 +539,55 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         if (announce) {
             showRouteStatus(getString(R.string.detour_saved), R.color.forest_900, SUCCESS_BADGE_MILLIS)
         }
+    }
+
+    private fun applyPersistedRecordingRoute(announce: Boolean) {
+        val activeSession = trackStore.activeSession() ?: return
+        val activeRoute = recordingRouteStore.load(activeSession.id) ?: return
+        activeDetour = false
+        activeRecordingRouteOverride = true
+        displayTrack(
+            track = activeRoute.route,
+            reference = activeSession.routeReference,
+            askForOfflineDownload = false,
+            announce = false,
+            frameTrack = false,
+        )
+        routeProgressTracker = RouteProgressTracker(activeRoute.route, RouteEntryMode.NEAREST_POINT)
+        renderRouteProgress(latestSnapshot.latestPoint ?: latestLocatedPoint)
+        sendTrackingAction(TrackingService.ACTION_UPDATE_NAVIGATION_ROUTE)
+        renderRecordingPanelState(latestSnapshot)
+        if (announce) {
+            showRouteStatus(
+                getString(R.string.navigation_route_updated),
+                R.color.forest_900,
+                SUCCESS_BADGE_MILLIS,
+            )
+        }
+    }
+
+    private fun openRecordingRouteEditor() {
+        val session = trackStore.activeSession() ?: run {
+            toast(getString(R.string.recording_no_longer_active))
+            return
+        }
+        val point = latestSnapshot.latestPoint
+            ?: latestSnapshot.latestObservedPoint
+            ?: latestLocatedPoint
+        if (importedTrack == null && point == null) {
+            toast(getString(R.string.recording_route_needs_position))
+            return
+        }
+        val intent = Intent(this, RoutePlannerActivity::class.java)
+            .putExtra(RoutePlannerActivity.EXTRA_RECORDING_SESSION_ID, session.id)
+        point?.let {
+            intent
+                .putExtra(RoutePlannerActivity.EXTRA_RECORDING_LATITUDE, it.latitude)
+                .putExtra(RoutePlannerActivity.EXTRA_RECORDING_LONGITUDE, it.longitude)
+                .putExtra(RoutePlannerActivity.EXTRA_SEARCH_REFERENCE_LATITUDE, it.latitude)
+                .putExtra(RoutePlannerActivity.EXTRA_SEARCH_REFERENCE_LONGITUDE, it.longitude)
+        }
+        recordingRouteEditorLauncher.launch(intent)
     }
 
     private fun openDetourPlanner() {
@@ -619,7 +683,10 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             when {
                 state == RecordingState.PAUSED -> recordingDetailsExpanded = true
                 state == RecordingState.RECORDING -> recordingDetailsExpanded = false
-                !recordingActive -> recordingDetailsExpanded = false
+                !recordingActive -> {
+                    recordingDetailsExpanded = false
+                    activeRecordingRouteOverride = false
+                }
             }
             lastRenderedRecordingState = state
         }
@@ -668,7 +735,12 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         } else {
             View.GONE
         }
-        val detourAvailable = importedTrack != null && importedTrackReference != null
+        val detourAvailable = importedTrack != null &&
+            importedTrackReference != null &&
+            !activeRecordingRouteOverride
+        binding.recordingRouteButton.text = getString(
+            if (importedTrack != null) R.string.edit_recording_route else R.string.set_recording_destination,
+        )
         binding.recordingDetourActions.visibility = if (detourAvailable) View.VISIBLE else View.GONE
         binding.recordingUndoDetourButton.visibility = if (detourAvailable && activeDetour) {
             View.VISIBLE

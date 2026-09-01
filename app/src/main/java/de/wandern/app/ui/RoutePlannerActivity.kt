@@ -52,9 +52,11 @@ import com.google.android.material.card.MaterialCardView
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import de.wandern.app.R
 import de.wandern.app.data.ActivityPreferences
+import de.wandern.app.data.DetourSessionStore
 import de.wandern.app.data.OnlineRoutingClient
 import de.wandern.app.data.PlaceSearchClient
 import de.wandern.app.data.PlaceSearchResult
+import de.wandern.app.data.RecordingRouteStore
 import de.wandern.app.data.RoutingNoGoPoint
 import de.wandern.app.data.TrackStore
 import de.wandern.app.localization.AppLanguage
@@ -105,6 +107,8 @@ import kotlin.math.exp
 class RoutePlannerActivity : AppCompatActivity() {
     private lateinit var binding: ActivityRoutePlannerBinding
     private lateinit var trackStore: TrackStore
+    private lateinit var detourStore: DetourSessionStore
+    private lateinit var recordingRouteStore: RecordingRouteStore
     private lateinit var locationManager: LocationManager
     private val routingClient = OnlineRoutingClient()
     private val placeSearchClient = PlaceSearchClient()
@@ -149,6 +153,7 @@ class RoutePlannerActivity : AppCompatActivity() {
     private var editTourName: String? = null
     private var editBaseline: EditBaseline? = null
     private var editLoadInProgress = false
+    private var recordingSessionId: Long? = null
     private var initialSearchReference: TrackPoint? = null
     private var pendingCenterRequest = false
     private var pendingFramePoints: List<TrackPoint>? = null
@@ -195,6 +200,8 @@ class RoutePlannerActivity : AppCompatActivity() {
             insets
         }
         trackStore = TrackStore(this)
+        detourStore = DetourSessionStore(this)
+        recordingRouteStore = RecordingRouteStore(this)
         locationManager = getSystemService(LOCATION_SERVICE) as LocationManager
         activityType = ActivityPreferences(this).defaultType
         initialSearchReference = intentSearchReference()
@@ -245,8 +252,10 @@ class RoutePlannerActivity : AppCompatActivity() {
         setupMap()
         renderPlannerState()
         if (savedInstanceState == null) {
+            val sessionId = intent.getLongExtra(EXTRA_RECORDING_SESSION_ID, -1L).takeIf { it >= 0L }
             val reference = intent.getStringExtra(EXTRA_EDIT_TOUR_REFERENCE)
-            if (reference != null) loadTourForEditing(reference)
+            if (sessionId != null) loadRecordingRouteForEditing(sessionId)
+            else if (reference != null) loadTourForEditing(reference)
             else if (intent.getBooleanExtra(EXTRA_OPEN_SEARCH, false)) {
                 binding.root.post { openPointSearch(PointRole.START) }
             }
@@ -388,6 +397,87 @@ class RoutePlannerActivity : AppCompatActivity() {
                 )
                 finish()
             }
+        }
+    }
+
+    private fun loadRecordingRouteForEditing(sessionId: Long) {
+        editLoadInProgress = true
+        recordingSessionId = sessionId
+        binding.toolbar.setTitle(R.string.edit_recording_route)
+        renderPlannerState()
+        lifecycleScope.launch {
+            val result = runCatching {
+                withContext(Dispatchers.IO) {
+                    val session = trackStore.activeSession()
+                        ?.takeIf { it.id == sessionId }
+                        ?: error(getString(R.string.recording_no_longer_active))
+                    val override = recordingRouteStore.load(sessionId)
+                    val detour = detourStore.load(sessionId)
+                    val route = override?.route
+                        ?: detour?.route
+                        ?: session.routeReference?.let(trackStore::loadStoredTrack)?.asRouteDefinition()
+                    val storedControls = when {
+                        override != null -> override.controlPoints
+                        detour != null -> emptyList()
+                        session.routeReference != null -> trackStore.loadRouteControlPoints(session.routeReference)
+                        else -> emptyList()
+                    }
+                    val controls = route?.let { restoreSemanticControlPoints(it, storedControls) }.orEmpty()
+                    RuntimeEditableRoute(session.activityType, route, controls)
+                }
+            }
+            editLoadInProgress = false
+            result.onSuccess { editable ->
+                activityType = editable.activityType
+                waypoints.clear()
+                waypointNames.clear()
+                editable.controlPoints.forEach { routePoint ->
+                    waypoints += routePoint.point
+                    routePoint.label?.let { waypointNames[routePoint.point] = it }
+                }
+                editable.controlPoints.filter { it.label.isNullOrBlank() }
+                    .forEach { resolvePointName(it.point) }
+                calculatedRoute = editable.route
+                routeAlternatives = editable.route?.let(::listOf).orEmpty()
+                selectedAlternativeIndex = 0
+                editHistory.clear()
+                editBaseline = EditBaseline(
+                    waypoints = waypoints.toList(),
+                    activityType = activityType,
+                    routeMode = routeMode,
+                    routeSignature = editable.route?.let(RouteVariantPolicy::signature),
+                )
+                if (editable.route != null) {
+                    updateRouteSource()
+                    redrawMap()
+                    renderPlannerState()
+                    plannerSheetBehavior.state = BottomSheetBehavior.STATE_EXPANDED
+                    framePoints(editable.route.points)
+                } else {
+                    initializeRecordingRouteStart()
+                }
+            }.onFailure { error ->
+                toast(error.localizedMessage ?: getString(R.string.recording_no_longer_active))
+                finish()
+            }
+        }
+    }
+
+    private fun initializeRecordingRouteStart() {
+        val latitude = intent.getDoubleExtra(EXTRA_RECORDING_LATITUDE, Double.NaN)
+        val longitude = intent.getDoubleExtra(EXTRA_RECORDING_LONGITUDE, Double.NaN)
+        if (latitude.isFinite() && longitude.isFinite()) {
+            val start = TrackPoint(latitude, longitude)
+            waypoints += start
+            waypointNames[start] = getString(R.string.current_position)
+            editBaseline = editBaseline?.copy(waypoints = waypoints.toList())
+            redrawMap()
+            renderPlannerState()
+            plannerSheetBehavior.state = BottomSheetBehavior.STATE_EXPANDED
+            binding.root.post { openPointSearch(PointRole.DESTINATION) }
+        } else {
+            renderPlannerState()
+            binding.root.post { openPointSearch(PointRole.START) }
         }
     }
 
@@ -1123,6 +1213,16 @@ class RoutePlannerActivity : AppCompatActivity() {
 
     private fun attemptExitPlanner() {
         val prompt = when {
+            recordingSessionId != null -> {
+                if (!hasUnsavedEditChanges()) {
+                    finish()
+                    return
+                }
+                Pair(
+                    R.string.discard_navigation_changes_title,
+                    R.string.discard_navigation_changes_message,
+                )
+            }
             editTourReference != null && hasUnsavedEditChanges() -> Pair(
                 R.string.discard_route_changes_title,
                 R.string.discard_route_changes_message,
@@ -1144,7 +1244,11 @@ class RoutePlannerActivity : AppCompatActivity() {
             dialog
                 .setNeutralButton(R.string.discard) { _, _ -> finish() }
                 .setPositiveButton(
-                    if (editTourReference == null) R.string.save_route else R.string.save_changes,
+                    when {
+                        recordingSessionId != null -> R.string.use_navigation_route
+                        editTourReference == null -> R.string.save_route
+                        else -> R.string.save_changes
+                    },
                 ) { _, _ -> askForRouteName(returnToTourLibraryAfterSave = true) }
         } else {
             dialog.setPositiveButton(R.string.discard) { _, _ -> finish() }
@@ -1169,7 +1273,11 @@ class RoutePlannerActivity : AppCompatActivity() {
             pendingMapRole == null &&
             roundTripPhase != RoundTripPhase.OUTBOUND &&
             roundTripPhase != RoundTripPhase.RETURN &&
-            (editTourReference == null || hasUnsavedEditChanges())
+            when {
+                recordingSessionId != null -> hasUnsavedEditChanges()
+                editTourReference == null -> true
+                else -> hasUnsavedEditChanges()
+            }
 
     private fun invalidateCalculatedRoute() {
         calculatedRoute = null
@@ -1500,6 +1608,10 @@ class RoutePlannerActivity : AppCompatActivity() {
 
     private fun askForRouteName(returnToTourLibraryAfterSave: Boolean = false) {
         val route = calculatedRoute ?: return
+        if (recordingSessionId != null) {
+            saveRoute(route)
+            return
+        }
         val isNewTour = editTourReference == null
         val input = EditText(this).apply {
             setSingleLine(true)
@@ -1553,10 +1665,18 @@ class RoutePlannerActivity : AppCompatActivity() {
         returnToTourLibraryAfterSave: Boolean = false,
     ) {
         val controlPoints = currentSemanticControlPoints()
+        val activeRecordingSessionId = recordingSessionId
         lifecycleScope.launch {
             val result = runCatching {
                 withContext(Dispatchers.IO) {
-                    editTourReference?.let { reference ->
+                    if (activeRecordingSessionId != null) {
+                        check(trackStore.activeSession()?.id == activeRecordingSessionId) {
+                            getString(R.string.recording_no_longer_active)
+                        }
+                        recordingRouteStore.save(activeRecordingSessionId, route, controlPoints)
+                        detourStore.clear(activeRecordingSessionId)
+                        null
+                    } else editTourReference?.let { reference ->
                         trackStore.updateImportedTrack(reference, route, controlPoints)
                     } ?: trackStore.saveImportedTrack(
                             route,
@@ -1566,6 +1686,13 @@ class RoutePlannerActivity : AppCompatActivity() {
                 }
             }
             result.onSuccess { stored ->
+                if (activeRecordingSessionId != null) {
+                    toast(getString(R.string.navigation_route_updated))
+                    setResult(RESULT_OK)
+                    finish()
+                    return@onSuccess
+                }
+                checkNotNull(stored)
                 val edited = editTourReference != null
                 toast(getString(if (edited) R.string.tour_changes_saved else R.string.route_saved))
                 if (returnToTourLibraryAfterSave) {
@@ -1728,7 +1855,13 @@ class RoutePlannerActivity : AppCompatActivity() {
         binding.toolbar.menu.findItem(R.id.action_save_route)?.apply {
             isEnabled = canSave
             isVisible = canSave
-            setTitle(if (editTourReference == null) R.string.save_route else R.string.save_changes)
+            setTitle(
+                when {
+                    recordingSessionId != null -> R.string.use_navigation_route
+                    editTourReference == null -> R.string.save_route
+                    else -> R.string.save_changes
+                },
+            )
         }
         binding.startPointButton.isEnabled = !busy
         binding.destinationPointButton.isEnabled = !busy
@@ -2188,11 +2321,17 @@ class RoutePlannerActivity : AppCompatActivity() {
         val controlPoints: List<TrackStore.RouteControlPoint>,
     )
 
+    private data class RuntimeEditableRoute(
+        val activityType: ActivityType,
+        val route: GpxTrack?,
+        val controlPoints: List<TrackStore.RouteControlPoint>,
+    )
+
     private data class EditBaseline(
         val waypoints: List<TrackPoint>,
         val activityType: ActivityType,
         val routeMode: RouteMode,
-        val routeSignature: String,
+        val routeSignature: String?,
     )
 
     private data class PlannerUndoState(
@@ -2210,6 +2349,9 @@ class RoutePlannerActivity : AppCompatActivity() {
     companion object {
         const val EXTRA_OPEN_SEARCH = "de.wandern.app.extra.OPEN_ROUTE_SEARCH"
         const val EXTRA_EDIT_TOUR_REFERENCE = "de.wandern.app.extra.EDIT_TOUR_REFERENCE"
+        const val EXTRA_RECORDING_SESSION_ID = "de.wandern.app.extra.RECORDING_SESSION_ID"
+        const val EXTRA_RECORDING_LATITUDE = "de.wandern.app.extra.RECORDING_LATITUDE"
+        const val EXTRA_RECORDING_LONGITUDE = "de.wandern.app.extra.RECORDING_LONGITUDE"
         const val EXTRA_SEARCH_REFERENCE_LATITUDE = "de.wandern.app.extra.SEARCH_REFERENCE_LATITUDE"
         const val EXTRA_SEARCH_REFERENCE_LONGITUDE = "de.wandern.app.extra.SEARCH_REFERENCE_LONGITUDE"
         private const val MAP_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty"

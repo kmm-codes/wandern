@@ -21,6 +21,7 @@ import androidx.core.app.ServiceCompat
 import de.wandern.app.R
 import de.wandern.app.data.TrackStore
 import de.wandern.app.data.DetourSessionStore
+import de.wandern.app.data.RecordingRouteStore
 import de.wandern.app.localization.AppLanguage
 import de.wandern.app.model.AutoPauseDetector
 import de.wandern.app.model.AutoPauseTransition
@@ -52,6 +53,7 @@ class TrackingService : Service(), LocationListener {
     private lateinit var locationManager: LocationManager
     private lateinit var trackStore: TrackStore
     private lateinit var detourStore: DetourSessionStore
+    private lateinit var recordingRouteStore: RecordingRouteStore
     private var sessionId: Long? = null
     private var segmentIndex = 0
     private var lastAcceptedPoint: TrackPoint? = null
@@ -78,6 +80,7 @@ class TrackingService : Service(), LocationListener {
         locationManager = getSystemService(LOCATION_SERVICE) as LocationManager
         trackStore = TrackStore(this)
         detourStore = DetourSessionStore(this)
+        recordingRouteStore = RecordingRouteStore(this)
         bootEpochOffsetMillis = System.currentTimeMillis() - SystemClock.elapsedRealtime()
         createNotificationChannel()
     }
@@ -321,6 +324,7 @@ class TrackingService : Service(), LocationListener {
         }
         val track = trackStore.loadTrack(id)
         detourStore.clear(id)
+        recordingRouteStore.clear(id)
         _snapshots.value = TrackingSnapshot(
             state = RecordingState.FINISHED,
             track = track,
@@ -351,6 +355,7 @@ class TrackingService : Service(), LocationListener {
             return
         }
         detourStore.clear(id)
+        recordingRouteStore.clear(id)
         sessionId = null
         lastAcceptedPoint = null
         lastAcceptedElapsedRealtimeMillis = null
@@ -517,9 +522,9 @@ class TrackingService : Service(), LocationListener {
     }
 
     private fun configureRoute(reference: String?) {
-        activeRoute = sessionId?.let { detourStore.load(it)?.route } ?: reference?.let {
-            runCatching { trackStore.loadStoredTrack(it) }.getOrNull()
-        }
+        activeRoute = sessionId?.let { id ->
+            recordingRouteStore.load(id)?.route ?: detourStore.load(id)?.route
+        } ?: reference?.let { runCatching { trackStore.loadStoredTrack(it) }.getOrNull() }
         resetRouteDeviationState()
     }
 

@@ -394,6 +394,15 @@
     <string name="save_route_title">Name tour</string>
     <string name="new_route_default_name">New tour</string>
     <string name="route_saved">Tour saved under “Planned”.</string>
+    <string name="edit_recording_route">Edit current route</string>
+    <string name="set_recording_destination">Set destination</string>
+    <string name="use_navigation_route">Use route</string>
+    <string name="navigation_route_updated">Navigation route updated · saved tour unchanged</string>
+    <string name="recording_no_longer_active">The recording is no longer active.</string>
+    <string name="recording_route_needs_position">Wait for a usable location before setting a destination.</string>
+    <string name="discard_navigation_changes_title">Discard route changes?</string>
+    <string name="discard_navigation_changes_message">Your changes apply only to this recording and have not been used yet.</string>
+    <string name="current_position">Current position</string>
     <string name="route_calculation_error">Could not calculate route: %1$s</string>
     <string name="route_rejoin_guidance">To route: %1$s straight line · %2$s</string>
     <string name="route_rejoin_straight">straight ahead</string>
