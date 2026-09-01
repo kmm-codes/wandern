@@ -359,7 +359,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     }
 
     private fun applyDebugScenario(rawScenario: String) {
-        val scenario = rawScenario.ifBlank { "route-medium" }.lowercase()
+        val scenario = rawScenario.ifBlank { "route-expanded" }.lowercase()
         debugSnapshotOverride = true
         recordingDrawerInitializedForSession = true
         activeDetour = scenario.contains("detour")
@@ -421,10 +421,10 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             if (scenario.contains("elevation")) RECORDING_PAGE_ELEVATION else RECORDING_PAGE_STATS,
             animate = false,
         )
-        val drawerState = when {
-            scenario.contains("expanded") -> BottomSheetBehavior.STATE_EXPANDED
-            scenario.contains("collapsed") -> BottomSheetBehavior.STATE_COLLAPSED
-            else -> BottomSheetBehavior.STATE_HALF_EXPANDED
+        val drawerState = if (scenario.contains("collapsed")) {
+            BottomSheetBehavior.STATE_COLLAPSED
+        } else {
+            BottomSheetBehavior.STATE_EXPANDED
         }
         binding.recordingCard.post {
             updateRecordingDrawerExtents()
@@ -627,6 +627,10 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
                     if (newState == BottomSheetBehavior.STATE_DRAGGING ||
                         newState == BottomSheetBehavior.STATE_SETTLING
                     ) return
+                    if (newState == BottomSheetBehavior.STATE_HALF_EXPANDED) {
+                        state = BottomSheetBehavior.STATE_EXPANDED
+                        return
+                    }
                     recordingDrawerState = newState
                     renderRecordingDrawerChrome()
                     scheduleOverlayPositionSync()
@@ -660,18 +664,23 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     }
 
     private fun cycleRecordingDrawer() {
-        val nextState = when (recordingDrawerState) {
-            BottomSheetBehavior.STATE_COLLAPSED -> BottomSheetBehavior.STATE_HALF_EXPANDED
-            BottomSheetBehavior.STATE_HALF_EXPANDED -> BottomSheetBehavior.STATE_EXPANDED
-            else -> BottomSheetBehavior.STATE_COLLAPSED
+        val nextState = if (recordingDrawerState == BottomSheetBehavior.STATE_COLLAPSED) {
+            BottomSheetBehavior.STATE_EXPANDED
+        } else {
+            BottomSheetBehavior.STATE_COLLAPSED
         }
         setRecordingDrawerState(nextState)
     }
 
     private fun setRecordingDrawerState(state: Int) {
         if (!::recordingSheetBehavior.isInitialized) return
-        recordingDrawerState = state
-        recordingSheetBehavior.state = state
+        val stableState = if (state == BottomSheetBehavior.STATE_COLLAPSED) {
+            BottomSheetBehavior.STATE_COLLAPSED
+        } else {
+            BottomSheetBehavior.STATE_EXPANDED
+        }
+        recordingDrawerState = stableState
+        recordingSheetBehavior.state = stableState
         renderRecordingDrawerChrome()
         scheduleOverlayPositionSync()
     }
@@ -686,18 +695,21 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         if (recordingSheetBehavior.peekHeight != collapsedVisibleHeight) {
             recordingSheetBehavior.peekHeight = collapsedVisibleHeight
         }
-        val desiredHalfHeight = collapsedContentHeight + dp(285) +
-            recordingSafeBottomInset + parentBottomPadding
         val parentHeight = (binding.recordingCard.parent as? View)?.height ?: return
-        val halfRatio = (desiredHalfHeight.toFloat() / parentHeight.toFloat()).coerceIn(0.42f, 0.72f)
-        if (kotlin.math.abs(recordingSheetBehavior.halfExpandedRatio - halfRatio) > 0.01f) {
-            recordingSheetBehavior.halfExpandedRatio = halfRatio
-        }
         val naturalExpandedHeight = collapsedContentHeight +
             binding.recordingScrollableContent.measuredHeight + parentBottomPadding
         val contentSizedOffset = (parentHeight - naturalExpandedHeight).coerceAtLeast(dp(56))
         if (recordingSheetBehavior.expandedOffset != contentSizedOffset) {
             recordingSheetBehavior.expandedOffset = contentSizedOffset
+        }
+        // Material exposes a half state when fitToContents is disabled. Place that internal
+        // anchor one pixel below the content-sized expanded anchor and normalize it in the
+        // callback, so users experience only collapsed and expanded positions.
+        val expandedRatio = (
+            (parentHeight - contentSizedOffset - 1).toFloat() / parentHeight.toFloat()
+        ).coerceIn(0.01f, 0.99f)
+        if (kotlin.math.abs(recordingSheetBehavior.halfExpandedRatio - expandedRatio) > 0.001f) {
+            recordingSheetBehavior.halfExpandedRatio = expandedRatio
         }
         updateRecordingScrollAvailability()
         scheduleOverlayPositionSync()
@@ -705,7 +717,9 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
 
     private fun renderRecordingDrawerChrome() {
         val expanded = recordingDrawerState == BottomSheetBehavior.STATE_EXPANDED
-        binding.recordingAdvancedActions.visibility = if (expanded) View.VISIBLE else View.INVISIBLE
+        // Keep the expanded content laid out while collapsed, so it follows the finger immediately
+        // instead of popping in only after BottomSheetBehavior reaches its final state.
+        binding.recordingAdvancedActions.visibility = View.VISIBLE
         binding.recordingExpandedGroup.contentScrollingEnabled = expanded
         binding.recordingExpandButton.setIconResource(
             if (expanded) R.drawable.ic_expand_more else R.drawable.ic_expand_less,
@@ -973,7 +987,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
                 recordingDrawerInitializedForSession = true
                 binding.recordingCard.post {
                     setRecordingDrawerState(
-                        if (state == RecordingState.PAUSED) BottomSheetBehavior.STATE_HALF_EXPANDED
+                        if (state == RecordingState.PAUSED) BottomSheetBehavior.STATE_EXPANDED
                         else BottomSheetBehavior.STATE_COLLAPSED,
                     )
                 }
@@ -1049,19 +1063,25 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             ?: getString(stateLabelRes)
 
     private fun confirmStopRecording() {
-        MaterialAlertDialogBuilder(this)
+        val dialog = MaterialAlertDialogBuilder(this)
             .setTitle(R.string.finish_recording_title)
             .setMessage(R.string.finish_recording_message)
             .setNegativeButton(R.string.cancel, null)
+            .setNeutralButton(R.string.discard_recording) { _, _ ->
+                sendTrackingAction(TrackingService.ACTION_DISCARD)
+            }
             .setPositiveButton(R.string.finish_and_save) { _, _ ->
                 sendTrackingAction(TrackingService.ACTION_STOP)
             }
             .show()
+        dialog.getButton(android.content.DialogInterface.BUTTON_NEUTRAL).setTextColor(
+            ContextCompat.getColor(this, R.color.warning),
+        )
     }
 
     private fun confirmDiscardRecording() {
         if (!RecordingRetentionPolicy.canDiscardInline(latestSnapshot.stats.distanceMeters)) return
-        MaterialAlertDialogBuilder(this)
+        val dialog = MaterialAlertDialogBuilder(this)
             .setTitle(R.string.discard_recording_title)
             .setMessage(R.string.discard_recording_message)
             .setNegativeButton(R.string.cancel, null)
@@ -1072,6 +1092,9 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
                 sendTrackingAction(TrackingService.ACTION_STOP)
             }
             .show()
+        dialog.getButton(android.content.DialogInterface.BUTTON_NEUTRAL).setTextColor(
+            ContextCompat.getColor(this, R.color.warning),
+        )
     }
 
     private fun renderStats(stats: TrackStats, currentSpeedMetersPerSecond: Double?) {

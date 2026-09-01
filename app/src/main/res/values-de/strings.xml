@@ -145,7 +145,7 @@
     <string name="finish_and_save">Beenden &amp; speichern</string>
     <string name="finish">Beenden</string>
     <string name="finish_recording_title">Aufzeichnung beenden?</string>
-    <string name="finish_recording_message">Die bisherige Aufzeichnung wird gespeichert und beendet.</string>
+    <string name="finish_recording_message">Speichere die bisherige Aufzeichnung oder verwirf sie endgültig.</string>
     <string name="discard_recording">Aufzeichnung verwerfen</string>
     <string name="discard_recording_title">Aufzeichnung wirklich verwerfen?</string>
     <string name="discard_recording_message">Alle bisher aufgezeichneten Punkte dieser Tour werden unwiderruflich gelöscht.</string>

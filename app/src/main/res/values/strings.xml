@@ -144,7 +144,7 @@
     <string name="finish_and_save">Finish &amp; save</string>
     <string name="finish">Finish</string>
     <string name="finish_recording_title">Finish recording?</string>
-    <string name="finish_recording_message">The recording so far will be saved and stopped.</string>
+    <string name="finish_recording_message">Save the recording so far, or discard it permanently.</string>
     <string name="discard_recording">Discard recording</string>
     <string name="discard_recording_title">Discard this recording?</string>
     <string name="discard_recording_message">All points recorded for this tour so far will be permanently deleted.</string>

@@ -2,17 +2,14 @@
 param(
     [ValidateSet(
         "route-collapsed",
-        "route-medium",
-        "route-stats-medium",
-        "route-elevation-medium",
         "route-expanded",
+        "route-elevation-expanded",
         "route-paused-expanded",
-        "route-off-route-medium",
+        "route-off-route-expanded",
         "route-detour-expanded",
-        "free-medium",
-        "free-stats-medium"
+        "free-expanded"
     )]
-    [string]$Scene = "route-medium",
+    [string]$Scene = "route-expanded",
     [string]$DeviceSerial,
     [string]$OutputPath,
     [int]$WaitMilliseconds = 1800,

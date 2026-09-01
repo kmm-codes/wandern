@@ -7,11 +7,15 @@ import android.os.SystemClock
 import android.view.View
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
+import androidx.test.espresso.Espresso.onView
+import androidx.test.espresso.assertion.ViewAssertions.matches
+import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
+import androidx.test.espresso.matcher.ViewMatchers.withText
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.google.android.material.bottomsheet.BottomSheetBehavior
+import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -50,17 +54,17 @@ class DebugRecordingScenarioFlowTest {
     }
 
     @Test
-    fun adbScenarioOpensStatsPageInContentSizedHalfState() {
+    fun firstExpansionShowsStatsAndAdvancedActions() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val intent = Intent(context, MainActivity::class.java)
             .setAction(MainActivity.ACTION_DEBUG_SCENARIO)
-            .putExtra(MainActivity.EXTRA_DEBUG_SCENARIO, "route-stats-medium")
+            .putExtra(MainActivity.EXTRA_DEBUG_SCENARIO, "route-expanded")
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 
         ActivityScenario.launch<MainActivity>(intent).use { scenario ->
             waitUntil(scenario) { activity ->
                 val card = activity.findViewById<MaterialCardView>(de.wandern.app.R.id.recordingCard)
-                BottomSheetBehavior.from(card).state == BottomSheetBehavior.STATE_HALF_EXPANDED
+                BottomSheetBehavior.from(card).state == BottomSheetBehavior.STATE_EXPANDED
             }
             scenario.onActivity { activity ->
                 val card = activity.findViewById<MaterialCardView>(de.wandern.app.R.id.recordingCard)
@@ -71,13 +75,8 @@ class DebugRecordingScenarioFlowTest {
                     ).currentPage,
                 )
                 assertEquals(
-                    View.INVISIBLE,
+                    View.VISIBLE,
                     activity.findViewById<View>(de.wandern.app.R.id.recordingAdvancedActions).visibility,
-                )
-                assertFalse(
-                    activity.findViewById<DrawerContentScrollView>(
-                        de.wandern.app.R.id.recordingExpandedGroup,
-                    ).contentScrollingEnabled,
                 )
                 assertEquals(
                     View.VISIBLE,
@@ -121,6 +120,52 @@ class DebugRecordingScenarioFlowTest {
                 assertEquals(
                     View.VISIBLE,
                     activity.findViewById<View>(de.wandern.app.R.id.recordingAdvancedActions).visibility,
+                )
+            }
+        }
+    }
+
+    @Test
+    fun finishDialogOffersDiscardNextToSave() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val intent = Intent(context, MainActivity::class.java)
+            .setAction(MainActivity.ACTION_DEBUG_SCENARIO)
+            .putExtra(MainActivity.EXTRA_DEBUG_SCENARIO, "route-paused-expanded")
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+        ActivityScenario.launch<MainActivity>(intent).use { scenario ->
+            waitUntil(scenario) { activity ->
+                activity.findViewById<View>(de.wandern.app.R.id.recordingFinishButton).isShown
+            }
+            scenario.onActivity { activity ->
+                activity.findViewById<View>(de.wandern.app.R.id.recordingFinishButton).performClick()
+            }
+            onView(withText(de.wandern.app.R.string.discard_recording)).check(matches(isDisplayed()))
+            onView(withText(de.wandern.app.R.string.finish_and_save)).check(matches(isDisplayed()))
+        }
+    }
+
+    @Test
+    fun freeRecordingShowsSetDestinationOnFirstExpansion() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val intent = Intent(context, MainActivity::class.java)
+            .setAction(MainActivity.ACTION_DEBUG_SCENARIO)
+            .putExtra(MainActivity.EXTRA_DEBUG_SCENARIO, "free-expanded")
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+        ActivityScenario.launch<MainActivity>(intent).use { scenario ->
+            waitUntil(scenario) { activity ->
+                val card = activity.findViewById<MaterialCardView>(de.wandern.app.R.id.recordingCard)
+                BottomSheetBehavior.from(card).state == BottomSheetBehavior.STATE_EXPANDED
+            }
+            scenario.onActivity { activity ->
+                val routeButton = activity.findViewById<MaterialButton>(
+                    de.wandern.app.R.id.recordingRouteButton,
+                )
+                assertTrue(routeButton.isShown)
+                assertEquals(
+                    activity.getString(de.wandern.app.R.string.set_recording_destination),
+                    routeButton.text.toString(),
                 )
             }
         }

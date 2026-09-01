@@ -136,7 +136,7 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Der lokale Android-Gate ist fehlgeschlagen.' }
     }
     if ($CaptureDebugScenes -or $DebugScenesOnly) {
-        $debugScenes = @('route-collapsed', 'route-medium', 'route-elevation-medium', 'route-expanded')
+        $debugScenes = @('route-collapsed', 'route-expanded', 'route-elevation-expanded', 'route-paused-expanded')
         for ($sceneIndex = 0; $sceneIndex -lt $debugScenes.Count; $sceneIndex++) {
             $scene = $debugScenes[$sceneIndex]
             & (Join-Path $repository 'scripts\debug-scene.ps1') `

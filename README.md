@@ -98,8 +98,8 @@ und erstellt auf Wunsch einen Screenshot; eine Klick-Automatisierung ist nicht
 nötig:
 
 ```powershell
-.\scripts\debug-scene.ps1 route-medium
-.\scripts\debug-scene.ps1 route-elevation-medium
+.\scripts\debug-scene.ps1 route-expanded
+.\scripts\debug-scene.ps1 route-elevation-expanded
 .\scripts\debug-scene.ps1 route-paused-expanded -OutputPath .\captures\paused.png
 ```
 
@@ -109,7 +109,7 @@ ein bestimmtes Gerät gewählt. Technisch entspricht der direkte Aufruf:
 
 ```powershell
 adb shell am start -W -n de.wandern.app/.ui.MainActivity `
-  -a de.wandern.app.DEBUG_SCENARIO --es scenario route-medium
+  -a de.wandern.app.DEBUG_SCENARIO --es scenario route-expanded
 ```
 
 Die Mock-Schnittstelle wird durch `BuildConfig.DEBUG` abgeschirmt und verändert

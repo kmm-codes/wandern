@@ -92,7 +92,7 @@
         android:layout_marginEnd="18dp"
         android:layout_marginBottom="174dp"
         android:contentDescription="@string/detour_action"
-        android:src="@drawable/ic_route"
+        android:src="@drawable/ic_warning_triangle"
         android:translationZ="12dp"
         android:visibility="gone"
         app:backgroundTint="@color/sand_50"
@@ -299,7 +299,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:paddingBottom="14dp">
+                    android:paddingBottom="8dp">
 
                     <View
                         android:layout_width="match_parent"
@@ -435,14 +435,14 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="vertical"
-                        android:paddingStart="14dp"
-                        android:paddingEnd="14dp"
-                        android:visibility="invisible">
+                        android:paddingStart="12dp"
+                        android:paddingEnd="12dp"
+                        android:visibility="visible">
 
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="8dp"
+                            android:layout_marginTop="4dp"
                             android:text="@string/recording_more_actions"
                             android:textColor="@color/forest_900"
                             android:textSize="13sp"
@@ -453,7 +453,7 @@
                             style="@style/Widget.MaterialComponents.Button.OutlinedButton"
                             android:layout_width="match_parent"
                             android:layout_height="48dp"
-                            android:layout_marginTop="10dp"
+                            android:layout_marginTop="6dp"
                             android:text="@string/set_recording_destination"
                             android:textAllCaps="false"
                             app:cornerRadius="14dp"
@@ -465,7 +465,7 @@
                             android:id="@+id/recordingDetourActions"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="10dp"
+                            android:layout_marginTop="6dp"
                             android:orientation="horizontal"
                             android:visibility="gone">
 
@@ -478,7 +478,7 @@
                                 android:text="@string/detour_action"
                                 android:textAllCaps="false"
                                 app:cornerRadius="14dp"
-                                app:icon="@drawable/ic_route"
+                                app:icon="@drawable/ic_warning_triangle"
                                 app:iconGravity="textStart"
                                 app:strokeColor="@color/forest_700" />
 
@@ -498,7 +498,7 @@
                             style="@style/Widget.MaterialComponents.Button.TextButton"
                             android:layout_width="match_parent"
                             android:layout_height="44dp"
-                            android:layout_marginTop="12dp"
+                            android:layout_marginTop="4dp"
                             android:text="@string/discard_recording"
                             android:textAllCaps="false"
                             android:textColor="@color/warning"
