@@ -615,8 +615,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             isDraggable = true
             isHideable = false
             skipCollapsed = false
-            isFitToContents = false
-            expandedOffset = 0
+            isFitToContents = true
             state = BottomSheetBehavior.STATE_COLLAPSED
             addBottomSheetCallback(object : BottomSheetBehavior.BottomSheetCallback() {
                 override fun onSlide(bottomSheet: View, slideOffset: Float) {
@@ -627,10 +626,6 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
                     if (newState == BottomSheetBehavior.STATE_DRAGGING ||
                         newState == BottomSheetBehavior.STATE_SETTLING
                     ) return
-                    if (newState == BottomSheetBehavior.STATE_HALF_EXPANDED) {
-                        state = BottomSheetBehavior.STATE_EXPANDED
-                        return
-                    }
                     recordingDrawerState = newState
                     renderRecordingDrawerChrome()
                     scheduleOverlayPositionSync()
@@ -698,18 +693,12 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         val parentHeight = (binding.recordingCard.parent as? View)?.height ?: return
         val naturalExpandedHeight = collapsedContentHeight +
             binding.recordingScrollableContent.measuredHeight + parentBottomPadding
-        val contentSizedOffset = (parentHeight - naturalExpandedHeight).coerceAtLeast(dp(56))
-        if (recordingSheetBehavior.expandedOffset != contentSizedOffset) {
-            recordingSheetBehavior.expandedOffset = contentSizedOffset
-        }
-        // Material exposes a half state when fitToContents is disabled. Place that internal
-        // anchor one pixel below the content-sized expanded anchor and normalize it in the
-        // callback, so users experience only collapsed and expanded positions.
-        val expandedRatio = (
-            (parentHeight - contentSizedOffset - 1).toFloat() / parentHeight.toFloat()
-        ).coerceIn(0.01f, 0.99f)
-        if (kotlin.math.abs(recordingSheetBehavior.halfExpandedRatio - expandedRatio) > 0.001f) {
-            recordingSheetBehavior.halfExpandedRatio = expandedRatio
+        val desiredSheetHeight = naturalExpandedHeight.coerceAtMost(parentHeight - dp(56))
+        if (binding.recordingCard.layoutParams.height != desiredSheetHeight) {
+            binding.recordingCard.layoutParams = binding.recordingCard.layoutParams.apply {
+                height = desiredSheetHeight
+            }
+            return
         }
         updateRecordingScrollAvailability()
         scheduleOverlayPositionSync()
@@ -732,9 +721,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
 
     private fun updateRecordingScrollAvailability() {
         val expanded = recordingDrawerState == BottomSheetBehavior.STATE_EXPANDED
-        val availableExpandedHeight = (
-            (binding.recordingCard.parent as? View)?.height ?: binding.recordingCard.height
-        ) - recordingSheetBehavior.expandedOffset - binding.recordingCollapsedContent.height
+        val availableExpandedHeight = binding.recordingCard.height -
+            binding.recordingCollapsedContent.height
         val overflows = binding.recordingScrollableContent.measuredHeight > availableExpandedHeight
         binding.recordingExpandedGroup.contentScrollingEnabled = expanded && overflows
     }

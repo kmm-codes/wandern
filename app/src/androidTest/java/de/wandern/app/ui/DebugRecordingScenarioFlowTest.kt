@@ -44,6 +44,9 @@ class DebugRecordingScenarioFlowTest {
                 val visible = Rect()
                 val behavior = BottomSheetBehavior.from(card)
                 val fullyVisible = pause.getGlobalVisibleRect(visible) && visible.height() == pause.height
+                val parent = card.parent as View
+                assertTrue(behavior.isFitToContents)
+                assertEquals(parent.paddingTop + parent.height - behavior.peekHeight, card.top)
                 assertTrue(
                     "pause action is clipped: visible=$visible pause=${pause.width}x${pause.height} " +
                         "sheetY=${card.y} collapsed=${collapsed.height} peek=${behavior.peekHeight}",
@@ -68,6 +71,10 @@ class DebugRecordingScenarioFlowTest {
             }
             scenario.onActivity { activity ->
                 val card = activity.findViewById<MaterialCardView>(de.wandern.app.R.id.recordingCard)
+                val behavior = BottomSheetBehavior.from(card)
+                val parent = card.parent as View
+                assertTrue(behavior.isFitToContents)
+                assertEquals(parent.paddingTop + parent.height - card.height, card.top)
                 assertEquals(
                     0,
                     activity.findViewById<RecordingCarouselView>(
