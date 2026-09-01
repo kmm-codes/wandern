@@ -103,11 +103,16 @@ function Select-Device {
         [string]$RequestedDevice
     )
 
+    # PowerShell unwraps a one-element pipeline result to a scalar. Normalize it
+    # here so the same selection code works with zero, one or many devices.
+    $readyDeviceList = @($ReadyDevices)
+    $readyDeviceCount = $readyDeviceList.Length
+
     if (-not [string]::IsNullOrWhiteSpace($RequestedDevice)) {
-        $matches = @($ReadyDevices | Where-Object { $_.Serial -eq $RequestedDevice })
-        if ($matches.Count -ne 1) {
-            $available = if ($ReadyDevices.Count -gt 0) {
-                $ReadyDevices.Serial -join ", "
+        $matches = @($readyDeviceList | Where-Object { $_.Serial -eq $RequestedDevice })
+        if ($matches.Length -ne 1) {
+            $available = if ($readyDeviceCount -gt 0) {
+                $readyDeviceList.Serial -join ", "
             } else {
                 "keine"
             }
@@ -116,14 +121,14 @@ function Select-Device {
         return $matches[0]
     }
 
-    if ($ReadyDevices.Count -eq 0) {
+    if ($readyDeviceCount -eq 0) {
         throw "Kein bereites Android-Gerät gefunden. Prüfe 'adb devices'."
     }
-    if ($ReadyDevices.Count -eq 1) {
-        return $ReadyDevices[0]
+    if ($readyDeviceCount -eq 1) {
+        return $readyDeviceList[0]
     }
     if (-not (Test-InteractiveConsole)) {
-        $commands = $ReadyDevices | ForEach-Object {
+        $commands = $readyDeviceList | ForEach-Object {
             "  .\run.ps1 -Device $($_.Serial)  # $($_.Model)"
         }
         throw "Mehrere Geräte sind bereit. Wähle eines explizit:`n$($commands -join [Environment]::NewLine)"
@@ -131,13 +136,13 @@ function Select-Device {
 
     Write-Host ""
     Write-Host "Mehrere Android-Geräte sind bereit:" -ForegroundColor Yellow
-    for ($index = 0; $index -lt $ReadyDevices.Count; $index++) {
-        Write-Host "  [$($index + 1)] $($ReadyDevices[$index].Model) ($($ReadyDevices[$index].Serial))"
+    for ($index = 0; $index -lt $readyDeviceCount; $index++) {
+        Write-Host "  [$($index + 1)] $($readyDeviceList[$index].Model) ($($readyDeviceList[$index].Serial))"
     }
     Write-Host "  [q] Abbrechen"
 
     while ($true) {
-        $answer = (Read-Host "Gerät auswählen [1-$($ReadyDevices.Count)]").Trim()
+        $answer = (Read-Host "Gerät auswählen [1-$readyDeviceCount]").Trim()
         if ($answer -match '^(q|quit|c|cancel|0)$') {
             throw "Geräteauswahl abgebrochen."
         }
@@ -145,11 +150,11 @@ function Select-Device {
         if (
             [int]::TryParse($answer, [ref]$selection) -and
             $selection -ge 1 -and
-            $selection -le $ReadyDevices.Count
+            $selection -le $readyDeviceCount
         ) {
-            return $ReadyDevices[$selection - 1]
+            return $readyDeviceList[$selection - 1]
         }
-        Write-Host "Bitte eine Zahl zwischen 1 und $($ReadyDevices.Count) eingeben." -ForegroundColor Yellow
+        Write-Host "Bitte eine Zahl zwischen 1 und $readyDeviceCount eingeben." -ForegroundColor Yellow
     }
 }
 
@@ -171,7 +176,7 @@ function Assert-ArtifactFreshness {
     }
 
     $remoteHashOutput = @(& $AdbPath -s $Serial shell sha256sum $remotePath 2>&1)
-    if ($LASTEXITCODE -ne 0 -or $remoteHashOutput.Count -eq 0) {
+    if ($LASTEXITCODE -ne 0 -or $remoteHashOutput.Length -eq 0) {
         throw "Installierte APK konnte nicht gehasht werden: $($remoteHashOutput -join ' ')"
     }
     $remoteHash = ("$($remoteHashOutput[0])" -split '\s+')[0].ToLowerInvariant()
@@ -190,7 +195,8 @@ if ($Help) {
 
 try {
     $adb = (Get-Command adb -ErrorAction Stop).Source
-    $selected = Select-Device -ReadyDevices (Get-ReadyDevices -AdbPath $adb) -RequestedDevice $Device
+    $readyDevices = @(Get-ReadyDevices -AdbPath $adb)
+    $selected = Select-Device -ReadyDevices $readyDevices -RequestedDevice $Device
     Write-Host "Gerät: $($selected.Model) ($($selected.Serial))" -ForegroundColor DarkGray
 
     if (-not $NoBuild -and $PSCmdlet.ShouldProcess($apkPath, "Debug-APK bauen")) {
