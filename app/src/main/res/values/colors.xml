@@ -5,6 +5,7 @@
     <color name="moss_300">#A8D5A1</color>
     <color name="sand_100">#F4F1E8</color>
     <color name="sand_50">#FBF9F4</color>
+    <color name="drawer_loading_scrim">#E6FBF9F4</color>
     <color name="warning">#C44431</color>
     <color name="white">#FFFFFF</color>
     <color name="dialog_action">#1E4D3C</color>

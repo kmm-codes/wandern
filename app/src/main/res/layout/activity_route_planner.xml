@@ -35,6 +35,10 @@
         app:layout_behavior="@string/bottom_sheet_behavior"
         app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.Wandern.BottomDrawer">
 
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="match_parent">
+
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="match_parent"
@@ -340,6 +344,41 @@
         </LinearLayout>
             </de.wandern.app.ui.DrawerContentScrollView>
         </LinearLayout>
+
+            <FrameLayout
+                android:id="@+id/plannerLoadingOverlay"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="@color/drawer_loading_scrim"
+                android:clickable="true"
+                android:focusable="true"
+                android:visibility="gone">
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:padding="20dp">
+
+                    <ProgressBar
+                        android:layout_width="44dp"
+                        android:layout_height="44dp"
+                        android:indeterminate="true"
+                        android:indeterminateTint="@color/forest_700" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:text="@string/calculating_route"
+                        android:textColor="@color/forest_900"
+                        android:textSize="14sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+            </FrameLayout>
+        </FrameLayout>
     </com.google.android.material.card.MaterialCardView>
 
     <com.google.android.material.floatingactionbutton.FloatingActionButton

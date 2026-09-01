@@ -158,6 +158,7 @@ class RoutePlannerActivity : AppCompatActivity() {
     private var pendingCenterRequest = false
     private var pendingFramePoints: List<TrackPoint>? = null
     private var drawerExtentUpdatePosted = false
+    private var plannerDrawerOperationLocked = false
     private var drawerPullCandidate = false
     private var drawerOverPullActive = false
     private var drawerPullStartX = 0f
@@ -271,6 +272,7 @@ class RoutePlannerActivity : AppCompatActivity() {
                     updateCenterButtonPosition()
                 }
                 drawerPullCandidate = binding.plannerCard.visibility == View.VISIBLE &&
+                    !plannerDrawerOperationLocked &&
                     plannerSheetBehavior.state == BottomSheetBehavior.STATE_EXPANDED &&
                     isInsidePlannerDrawer(event.rawX.toInt(), event.rawY.toInt())
                 drawerOverPullActive = false
@@ -520,6 +522,7 @@ class RoutePlannerActivity : AppCompatActivity() {
     }
 
     private fun updatePlannerExtent() {
+        if (plannerDrawerOperationLocked) return
         val parentHeight = binding.root.height
         val contentHeight = binding.drawerCompactHeader.height + naturalPlannerContentHeight()
         if (parentHeight <= 0 || contentHeight <= 0) return
@@ -558,6 +561,10 @@ class RoutePlannerActivity : AppCompatActivity() {
     }
 
     private fun updatePlannerScrollability() {
+        if (plannerDrawerOperationLocked) {
+            binding.plannerScroll.contentScrollingEnabled = false
+            return
+        }
         val contentOverflows = binding.plannerScroll.height > 0 &&
             naturalPlannerContentHeight() > binding.plannerScroll.height
         val maximumVisibleHeight = (binding.root.height - binding.toolbar.bottom)
@@ -766,7 +773,81 @@ class RoutePlannerActivity : AppCompatActivity() {
             framePoints(reversedRoute.points)
             return
         }
-        mutateWaypoints { reverse() }
+        recalculateReversedRoute()
+    }
+
+    private fun recalculateReversedRoute() {
+        val reversedWaypoints = waypoints.asReversed().toList()
+        val selectedRouteMode = routeMode
+        lockPlannerDrawerForOperation()
+        routingInProgress = true
+        lifecycleScope.launch {
+            val result = runCatching {
+                withContext(Dispatchers.IO) {
+                    calculateRouteAlternatives(reversedWaypoints, selectedRouteMode)
+                }
+            }
+            result.onSuccess { routes ->
+                pushUndoState()
+                waypoints.clear()
+                waypoints.addAll(reversedWaypoints)
+                routingInProgress = false
+                roundTripPhase = if (selectedRouteMode == RouteMode.ROUND_TRIP) {
+                    RoundTripPhase.OUTBOUND
+                } else {
+                    RoundTripPhase.NONE
+                }
+                routeAlternatives = routes
+                selectedAlternativeIndex = 0
+                calculatedRoute = routes.first()
+                redrawMap()
+                renderPlannerState()
+                finishLockedPlannerOperationAfterMapUpdate(routes.first().points)
+            }.onFailure { error ->
+                routingInProgress = false
+                renderPlannerState()
+                unlockPlannerDrawerAfterOperation()
+                toast(
+                    getString(
+                        R.string.route_calculation_error,
+                        error.localizedMessage ?: getString(R.string.not_available),
+                    ),
+                )
+            }
+        }
+    }
+
+    private fun lockPlannerDrawerForOperation() {
+        if (plannerDrawerOperationLocked) return
+        drawerSpring?.cancel()
+        binding.plannerCard.translationY = 0f
+        plannerDrawerOperationLocked = true
+        plannerSheetBehavior.isDraggable = false
+        binding.plannerScroll.contentScrollingEnabled = false
+        binding.plannerLoadingOverlay.visibility = View.VISIBLE
+        binding.plannerLoadingOverlay.bringToFront()
+        binding.toolbar.menu.findItem(R.id.action_save_route)?.isEnabled = false
+        binding.toolbar.menu.findItem(R.id.action_undo_route_edit)?.isEnabled = false
+        updateCenterButtonPosition()
+    }
+
+    private fun finishLockedPlannerOperationAfterMapUpdate(points: List<TrackPoint>) {
+        binding.mapView.post {
+            framePoints(points)
+            binding.mapView.postDelayed(
+                ::unlockPlannerDrawerAfterOperation,
+                ROUTE_FRAME_ANIMATION_MS + ROUTE_FRAME_SETTLE_BUFFER_MS,
+            )
+        }
+    }
+
+    private fun unlockPlannerDrawerAfterOperation() {
+        if (!plannerDrawerOperationLocked) return
+        plannerDrawerOperationLocked = false
+        binding.plannerLoadingOverlay.visibility = View.GONE
+        plannerSheetBehavior.isDraggable = true
+        schedulePlannerExtentUpdate()
+        binding.root.post(::updateCenterButtonPosition)
     }
 
     private fun setupWaypointList() {
@@ -1212,6 +1293,7 @@ class RoutePlannerActivity : AppCompatActivity() {
     }
 
     private fun attemptExitPlanner() {
+        if (plannerDrawerOperationLocked) return
         val prompt = when {
             recordingSessionId != null -> {
                 if (!hasUnsavedEditChanges()) {
@@ -1449,9 +1531,11 @@ class RoutePlannerActivity : AppCompatActivity() {
         }
     }
 
-    private fun calculateRouteAlternatives(): List<GpxTrack> {
-        val selectedWaypoints = waypoints.toList()
-        val routes = when (routeMode) {
+    private fun calculateRouteAlternatives(
+        selectedWaypoints: List<TrackPoint> = waypoints.toList(),
+        selectedRouteMode: RouteMode = routeMode,
+    ): List<GpxTrack> {
+        val routes = when (selectedRouteMode) {
             RouteMode.ONE_WAY -> calculateAvailableAlternatives(
                 selectedWaypoints,
                 ALTERNATIVE_INDICES,
@@ -2206,7 +2290,7 @@ class RoutePlannerActivity : AppCompatActivity() {
             val bottom = visibleDrawerHeight + side
             readyMap.animateCamera(
                 CameraUpdateFactory.newLatLngBounds(bounds, side, top, side, bottom),
-                600,
+                ROUTE_FRAME_ANIMATION_MS.toInt(),
             )
         }
     }
@@ -2365,6 +2449,8 @@ class RoutePlannerActivity : AppCompatActivity() {
         private const val LOCATION_LOOKUP_TIMEOUT_MS = 10_000L
         private const val LAST_LOCATION_MAX_AGE_MS = 15 * 60_000L
         private const val AUTO_ROUTE_DEBOUNCE_MS = 350L
+        private const val ROUTE_FRAME_ANIMATION_MS = 600L
+        private const val ROUTE_FRAME_SETTLE_BUFFER_MS = 80L
         private const val HOME_PREFERENCES = "planner_home"
         private const val HOME_LATITUDE = "latitude"
         private const val HOME_LONGITUDE = "longitude"

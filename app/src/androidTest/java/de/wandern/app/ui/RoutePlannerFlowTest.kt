@@ -210,6 +210,36 @@ class RoutePlannerFlowTest {
     }
 
     @Test
+    fun plannerDrawerOperationLockFreezesItsExtentAndDragging() {
+        ActivityScenario.launch(RoutePlannerActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                val drawer = activity.findViewById<MaterialCardView>(R.id.plannerCard)
+                val behavior = BottomSheetBehavior.from(drawer)
+                val overlay = activity.findViewById<View>(R.id.plannerLoadingOverlay)
+                val instruction = activity.findViewById<View>(R.id.instructionRow)
+                val initialHeight = drawer.height
+
+                activity.invokePrivate("lockPlannerDrawerForOperation")
+
+                assertEquals(View.VISIBLE, overlay.visibility)
+                assertTrue(overlay.isClickable)
+                assertFalse(behavior.isDraggable)
+                assertEquals(android.view.ViewGroup.LayoutParams.MATCH_PARENT, overlay.layoutParams.width)
+                assertEquals(android.view.ViewGroup.LayoutParams.MATCH_PARENT, overlay.layoutParams.height)
+
+                instruction.visibility = View.GONE
+                activity.invokePrivate("updatePlannerExtent")
+                assertEquals(initialHeight, drawer.height)
+
+                instruction.visibility = View.VISIBLE
+                activity.invokePrivate("unlockPlannerDrawerAfterOperation")
+                assertEquals(View.GONE, overlay.visibility)
+                assertTrue(behavior.isDraggable)
+            }
+        }
+    }
+
+    @Test
     fun plannerDrawerKeepsItsContentAboveTheSystemNavigationArea() {
         ActivityScenario.launch(RoutePlannerActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
