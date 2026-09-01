@@ -1,0 +1,529 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.coordinatorlayout.widget.CoordinatorLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <org.maplibre.android.maps.MapView
+        android:id="@+id/mapView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <com.google.android.material.appbar.MaterialToolbar
+        android:id="@+id/toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="?attr/actionBarSize"
+        android:layout_gravity="top"
+        android:background="@color/forest_900"
+        app:navigationIcon="@drawable/ic_back"
+        app:menu="@menu/route_planner_actions"
+        app:title="@string/plan_route"
+        app:titleTextColor="@color/white" />
+
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/plannerCard"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_gravity="bottom"
+        app:cardBackgroundColor="@color/sand_50"
+        app:cardElevation="8dp"
+        app:behavior_draggable="true"
+        app:behavior_fitToContents="true"
+        app:behavior_hideable="false"
+        app:behavior_peekHeight="56dp"
+        app:layout_behavior="@string/bottom_sheet_behavior"
+        app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.Wandern.BottomDrawer">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical">
+
+            <LinearLayout
+                android:id="@+id/drawerCompactHeader"
+                android:layout_width="match_parent"
+                android:layout_height="56dp"
+                android:gravity="center_horizontal"
+                android:orientation="vertical"
+                android:paddingStart="14dp"
+                android:paddingEnd="14dp">
+
+                <View
+                    android:layout_width="44dp"
+                    android:layout_height="4dp"
+                    android:layout_marginTop="6dp"
+                    android:layout_marginBottom="8dp"
+                    android:background="@drawable/bottom_drawer_handle" />
+
+                <TextView
+                    android:id="@+id/plannerCompactSummaryText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:gravity="center"
+                    android:maxLines="1"
+                    android:text="@string/planner_compact_empty"
+                    android:textColor="@color/forest_700"
+                    android:textSize="12sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+
+            <de.wandern.app.ui.DrawerContentScrollView
+                android:id="@+id/plannerScroll"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:clipToPadding="false"
+                android:fillViewport="false"
+                android:overScrollMode="ifContentScrolls">
+
+        <LinearLayout
+            android:id="@+id/plannerContent"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:paddingBottom="8dp">
+
+            <LinearLayout
+                android:id="@+id/instructionRow"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/instructionText"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/planner_choose_start"
+                    android:textColor="@color/forest_900"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
+
+            </LinearLayout>
+
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/routeChoiceCard"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:layout_marginBottom="6dp"
+                android:visibility="gone"
+                app:cardBackgroundColor="@color/planned_tour_card"
+                app:cardCornerRadius="14dp"
+                app:cardElevation="0dp"
+                app:strokeColor="@color/moss_300"
+                app:strokeWidth="1dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="8dp">
+
+                    <TextView
+                        android:id="@+id/routeChoiceTitle"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:textColor="@color/forest_900"
+                        android:textSize="16sp"
+                        android:textStyle="bold" />
+
+                    <LinearLayout
+                        android:id="@+id/alternativeSelector"
+                        android:layout_width="match_parent"
+                        android:layout_height="44dp"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal"
+                        android:visibility="gone">
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/previousAlternativeButton"
+                            style="@style/Widget.MaterialComponents.Button.TextButton"
+                            android:layout_width="48dp"
+                            android:layout_height="44dp"
+                            android:contentDescription="@string/previous_route_alternative"
+                            android:text="‹"
+                            android:textSize="24sp" />
+
+                        <TextView
+                            android:id="@+id/alternativeLabel"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:gravity="center"
+                            android:textColor="@color/forest_900"
+                            android:textSize="13sp"
+                            android:textStyle="bold" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/nextAlternativeButton"
+                            style="@style/Widget.MaterialComponents.Button.TextButton"
+                            android:layout_width="48dp"
+                            android:layout_height="44dp"
+                            android:contentDescription="@string/next_route_alternative"
+                            android:text="›"
+                            android:textSize="24sp" />
+                    </LinearLayout>
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/calculateButton"
+                        android:layout_width="match_parent"
+                        android:layout_height="52dp"
+                        android:layout_marginTop="4dp"
+                        android:enabled="false"
+                        android:text="@string/calculate_route"
+                        android:textAllCaps="false"
+                        android:textColor="@color/white"
+                        app:backgroundTint="@color/forest_700"
+                        app:cornerRadius="14dp"
+                        app:icon="@drawable/ic_route"
+                        app:iconGravity="textStart"
+                        app:iconTint="@color/white" />
+
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <LinearLayout
+                android:id="@+id/pointEditor"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+            <LinearLayout
+                android:id="@+id/initialPointControls"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/startPointButton"
+                        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                        android:layout_width="match_parent"
+                        android:layout_height="48dp"
+                        android:gravity="start|center_vertical"
+                        android:maxLines="1"
+                        android:text="@string/choose_start"
+                        android:textAllCaps="false"
+                        android:textColor="@color/planner_field_text"
+                        app:autoSizeMaxTextSize="14sp"
+                        app:autoSizeMinTextSize="10sp"
+                        app:autoSizeStepGranularity="1sp"
+                        app:autoSizeTextType="uniform"
+                        app:cornerRadius="14dp"
+                        app:strokeColor="@color/forest_700" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/destinationPointButton"
+                        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                        android:layout_width="match_parent"
+                        android:layout_height="48dp"
+                        android:layout_marginTop="4dp"
+                        android:gravity="start|center_vertical"
+                        android:maxLines="1"
+                        android:text="@string/choose_destination"
+                        android:textAllCaps="false"
+                        android:textColor="@color/planner_field_text"
+                        app:autoSizeMaxTextSize="14sp"
+                        app:autoSizeMinTextSize="10sp"
+                        app:autoSizeStepGranularity="1sp"
+                        app:autoSizeTextType="uniform"
+                        app:cornerRadius="14dp"
+                        app:strokeColor="@color/forest_700" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/waypointList"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:overScrollMode="never"
+                android:visibility="gone" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/addViaButton"
+                    style="@style/Widget.MaterialComponents.Button.TextButton"
+                    android:layout_width="0dp"
+                    android:layout_height="44dp"
+                    android:layout_weight="1"
+                    android:text="@string/add_via_point"
+                    android:textAllCaps="false"
+                    android:visibility="gone" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/swapEndpointsButton"
+                    style="@style/Widget.MaterialComponents.Button.TextButton"
+                    android:layout_width="48dp"
+                    android:layout_height="44dp"
+                    android:layout_marginStart="4dp"
+                    android:contentDescription="@string/reverse_route_direction"
+                    android:insetLeft="0dp"
+                    android:insetRight="0dp"
+                    android:textAllCaps="false"
+                    app:icon="@drawable/ic_swap_vertical"
+                    app:iconGravity="textStart"
+                    app:iconPadding="8dp"
+                    app:iconTint="@color/forest_700" />
+            </LinearLayout>
+
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:orientation="horizontal">
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/activityTypeButton"
+                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                    android:layout_width="0dp"
+                    android:layout_height="48dp"
+                    android:layout_weight="1"
+                    android:maxLines="1"
+                    android:textAllCaps="false"
+                    android:textColor="@color/planner_field_text"
+                    app:autoSizeMaxTextSize="14sp"
+                    app:autoSizeMinTextSize="10sp"
+                    app:autoSizeStepGranularity="1sp"
+                    app:autoSizeTextType="uniform"
+                    app:cornerRadius="14dp"
+                    app:strokeColor="@color/forest_700" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/routeModeButton"
+                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                    android:layout_width="0dp"
+                    android:layout_height="48dp"
+                    android:layout_marginStart="6dp"
+                    android:layout_weight="1"
+                    android:maxLines="1"
+                    android:textAllCaps="false"
+                    android:textColor="@color/planner_field_text"
+                    app:autoSizeMaxTextSize="14sp"
+                    app:autoSizeMinTextSize="9sp"
+                    app:autoSizeStepGranularity="1sp"
+                    app:autoSizeTextType="uniform"
+                    app:cornerRadius="14dp"
+                    app:strokeColor="@color/forest_700" />
+            </LinearLayout>
+
+            <ProgressBar
+                android:id="@+id/routingProgress"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="4dp"
+                android:layout_marginTop="8dp"
+                android:indeterminate="true"
+                android:indeterminateTint="@color/forest_700"
+                android:visibility="gone" />
+
+        </LinearLayout>
+            </de.wandern.app.ui.DrawerContentScrollView>
+        </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
+
+    <com.google.android.material.floatingactionbutton.FloatingActionButton
+        android:id="@+id/centerButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="end|bottom"
+        android:layout_marginEnd="18dp"
+        android:layout_marginBottom="16dp"
+        android:contentDescription="@string/center_location"
+        android:src="@drawable/ic_my_location"
+        app:backgroundTint="@color/sand_50"
+        app:fabSize="mini"
+        app:tint="@color/forest_900" />
+
+    <LinearLayout
+        android:id="@+id/pointSearchOverlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/sand_50"
+        android:orientation="vertical"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="64dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="4dp"
+            android:paddingEnd="4dp">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/closePointSearchButton"
+                style="@style/Widget.MaterialComponents.Button.TextButton"
+                android:layout_width="52dp"
+                android:layout_height="52dp"
+                android:contentDescription="@string/cancel"
+                android:insetLeft="0dp"
+                android:insetRight="0dp"
+                android:padding="14dp"
+                app:icon="@drawable/ic_back"
+                app:iconGravity="textStart"
+                app:iconPadding="0dp"
+                app:iconTint="@color/forest_700" />
+
+            <EditText
+                android:id="@+id/placeSearchInput"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:background="@android:color/transparent"
+                android:hint="@string/place_search_hint"
+                android:imeOptions="actionSearch"
+                android:inputType="textCapSentences"
+                android:maxLines="1"
+                android:paddingStart="8dp"
+                android:paddingEnd="8dp"
+                android:textColor="@color/forest_900"
+                android:textColorHint="@color/forest_700"
+                android:textSize="19sp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/clearPointSearchButton"
+                style="@style/Widget.MaterialComponents.Button.TextButton"
+                android:layout_width="52dp"
+                android:layout_height="52dp"
+                android:contentDescription="@string/delete"
+                android:insetLeft="0dp"
+                android:insetRight="0dp"
+                android:padding="14dp"
+                app:icon="@drawable/ic_close"
+                app:iconGravity="textStart"
+                app:iconPadding="0dp"
+                app:iconTint="@color/forest_700" />
+        </LinearLayout>
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="@color/moss_300" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:baselineAligned="false"
+            android:orientation="horizontal"
+            android:paddingStart="4dp"
+            android:paddingTop="4dp"
+            android:paddingEnd="4dp"
+            android:paddingBottom="4dp">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/useCurrentPositionButton"
+                style="@style/Widget.MaterialComponents.Button.TextButton"
+                android:layout_width="0dp"
+                android:layout_height="88dp"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:maxLines="2"
+                android:text="@string/current_position_short"
+                android:textAllCaps="false"
+                android:textSize="11sp"
+                app:icon="@drawable/ic_my_location"
+                app:iconGravity="textTop"
+                app:iconTint="@color/forest_700" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/useHomeButton"
+                style="@style/Widget.MaterialComponents.Button.TextButton"
+                android:layout_width="0dp"
+                android:layout_height="88dp"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:maxLines="2"
+                android:text="@string/home_location"
+                android:textAllCaps="false"
+                android:textSize="11sp"
+                app:icon="@drawable/ic_home"
+                app:iconGravity="textTop"
+                app:iconTint="@color/forest_700" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/selectPointOnMapButton"
+                style="@style/Widget.MaterialComponents.Button.TextButton"
+                android:layout_width="0dp"
+                android:layout_height="88dp"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:maxLines="2"
+                android:text="@string/select_on_map_short"
+                android:textAllCaps="false"
+                android:textSize="11sp"
+                app:icon="@drawable/ic_map"
+                app:iconGravity="textTop"
+                app:iconTint="@color/forest_700" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/deletePointButton"
+                style="@style/Widget.MaterialComponents.Button.TextButton"
+                android:layout_width="0dp"
+                android:layout_height="88dp"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:maxLines="2"
+                android:text="@string/delete_waypoint"
+                android:textAllCaps="false"
+                android:textSize="11sp"
+                app:icon="@drawable/ic_delete"
+                app:iconGravity="textTop"
+                app:iconTint="@color/warning" />
+        </LinearLayout>
+
+        <ProgressBar
+            android:id="@+id/placeSearchProgress"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="3dp"
+            android:indeterminate="true"
+            android:indeterminateTint="@color/forest_700"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/placeSearchMessage"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingStart="20dp"
+            android:paddingTop="18dp"
+            android:paddingEnd="20dp"
+            android:paddingBottom="10dp"
+            android:text="@string/place_search_live_hint"
+            android:textColor="@color/forest_700"
+            android:textSize="14sp" />
+
+        <ScrollView
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:fillViewport="true">
+
+            <LinearLayout
+                android:id="@+id/placeSearchResults"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
+        </ScrollView>
+    </LinearLayout>
+</androidx.coordinatorlayout.widget.CoordinatorLayout>

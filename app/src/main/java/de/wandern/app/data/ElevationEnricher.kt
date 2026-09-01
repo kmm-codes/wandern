@@ -1,5 +1,6 @@
 package de.wandern.app.data
 
+import de.wandern.app.localization.localizedSystemText
 import de.wandern.app.model.ElevationSource
 import de.wandern.app.model.GeoMath
 import de.wandern.app.model.GpxTrack
@@ -25,7 +26,10 @@ class ElevationEnricher(
         if (requestedPoints.isEmpty()) return track
         val elevations = provider.elevations(requestedPoints)
         require(elevations.size == requestedPoints.size) {
-            "Höhenservice lieferte ${elevations.size} statt ${requestedPoints.size} Werte."
+            localizedSystemText(
+                "Elevation service returned ${elevations.size} instead of ${requestedPoints.size} values.",
+                "Höhenservice lieferte ${elevations.size} statt ${requestedPoints.size} Werte.",
+            )
         }
 
         var elevationOffset = 0
@@ -137,7 +141,12 @@ private class OpenMeteoElevationProvider : ElevationProvider {
             val responseCode = connection.responseCode
             if (responseCode !in 200..299) {
                 val reason = connection.errorStream?.bufferedReader()?.use { it.readText() }
-                error("Höhenservice antwortete mit HTTP $responseCode${reason?.let { ": $it" }.orEmpty()}")
+                error(
+                    localizedSystemText(
+                        "Elevation service returned HTTP $responseCode${reason?.let { ": $it" }.orEmpty()}",
+                        "Höhenservice antwortete mit HTTP $responseCode${reason?.let { ": $it" }.orEmpty()}",
+                    ),
+                )
             }
             val body = connection.inputStream.bufferedReader().use { it.readText() }
             val values = JSONObject(body).getJSONArray("elevation")

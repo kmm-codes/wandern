@@ -4,6 +4,9 @@ import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
+import de.wandern.app.R
+import de.wandern.app.localization.AppLanguage
+import de.wandern.app.localization.localizedSystemText
 import de.wandern.app.model.GpxTrack
 import de.wandern.app.model.ActivityType
 import de.wandern.app.model.RecordingState
@@ -25,7 +28,12 @@ class TrackStore(context: Context) {
         activityType: ActivityType = ActivityType.HIKING,
     ): Long {
         val now = System.currentTimeMillis()
-        val timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm"))
+        val timestampPattern = if (AppLanguage.forContext(appContext) == AppLanguage.GERMAN) {
+            "dd.MM.yyyy HH:mm"
+        } else {
+            "yyyy-MM-dd HH:mm"
+        }
+        val timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern(timestampPattern))
         val name = routeName?.trim()?.takeIf { it.isNotEmpty() }
             ?.let { "$it · $timestamp" }
             ?: "${defaultRecordingName(activityType)} $timestamp"
@@ -46,7 +54,7 @@ class TrackStore(context: Context) {
     @Synchronized
     fun activeSession(): SessionInfo? = database.readableDatabase.query(
         "sessions",
-        arrayOf("id", "name", "state", "segment_index", "route_reference", "activity_type"),
+        arrayOf("id", "name", "state", "segment_index", "route_reference", "activity_type", "started_at"),
         "state IN (?, ?)",
         arrayOf(RecordingState.RECORDING.name, RecordingState.PAUSED.name),
         null,
@@ -62,6 +70,7 @@ class TrackStore(context: Context) {
             segmentIndex = cursor.getInt(3),
             routeReference = if (cursor.isNull(4)) null else cursor.getString(4),
             activityType = ActivityType.fromStoredValue(if (cursor.isNull(5)) null else cursor.getString(5)),
+            startedAtMillis = cursor.getLong(6),
         )
     }
 
@@ -219,7 +228,12 @@ class TrackStore(context: Context) {
     }
 
     @Synchronized
-    fun saveImportedTrack(track: GpxTrack, sourceRecordingReference: String? = null): StoredTour {
+    fun saveImportedTrack(
+        track: GpxTrack,
+        sourceRecordingReference: String? = null,
+        plannedSource: PlannedTourSource = PlannedTourSource.GPX_IMPORT,
+        routeControlPoints: List<RouteControlPoint> = emptyList(),
+    ): StoredTour {
         val encoded = GpxCodec.encode(track)
         val trackKey = MessageDigest.getInstance("SHA-256")
             .digest(encoded.toByteArray(Charsets.UTF_8))
@@ -242,6 +256,7 @@ class TrackStore(context: Context) {
                 put("imported_at", now)
                 track.activityType?.let { put("activity_type", it.name) }
                 sourceRecordingId?.let { put("source_recording_id", it) }
+                put("planned_source", plannedSource.name)
                 put("file_path", target.absolutePath)
             },
             SQLiteDatabase.CONFLICT_IGNORE,
@@ -252,16 +267,21 @@ class TrackStore(context: Context) {
                 arrayOf(sourceRecordingId, trackKey),
             )
         }
-        return database.readableDatabase.query(
+        val stored = database.readableDatabase.query(
             "imported_tracks",
-            arrayOf("id", "name", "imported_at", "file_path", "activity_type", "source_recording_id"),
+            arrayOf("id", "name", "imported_at", "file_path", "activity_type", "source_recording_id", "planned_source"),
             "track_key = ?",
             arrayOf(trackKey),
             null,
             null,
             null,
         ).use { cursor ->
-            check(cursor.moveToFirst()) { "Importierte Tour konnte nicht gespeichert werden." }
+            check(cursor.moveToFirst()) {
+                localizedSystemText(
+                    "Could not save imported tour.",
+                    "Importierte Tour konnte nicht gespeichert werden.",
+                )
+            }
             val file = File(cursor.getString(3))
             if (!file.exists()) file.writeText(encoded, Charsets.UTF_8)
             StoredTour(
@@ -274,23 +294,218 @@ class TrackStore(context: Context) {
                     if (cursor.isNull(4)) null else cursor.getString(4),
                 ),
                 sourceReference = if (cursor.isNull(5)) null else "recorded:${cursor.getLong(5)}",
+                plannedSource = PlannedTourSource.fromStoredValue(cursor.getString(6)),
+            )
+        }
+        if (routeControlPoints.isNotEmpty()) {
+            replaceRouteControlPoints(stored.reference, routeControlPoints)
+        }
+        return stored
+    }
+
+    @Synchronized
+    fun loadRouteControlPoints(reference: String): List<RouteControlPoint> {
+        val id = importedId(reference) ?: return emptyList()
+        return database.readableDatabase.query(
+            "route_control_points",
+            arrayOf("latitude", "longitude", "label"),
+            "imported_track_id = ?",
+            arrayOf(id.toString()),
+            null,
+            null,
+            "sequence",
+        ).use { cursor ->
+            buildList {
+                while (cursor.moveToNext()) {
+                    add(
+                        RouteControlPoint(
+                            point = TrackPoint(cursor.getDouble(0), cursor.getDouble(1)),
+                            label = if (cursor.isNull(2)) null else cursor.getString(2),
+                        ),
+                    )
+                }
+            }
+        }
+    }
+
+    @Synchronized
+    fun duplicateImportedTrack(reference: String): StoredTour {
+        val original = listStoredTours().firstOrNull {
+            it.reference == reference && it.origin == StoredTourOrigin.IMPORTED
+        } ?: error(
+            localizedSystemText(
+                "Only planned tours can be duplicated.",
+                "Nur geplante Touren können dupliziert werden.",
+            ),
+        )
+        val existingNames = listStoredTours().map { it.name }.toSet()
+        val copyName = nextCopyName(original.name, existingNames)
+        val track = loadStoredTrack(reference).copy(name = copyName)
+        return saveImportedTrack(
+            track = track,
+            sourceRecordingReference = original.sourceReference,
+            plannedSource = original.plannedSource ?: PlannedTourSource.GPX_IMPORT,
+            routeControlPoints = loadRouteControlPoints(reference),
+        )
+    }
+
+    private fun nextCopyName(originalName: String, existingNames: Set<String>): String {
+        val stem = originalName
+            .replace(Regex("\\s+[–-]\\s+Kopie(?: \\d+)?$", RegexOption.IGNORE_CASE), "")
+            .trim()
+            .ifEmpty { "Tour" }
+        var number = 1
+        while (true) {
+            val suffix = if (number == 1) " – Kopie" else " – Kopie $number"
+            val candidate = stem
+                .take((MAX_TOUR_NAME_LENGTH - suffix.length).coerceAtLeast(1))
+                .trimEnd() + suffix
+            if (existingNames.none { it.equals(candidate, ignoreCase = true) }) return candidate
+            number++
+        }
+    }
+
+    @Synchronized
+    fun updateImportedTrack(
+        reference: String,
+        track: GpxTrack,
+        routeControlPoints: List<RouteControlPoint>,
+    ): StoredTour {
+        val id = importedId(reference) ?: error(
+            localizedSystemText(
+                "Only planned tours can be edited.",
+                "Nur geplante Touren können bearbeitet werden.",
+            ),
+        )
+        val previous = listStoredTours().firstOrNull {
+            it.reference == reference && it.origin == StoredTourOrigin.IMPORTED
+        } ?: error(localizedSystemText("The planned tour was not found.", "Die geplante Tour wurde nicht gefunden."))
+        val encoded = GpxCodec.encode(track)
+        val contentHash = MessageDigest.getInstance("SHA-256")
+            .digest(encoded.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+        val conflictingId = database.readableDatabase.query(
+            "imported_tracks",
+            arrayOf("id"),
+            "track_key = ? AND id != ?",
+            arrayOf(contentHash, id.toString()),
+            null,
+            null,
+            null,
+            "1",
+        ).use { cursor -> if (cursor.moveToFirst()) cursor.getLong(0) else null }
+        val storedKey = if (conflictingId == null) contentHash else "$contentHash-edited-$id"
+        val tracksDirectory = File(appContext.filesDir, "tracks").apply { mkdirs() }
+        val editToken = System.nanoTime()
+        val target = File(tracksDirectory, "import-$id-${contentHash.take(20)}-$editToken.gpx")
+        val temporary = File(tracksDirectory, ".edit-$id-$editToken.tmp")
+        temporary.writeText(encoded, Charsets.UTF_8)
+        check(temporary.renameTo(target)) {
+            localizedSystemText(
+                "Could not save the edited GPX file.",
+                "Die bearbeitete GPX-Datei konnte nicht gespeichert werden.",
+            )
+        }
+
+        val db = database.writableDatabase
+        db.beginTransaction()
+        try {
+            val updated = db.update(
+                "imported_tracks",
+                ContentValues().apply {
+                    put("track_key", storedKey)
+                    put("name", track.name)
+                    put("file_path", target.absolutePath)
+                    put("planned_source", PlannedTourSource.ROUTER.name)
+                    if (track.activityType != null) put("activity_type", track.activityType.name)
+                    else putNull("activity_type")
+                },
+                "id = ?",
+                arrayOf(id.toString()),
+            )
+            check(updated == 1) {
+                localizedSystemText("The planned tour was not found.", "Die geplante Tour wurde nicht gefunden.")
+            }
+            replaceRouteControlPoints(db, id, routeControlPoints)
+            db.setTransactionSuccessful()
+        } catch (error: Throwable) {
+            target.delete()
+            throw error
+        } finally {
+            db.endTransaction()
+        }
+        if (previous.file != target && !isFileReferenced(previous.file)) previous.file.delete()
+        return listStoredTours().first { it.reference == reference }
+    }
+
+    private fun replaceRouteControlPoints(reference: String, points: List<RouteControlPoint>) {
+        val id = importedId(reference) ?: return
+        val db = database.writableDatabase
+        db.beginTransaction()
+        try {
+            replaceRouteControlPoints(db, id, points)
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    private fun replaceRouteControlPoints(
+        db: SQLiteDatabase,
+        importedTrackId: Long,
+        points: List<RouteControlPoint>,
+    ) {
+        db.delete("route_control_points", "imported_track_id = ?", arrayOf(importedTrackId.toString()))
+        points.forEachIndexed { sequence, routePoint ->
+            db.insertOrThrow(
+                "route_control_points",
+                null,
+                ContentValues().apply {
+                    put("imported_track_id", importedTrackId)
+                    put("sequence", sequence)
+                    put("latitude", routePoint.point.latitude)
+                    put("longitude", routePoint.point.longitude)
+                    routePoint.label?.trim()?.takeIf { it.isNotEmpty() }?.let { put("label", it) }
+                },
             )
         }
     }
+
+    private fun importedId(reference: String): Long? = reference
+        .takeIf { it.startsWith("imported:") }
+        ?.substringAfter(':')
+        ?.toLongOrNull()
+
+    private fun isFileReferenced(file: File): Boolean = database.readableDatabase.query(
+        "imported_tracks",
+        arrayOf("id"),
+        "file_path = ?",
+        arrayOf(file.absolutePath),
+        null,
+        null,
+        null,
+        "1",
+    ).use { it.moveToFirst() }
 
     @Synchronized
     fun saveRouteDefinitionFromRecording(reference: String): StoredTour {
         val recorded = listStoredTours().firstOrNull {
             it.reference == reference && it.origin == StoredTourOrigin.RECORDED
-        } ?: error("Die Aufzeichnung wurde nicht gefunden.")
+        } ?: error(localizedSystemText("The recording was not found.", "Die Aufzeichnung wurde nicht gefunden."))
         val route = recorded.file.inputStream().use { GpxCodec.parse(it, recorded.name) }
             .asRouteDefinition()
-        return saveImportedTrack(route, sourceRecordingReference = reference)
+        return saveImportedTrack(
+            route,
+            sourceRecordingReference = reference,
+            plannedSource = PlannedTourSource.RECORDING,
+        )
     }
 
     @Synchronized
     fun saveRecordedTrack(track: GpxTrack): StoredTour {
-        require(track.points.isNotEmpty()) { "Die Aufzeichnung enthält keine Punkte." }
+        require(track.points.isNotEmpty()) {
+            localizedSystemText("The recording contains no points.", "Die Aufzeichnung enthält keine Punkte.")
+        }
         listStoredTours().firstOrNull {
             it.origin == StoredTourOrigin.RECORDED && it.name == track.name
         }?.let { return it }
@@ -341,7 +556,7 @@ class TrackStore(context: Context) {
         val tours = mutableListOf<StoredTour>()
         database.readableDatabase.query(
             "imported_tracks",
-            arrayOf("id", "name", "imported_at", "file_path", "activity_type", "source_recording_id"),
+            arrayOf("id", "name", "imported_at", "file_path", "activity_type", "source_recording_id", "planned_source"),
             null,
             null,
             null,
@@ -361,6 +576,7 @@ class TrackStore(context: Context) {
                             if (cursor.isNull(4)) null else cursor.getString(4),
                         ),
                         sourceReference = if (cursor.isNull(5)) null else "recorded:${cursor.getLong(5)}",
+                        plannedSource = PlannedTourSource.fromStoredValue(cursor.getString(6)),
                     )
                 }
             }
@@ -404,14 +620,16 @@ class TrackStore(context: Context) {
     @Synchronized
     fun loadStoredTrack(reference: String): GpxTrack {
         val storedTour = listStoredTours().firstOrNull { it.reference == reference }
-            ?: error("Die gespeicherte Tour wurde nicht gefunden.")
+            ?: error(localizedSystemText("The saved tour was not found.", "Die gespeicherte Tour wurde nicht gefunden."))
         return storedTour.file.inputStream().use { GpxCodec.parse(it, storedTour.name) }
     }
 
     @Synchronized
     fun renameStoredTour(reference: String, requestedName: String): Boolean {
         val newName = requestedName.trim().take(MAX_TOUR_NAME_LENGTH)
-        require(newName.isNotEmpty()) { "Der Tourname darf nicht leer sein." }
+        require(newName.isNotEmpty()) {
+            localizedSystemText("The tour name cannot be empty.", "Der Tourname darf nicht leer sein.")
+        }
         val storedTour = listStoredTours().firstOrNull { it.reference == reference } ?: return false
         val parts = reference.split(':', limit = 2)
         val id = parts.getOrNull(1)?.toLongOrNull() ?: return false
@@ -488,6 +706,7 @@ class TrackStore(context: Context) {
         val segmentIndex: Int,
         val routeReference: String?,
         val activityType: ActivityType,
+        val startedAtMillis: Long,
     )
 
     data class StoredTour(
@@ -499,9 +718,27 @@ class TrackStore(context: Context) {
         val activityType: ActivityType?,
         val sourceReference: String? = null,
         val routeReference: String? = null,
+        val plannedSource: PlannedTourSource? = null,
+    )
+
+    data class RouteControlPoint(
+        val point: TrackPoint,
+        val label: String? = null,
     )
 
     enum class StoredTourOrigin { IMPORTED, RECORDED }
+
+    enum class PlannedTourSource {
+        GPX_IMPORT,
+        RECORDING,
+        ROUTER,
+        ;
+
+        companion object {
+            fun fromStoredValue(value: String?): PlannedTourSource =
+                entries.firstOrNull { it.name == value } ?: GPX_IMPORT
+        }
+    }
 
     private fun android.database.Cursor.doubleOrNull(index: Int): Double? =
         if (isNull(index)) null else getDouble(index)
@@ -512,7 +749,7 @@ class TrackStore(context: Context) {
     private fun android.database.Cursor.floatOrNull(index: Int): Float? =
         if (isNull(index)) null else getFloat(index)
 
-    private class Database(context: Context) : SQLiteOpenHelper(context, "wandern.db", null, 6) {
+    private class Database(context: Context) : SQLiteOpenHelper(context, "wandern.db", null, 8) {
         override fun onCreate(db: SQLiteDatabase) {
             db.execSQL(
                 """
@@ -549,6 +786,7 @@ class TrackStore(context: Context) {
             )
             db.execSQL("CREATE INDEX points_session_index ON points(session_id, segment_index, sequence)")
             createImportedTracksTable(db)
+            createRouteControlPointsTable(db)
         }
 
         override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -570,6 +808,15 @@ class TrackStore(context: Context) {
                     "ALTER TABLE imported_tracks ADD COLUMN source_recording_id INTEGER REFERENCES sessions(id) ON DELETE SET NULL",
                 )
             }
+            if (oldVersion in 2..6) {
+                db.execSQL(
+                    "ALTER TABLE imported_tracks ADD COLUMN planned_source TEXT NOT NULL DEFAULT 'GPX_IMPORT'",
+                )
+                db.execSQL(
+                    "UPDATE imported_tracks SET planned_source = 'RECORDING' WHERE source_recording_id IS NOT NULL",
+                )
+            }
+            if (oldVersion < 8) createRouteControlPointsTable(db)
         }
 
         private fun createImportedTracksTable(db: SQLiteDatabase) {
@@ -582,11 +829,27 @@ class TrackStore(context: Context) {
                     imported_at INTEGER NOT NULL,
                     activity_type TEXT,
                     source_recording_id INTEGER REFERENCES sessions(id) ON DELETE SET NULL,
+                    planned_source TEXT NOT NULL DEFAULT 'GPX_IMPORT',
                     file_path TEXT NOT NULL
                 )
                 """.trimIndent(),
             )
             db.execSQL("CREATE INDEX IF NOT EXISTS imported_tracks_date_index ON imported_tracks(imported_at DESC)")
+        }
+
+        private fun createRouteControlPointsTable(db: SQLiteDatabase) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS route_control_points (
+                    imported_track_id INTEGER NOT NULL REFERENCES imported_tracks(id) ON DELETE CASCADE,
+                    sequence INTEGER NOT NULL,
+                    latitude REAL NOT NULL,
+                    longitude REAL NOT NULL,
+                    label TEXT,
+                    PRIMARY KEY(imported_track_id, sequence)
+                )
+                """.trimIndent(),
+            )
         }
 
         override fun onConfigure(db: SQLiteDatabase) {
@@ -595,14 +858,16 @@ class TrackStore(context: Context) {
         }
     }
 
+    private fun defaultRecordingName(activityType: ActivityType): String = appContext.getString(
+        when (activityType) {
+            ActivityType.HIKING -> R.string.default_recording_hiking
+            ActivityType.CYCLING -> R.string.default_recording_cycling
+            ActivityType.E_BIKE -> R.string.default_recording_e_bike
+            ActivityType.RUNNING -> R.string.default_recording_running
+        },
+    )
+
     companion object {
         private const val MAX_TOUR_NAME_LENGTH = 120
-
-        private fun defaultRecordingName(activityType: ActivityType): String = when (activityType) {
-            ActivityType.HIKING -> "Wanderung"
-            ActivityType.CYCLING -> "Radtour"
-            ActivityType.E_BIKE -> "E-Bike-Tour"
-            ActivityType.RUNNING -> "Lauf"
-        }
     }
 }

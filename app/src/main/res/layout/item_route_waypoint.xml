@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="52dp"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingTop="4dp">
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/waypointButton"
+        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+        android:layout_width="0dp"
+        android:layout_height="48dp"
+        android:layout_weight="1"
+        android:gravity="start|center_vertical"
+        android:maxLines="1"
+        android:textAllCaps="false"
+        android:textColor="@color/planner_field_text"
+        app:autoSizeMaxTextSize="14sp"
+        app:autoSizeMinTextSize="10sp"
+        app:autoSizeStepGranularity="1sp"
+        app:autoSizeTextType="uniform"
+        app:cornerRadius="14dp"
+        app:strokeColor="@color/forest_700" />
+
+    <androidx.appcompat.widget.AppCompatImageButton
+        android:id="@+id/deleteWaypointButton"
+        android:layout_width="44dp"
+        android:layout_height="44dp"
+        android:layout_marginStart="2dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/delete_waypoint"
+        android:padding="11dp"
+        android:src="@drawable/ic_delete"
+        android:visibility="gone"
+        app:tint="@color/warning" />
+
+    <androidx.appcompat.widget.AppCompatImageButton
+        android:id="@+id/waypointExpandButton"
+        android:layout_width="44dp"
+        android:layout_height="44dp"
+        android:layout_marginStart="2dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/collapse_waypoints"
+        android:padding="11dp"
+        android:src="@drawable/ic_expand_less"
+        android:visibility="gone"
+        app:tint="@color/forest_700" />
+
+    <androidx.appcompat.widget.AppCompatImageButton
+        android:id="@+id/dragHandle"
+        android:layout_width="44dp"
+        android:layout_height="44dp"
+        android:layout_marginStart="2dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/reorder_waypoint"
+        android:padding="10dp"
+        android:src="@drawable/ic_drag_handle" />
+</LinearLayout>

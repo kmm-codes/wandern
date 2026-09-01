@@ -43,6 +43,16 @@
             android:screenOrientation="portrait" />
 
         <activity
+            android:name=".ui.RoutePlannerActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+
+        <activity
+            android:name=".ui.DetourPlannerActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+
+        <activity
             android:name=".ui.CompassCalibrationActivity"
             android:exported="false"
             android:screenOrientation="portrait" />

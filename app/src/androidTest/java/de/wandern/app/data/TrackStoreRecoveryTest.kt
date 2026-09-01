@@ -39,6 +39,7 @@ class TrackStoreRecoveryTest {
             val route = store.loadStoredTrack(planned.reference)
 
             assertEquals(TrackStore.StoredTourOrigin.IMPORTED, planned.origin)
+            assertEquals(TrackStore.PlannedTourSource.RECORDING, planned.plannedSource)
             assertEquals(recorded.reference, planned.sourceReference)
             assertEquals(2, route.points.size)
             assertTrue(route.points.all { it.timeMillis == null && it.speedMetersPerSecond == null })
@@ -46,6 +47,118 @@ class TrackStoreRecoveryTest {
         } finally {
             planned?.let { store.deleteStoredTour(it.reference) }
             store.deleteStoredTour(recorded.reference)
+        }
+    }
+
+    @Test
+    fun routerPlannedTourKeepsItsOriginAfterStoreRecreation() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val store = TrackStore(context)
+        val planned = store.saveImportedTrack(
+            GpxTrack(
+                name = "Router-${System.nanoTime()}",
+                segments = listOf(
+                    listOf(
+                        TrackPoint(48.1, 8.1, elevationMeters = 100.0),
+                        TrackPoint(48.2, 8.2, elevationMeters = 120.0),
+                    ),
+                ),
+                activityType = ActivityType.CYCLING,
+            ),
+            plannedSource = TrackStore.PlannedTourSource.ROUTER,
+        )
+
+        try {
+            val restored = TrackStore(context).listStoredTours().first { it.reference == planned.reference }
+            assertEquals(TrackStore.PlannedTourSource.ROUTER, restored.plannedSource)
+            assertEquals(ActivityType.CYCLING, restored.activityType)
+        } finally {
+            store.deleteStoredTour(planned.reference)
+        }
+    }
+
+    @Test
+    fun plannedTourCanBeUpdatedWithoutChangingItsReference() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val store = TrackStore(context)
+        val start = TrackPoint(48.1, 8.1)
+        val originalEnd = TrackPoint(48.2, 8.2)
+        val planned = store.saveImportedTrack(
+            GpxTrack("Vorher-${System.nanoTime()}", listOf(listOf(start, originalEnd))),
+            plannedSource = TrackStore.PlannedTourSource.ROUTER,
+            routeControlPoints = listOf(
+                TrackStore.RouteControlPoint(start, "Start"),
+                TrackStore.RouteControlPoint(originalEnd, "Altes Ziel"),
+            ),
+        )
+        val via = TrackPoint(48.15, 8.25)
+        val newEnd = TrackPoint(48.25, 8.3)
+
+        try {
+            val updated = store.updateImportedTrack(
+                planned.reference,
+                GpxTrack("Nachher", listOf(listOf(start, via, newEnd)), activityType = ActivityType.CYCLING),
+                listOf(
+                    TrackStore.RouteControlPoint(start, "Start"),
+                    TrackStore.RouteControlPoint(via, "Zwischenziel"),
+                    TrackStore.RouteControlPoint(newEnd, "Neues Ziel"),
+                ),
+            )
+
+            assertEquals(planned.reference, updated.reference)
+            assertEquals("Nachher", updated.name)
+            assertEquals(ActivityType.CYCLING, updated.activityType)
+            assertEquals(listOf(start, via, newEnd), store.loadStoredTrack(planned.reference).points)
+            assertEquals(
+                listOf("Start", "Zwischenziel", "Neues Ziel"),
+                store.loadRouteControlPoints(planned.reference).map { it.label },
+            )
+        } finally {
+            store.deleteStoredTour(planned.reference)
+        }
+    }
+
+    @Test
+    fun plannedTourCanBeDuplicatedWithControlPointsAndUniqueNames() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val store = TrackStore(context)
+        val start = TrackPoint(48.1, 8.1)
+        val end = TrackPoint(48.2, 8.2)
+        val originalName = "Kopiertest-${System.nanoTime()}"
+        val original = store.saveImportedTrack(
+            GpxTrack(
+                name = originalName,
+                segments = listOf(listOf(start, end)),
+                activityType = ActivityType.E_BIKE,
+            ),
+            plannedSource = TrackStore.PlannedTourSource.ROUTER,
+            routeControlPoints = listOf(
+                TrackStore.RouteControlPoint(start, "Startpunkt"),
+                TrackStore.RouteControlPoint(end, "Zielpunkt"),
+            ),
+        )
+        var firstCopy: TrackStore.StoredTour? = null
+        var secondCopy: TrackStore.StoredTour? = null
+
+        try {
+            firstCopy = store.duplicateImportedTrack(original.reference)
+            secondCopy = store.duplicateImportedTrack(firstCopy.reference)
+
+            assertEquals("$originalName – Kopie", firstCopy.name)
+            assertEquals("$originalName – Kopie 2", secondCopy.name)
+            assertFalse(original.reference == firstCopy.reference)
+            assertFalse(firstCopy.reference == secondCopy.reference)
+            assertEquals(ActivityType.E_BIKE, firstCopy.activityType)
+            assertEquals(TrackStore.PlannedTourSource.ROUTER, firstCopy.plannedSource)
+            assertEquals(listOf(start, end), store.loadStoredTrack(firstCopy.reference).points)
+            assertEquals(
+                listOf("Startpunkt", "Zielpunkt"),
+                store.loadRouteControlPoints(firstCopy.reference).map { it.label },
+            )
+        } finally {
+            secondCopy?.let { store.deleteStoredTour(it.reference) }
+            firstCopy?.let { store.deleteStoredTour(it.reference) }
+            store.deleteStoredTour(original.reference)
         }
     }
 

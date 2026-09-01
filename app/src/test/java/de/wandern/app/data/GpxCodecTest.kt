@@ -4,6 +4,9 @@ import de.wandern.app.model.GpxTrack
 import de.wandern.app.model.ActivityType
 import de.wandern.app.model.ElevationSource
 import de.wandern.app.model.TrackPoint
+import de.wandern.app.model.RouteAttributeSegment
+import de.wandern.app.model.RouteSurface
+import de.wandern.app.model.RouteWayType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
@@ -120,6 +123,22 @@ class GpxCodecTest {
         assertTrue(parsed.points[1].isInterpolated)
         assertTrue(!parsed.points[0].isInterpolated)
         assertTrue(!parsed.points[2].isInterpolated)
+    }
+
+    @Test
+    fun `round trip preserves route attribute segments`() {
+        val original = GpxTrack(
+            "Untergrund",
+            listOf(listOf(TrackPoint(48.1, 11.5), TrackPoint(48.2, 11.6))),
+            routeAttributes = listOf(
+                RouteAttributeSegment(350.25, RouteWayType.HIKING_TRAIL, RouteSurface.NATURAL),
+                RouteAttributeSegment(125.0, RouteWayType.MINOR_ROAD, RouteSurface.ASPHALT),
+            ),
+        )
+
+        val parsed = GpxCodec.parse(GpxCodec.encode(original).byteInputStream())
+
+        assertEquals(original.routeAttributes, parsed.routeAttributes)
     }
 
     @Test

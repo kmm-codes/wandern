@@ -1,15 +1,22 @@
 package de.wandern.app.data
 
+import de.wandern.app.localization.localizedSystemText
 import de.wandern.app.model.GpxTrack
 import de.wandern.app.model.ActivityType
 import de.wandern.app.model.ElevationSource
+import de.wandern.app.model.RouteAttributeSegment
+import de.wandern.app.model.RouteSurface
+import de.wandern.app.model.RouteWayType
 import de.wandern.app.model.TrackPoint
 import java.io.InputStream
 import java.time.Instant
 import javax.xml.parsers.DocumentBuilderFactory
 
 object GpxCodec {
-    fun parse(input: InputStream, fallbackName: String = "Importierte Route"): GpxTrack {
+    fun parse(
+        input: InputStream,
+        fallbackName: String = localizedSystemText("Imported route", "Importierte Route"),
+    ): GpxTrack {
         val factory = DocumentBuilderFactory.newInstance().apply {
             isNamespaceAware = true
             // Android's bundled XML implementation does not support every optional
@@ -46,7 +53,12 @@ object GpxCodec {
             }).filter { it.isNotEmpty() }
         }
 
-        require(segments.any { it.isNotEmpty() }) { "Die GPX-Datei enthält keine Track- oder Routenpunkte." }
+        require(segments.any { it.isNotEmpty() }) {
+            localizedSystemText(
+                "The GPX file contains no track or route points.",
+                "Die GPX-Datei enthält keine Track- oder Routenpunkte.",
+            )
+        }
         val elevationSource = document.getElementsByTagNameNS("*", "elevationSource")
             .item(0)?.textContent?.trim()?.let { encoded ->
                 runCatching { ElevationSource.valueOf(encoded) }.getOrNull()
@@ -55,7 +67,24 @@ object GpxCodec {
             .item(0)?.textContent?.let(ActivityType::fromGpxValue)
             ?: document.getElementsByTagNameNS("*", "type")
                 .item(0)?.textContent?.let(ActivityType::fromGpxValue)
-        return GpxTrack(name, segments, elevationSource, activityType)
+        val routeAttributes = document.getElementsByTagNameNS("*", "routeAttributeSegment").let { nodes ->
+            buildList {
+                for (index in 0 until nodes.length) {
+                    val attributes = nodes.item(index).attributes ?: continue
+                    val distance = attributes.getNamedItem("distanceMeters")?.nodeValue?.toDoubleOrNull()
+                        ?.takeIf { it.isFinite() && it > 0.0 }
+                        ?: continue
+                    val wayType = attributes.getNamedItem("wayType")?.nodeValue
+                        ?.let { runCatching { RouteWayType.valueOf(it) }.getOrNull() }
+                        ?: RouteWayType.UNKNOWN
+                    val surface = attributes.getNamedItem("surface")?.nodeValue
+                        ?.let { runCatching { RouteSurface.valueOf(it) }.getOrNull() }
+                        ?: RouteSurface.UNKNOWN
+                    add(RouteAttributeSegment(distance, wayType, surface))
+                }
+            }
+        }
+        return GpxTrack(name, segments, elevationSource, activityType, routeAttributes)
     }
 
     fun encode(track: GpxTrack): String = buildString {
@@ -63,7 +92,7 @@ object GpxCodec {
         append("<gpx version=\"1.1\" creator=\"Wandern\" xmlns=\"http://www.topografix.com/GPX/1/1\" ")
         append("xmlns:wandern=\"https://wandern.local/gpx/1\">\n")
         append("  <metadata><name>").append(escape(track.name)).append("</name>")
-        if (track.elevationSource != null || track.activityType != null) {
+        if (track.elevationSource != null || track.activityType != null || track.routeAttributes.isNotEmpty()) {
             append("<extensions>")
             track.elevationSource?.let { source ->
                 append("<wandern:elevationSource>")
@@ -74,6 +103,17 @@ object GpxCodec {
                 append("<wandern:activityType>")
                     .append(type.gpxValue)
                     .append("</wandern:activityType>")
+            }
+            if (track.routeAttributes.isNotEmpty()) {
+                append("<wandern:routeAttributes>")
+                track.routeAttributes.forEach { segment ->
+                    append("<wandern:routeAttributeSegment distanceMeters=\"")
+                        .append("%.2f".format(java.util.Locale.US, segment.distanceMeters))
+                        .append("\" wayType=\"").append(segment.wayType.name)
+                        .append("\" surface=\"").append(segment.surface.name)
+                        .append("\"/>")
+                }
+                append("</wandern:routeAttributes>")
             }
             append("</extensions>")
         }
