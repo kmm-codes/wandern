@@ -23,7 +23,7 @@ class CompassCalibrationPrerequisiteTest {
             prerequisite.onSensorSample(nowMillis = 1_500, qualityConfirmed = true).state,
         )
         assertEquals(
-            CompassCalibrationPrerequisite.State.READY_TO_WALK,
+            CompassCalibrationPrerequisite.State.READY,
             prerequisite.onSensorSample(nowMillis = 2_000, qualityConfirmed = true).state,
         )
     }

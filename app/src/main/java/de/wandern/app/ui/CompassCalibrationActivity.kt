@@ -21,18 +21,15 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.view.View
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import de.wandern.app.R
-import de.wandern.app.data.CompassPreferences
 import de.wandern.app.databinding.ActivityCompassCalibrationBinding
+import de.wandern.app.localization.AppLanguage
 import de.wandern.app.model.CompassCalibrationPrerequisite
 import de.wandern.app.model.HeadingSmoother
-import de.wandern.app.model.TrackPoint
-import de.wandern.app.model.WalkingCompassCalibrator
 import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
@@ -54,15 +51,13 @@ import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.geojson.Feature
 import org.maplibre.geojson.FeatureCollection
 import org.maplibre.geojson.Point
-import kotlin.math.roundToInt
 
 class CompassCalibrationActivity : AppCompatActivity(), SensorEventListener, LocationListener {
-    private enum class Screen { PREPARATION, STABILIZING, READY_TO_WALK, WALKING, COMPLETE }
+    private enum class Screen { PREPARATION, STABILIZING, COMPLETE }
 
     private lateinit var binding: ActivityCompassCalibrationBinding
     private lateinit var sensorManager: SensorManager
     private lateinit var locationManager: LocationManager
-    private lateinit var compassPreferences: CompassPreferences
     private val prerequisite = CompassCalibrationPrerequisite()
     private val headingSmoother = HeadingSmoother()
     private val handler = Handler(Looper.getMainLooper())
@@ -75,24 +70,11 @@ class CompassCalibrationActivity : AppCompatActivity(), SensorEventListener, Loc
     private var headingAccuracyDegrees: Float? = null
     private var latestPhoneHeadingDegrees: Float? = null
     private var latestLocation: Location? = null
-    private var walkCalibrator: WalkingCompassCalibrator? = null
-    private var walkProgress: WalkingCompassCalibrator.Progress? = null
-    private var completedOffsetDegrees: Float? = null
     private var screen = Screen.PREPARATION
     private var resumed = false
     private var map: MapLibreMap? = null
     private var mapStyle: Style? = null
     private var mapCentered = false
-
-    private val locationPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions(),
-    ) {
-        if (hasPreciseLocationPermission()) {
-            beginWalkCalibration()
-        } else {
-            binding.sensorStatusText.setText(R.string.compass_calibration_precise_location_required)
-        }
-    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -108,7 +90,6 @@ class CompassCalibrationActivity : AppCompatActivity(), SensorEventListener, Loc
 
         sensorManager = getSystemService(SENSOR_SERVICE) as SensorManager
         locationManager = getSystemService(LOCATION_SERVICE) as LocationManager
-        compassPreferences = CompassPreferences(this)
         rotationVectorSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
         magneticFieldSensor = sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD)
 
@@ -127,10 +108,7 @@ class CompassCalibrationActivity : AppCompatActivity(), SensorEventListener, Loc
         if (screen == Screen.STABILIZING) {
             prerequisite.confirmFigureEight(SystemClock.elapsedRealtime())
         }
-        if (
-            (screen == Screen.STABILIZING || screen == Screen.READY_TO_WALK || screen == Screen.WALKING) &&
-            hasPreciseLocationPermission()
-        ) {
+        if (hasPreciseLocationPermission()) {
             startLocationUpdates()
         }
         render()
@@ -143,12 +121,6 @@ class CompassCalibrationActivity : AppCompatActivity(), SensorEventListener, Loc
         handler.removeCallbacksAndMessages(null)
         headingSmoother.reset()
         latestPhoneHeadingDegrees = null
-        if (screen == Screen.WALKING) {
-            walkCalibrator = null
-            walkProgress = null
-            prerequisite.restart()
-            screen = Screen.PREPARATION
-        }
         binding.mapPreview.onPause()
         super.onPause()
     }
@@ -156,24 +128,19 @@ class CompassCalibrationActivity : AppCompatActivity(), SensorEventListener, Loc
     private fun onPrimaryAction() {
         when (screen) {
             Screen.PREPARATION -> confirmFigureEight()
-            Screen.READY_TO_WALK -> requestWalkCalibration()
             Screen.COMPLETE -> finish()
-            Screen.STABILIZING, Screen.WALKING -> Unit
+            Screen.STABILIZING -> Unit
         }
     }
 
     private fun onSecondaryAction() {
         when (screen) {
-            Screen.PREPARATION -> {
-                compassPreferences.clearHeadingOffset()
-                render()
-            }
-            Screen.STABILIZING, Screen.READY_TO_WALK -> {
+            Screen.STABILIZING, Screen.COMPLETE -> {
                 prerequisite.restart()
                 screen = Screen.PREPARATION
                 render()
             }
-            Screen.WALKING, Screen.COMPLETE -> Unit
+            Screen.PREPARATION -> Unit
         }
     }
 
@@ -193,27 +160,6 @@ class CompassCalibrationActivity : AppCompatActivity(), SensorEventListener, Loc
             registerCompassSensors()
             if (hasPreciseLocationPermission()) startLocationUpdates()
         }, SENSOR_RESTART_DELAY_MILLIS)
-    }
-
-    private fun requestWalkCalibration() {
-        if (!hasPreciseLocationPermission()) {
-            locationPermissionLauncher.launch(
-                arrayOf(
-                    Manifest.permission.ACCESS_FINE_LOCATION,
-                    Manifest.permission.ACCESS_COARSE_LOCATION,
-                ),
-            )
-            return
-        }
-        beginWalkCalibration()
-    }
-
-    private fun beginWalkCalibration() {
-        walkCalibrator = WalkingCompassCalibrator()
-        walkProgress = null
-        screen = Screen.WALKING
-        startLocationUpdates()
-        render()
     }
 
     @SuppressLint("MissingPermission")
@@ -261,9 +207,8 @@ class CompassCalibrationActivity : AppCompatActivity(), SensorEventListener, Loc
                 nowMillis = SystemClock.elapsedRealtime(),
                 qualityConfirmed = isSensorQualityConfirmed(),
             )
-            if (progress.state == CompassCalibrationPrerequisite.State.READY_TO_WALK) {
-                screen = Screen.READY_TO_WALK
-                if (hasPreciseLocationPermission()) startLocationUpdates()
+            if (progress.state == CompassCalibrationPrerequisite.State.READY) {
+                screen = Screen.COMPLETE
             }
             render()
         }
@@ -274,7 +219,7 @@ class CompassCalibrationActivity : AppCompatActivity(), SensorEventListener, Loc
             Sensor.TYPE_MAGNETIC_FIELD -> magneticAccuracy = accuracy
             Sensor.TYPE_ROTATION_VECTOR -> rotationAccuracy = accuracy
         }
-        if (screen == Screen.PREPARATION || screen == Screen.STABILIZING) render()
+        render()
     }
 
     override fun onLocationChanged(location: Location) {
@@ -286,27 +231,6 @@ class CompassCalibrationActivity : AppCompatActivity(), SensorEventListener, Loc
                 CameraUpdateFactory.newLatLngZoom(LatLng(location.latitude, location.longitude), 17.0),
             )
         }
-        if (screen != Screen.WALKING) return
-        val point = TrackPoint(
-            latitude = location.latitude,
-            longitude = location.longitude,
-            elevationMeters = location.altitude.takeIf { location.hasAltitude() },
-            timeMillis = location.time.takeIf { it > 0 } ?: System.currentTimeMillis(),
-            accuracyMeters = location.accuracy.takeIf { location.hasAccuracy() },
-            speedMetersPerSecond = location.speed.takeIf { location.hasSpeed() },
-            bearingDegrees = location.bearing.takeIf { location.hasBearing() },
-        )
-        val progress = walkCalibrator?.update(point, latestPhoneHeadingDegrees) ?: return
-        walkProgress = progress
-        if (progress.state == WalkingCompassCalibrator.State.READY) {
-            val offset = progress.offsetDegrees ?: return
-            compassPreferences.headingOffsetDegrees = offset
-            completedOffsetDegrees = offset
-            walkCalibrator = null
-            stopLocationUpdates()
-            screen = Screen.COMPLETE
-        }
-        render()
     }
 
     private fun isSensorQualityConfirmed(): Boolean {
@@ -343,8 +267,6 @@ class CompassCalibrationActivity : AppCompatActivity(), SensorEventListener, Loc
         when (screen) {
             Screen.PREPARATION -> renderPreparation()
             Screen.STABILIZING -> renderStabilizing()
-            Screen.READY_TO_WALK -> renderReadyToWalk()
-            Screen.WALKING -> renderWalking()
             Screen.COMPLETE -> renderComplete()
         }
     }
@@ -357,10 +279,6 @@ class CompassCalibrationActivity : AppCompatActivity(), SensorEventListener, Loc
         binding.titleText.setText(R.string.compass_calibration_figure_eight_title)
         binding.messageText.setText(R.string.compass_calibration_figure_eight_message)
         binding.primaryButton.setText(R.string.compass_calibration_figure_eight_confirm)
-        if (compassPreferences.hasHeadingOffset) {
-            binding.secondaryButton.visibility = View.VISIBLE
-            binding.secondaryButton.setText(R.string.compass_calibration_reset)
-        }
     }
 
     private fun renderStabilizing() {
@@ -377,54 +295,15 @@ class CompassCalibrationActivity : AppCompatActivity(), SensorEventListener, Loc
         binding.secondaryButton.setText(R.string.compass_calibration_repeat_figure_eight)
     }
 
-    private fun renderReadyToWalk() {
-        showLiveMapPreview()
-        binding.stepLabel.setText(R.string.compass_calibration_step_walk)
-        binding.gestureSymbol.text = "↑"
-        binding.titleText.setText(R.string.compass_calibration_walk_title)
-        binding.messageText.setText(R.string.compass_calibration_walk_message)
-        binding.primaryButton.setText(R.string.compass_calibration_walk_start)
-        binding.secondaryButton.visibility = View.VISIBLE
-        binding.secondaryButton.setText(R.string.compass_calibration_repeat_figure_eight)
-    }
-
-    private fun renderWalking() {
-        showLiveMapPreview()
-        binding.stepLabel.setText(R.string.compass_calibration_step_walk)
-        binding.gestureSymbol.text = "↑"
-        binding.titleText.setText(R.string.compass_calibration_walk_title)
-        binding.messageText.text = when (walkProgress?.state) {
-            WalkingCompassCalibrator.State.WALK_STRAIGHT ->
-                getString(R.string.compass_calibration_walk_straight)
-            WalkingCompassCalibrator.State.COLLECTING,
-            WalkingCompassCalibrator.State.READY -> getString(
-                R.string.compass_calibration_walk_progress,
-                walkProgress?.distanceMeters?.roundToInt() ?: 0,
-                walkProgress?.requiredDistanceMeters?.roundToInt() ?: 20,
-            )
-            WalkingCompassCalibrator.State.WAITING_FOR_PHONE ->
-                getString(R.string.compass_calibration_waiting_phone)
-            else -> getString(R.string.compass_calibration_waiting_gps)
-        }
-        val required = walkProgress?.requiredDistanceMeters?.takeIf { it > 0.0 } ?: 20.0
-        val distance = walkProgress?.distanceMeters ?: 0.0
-        binding.progressIndicator.visibility = View.VISIBLE
-        binding.progressIndicator.progress = ((distance / required) * 100).roundToInt().coerceIn(0, 100)
-        binding.primaryButton.setText(R.string.compass_calibration_running)
-        binding.primaryButton.isEnabled = false
-    }
-
     private fun renderComplete() {
         showLiveMapPreview()
         binding.stepLabel.setText(R.string.compass_calibration_step_complete)
         binding.gestureSymbol.text = "✓"
         binding.titleText.setText(R.string.compass_calibration_complete_title)
-        binding.messageText.text = getString(
-            R.string.compass_calibration_complete_message,
-            completedOffsetDegrees ?: 0f,
-        )
-        binding.sensorStatusText.visibility = View.GONE
+        binding.messageText.setText(R.string.compass_calibration_complete_message)
         binding.primaryButton.setText(R.string.compass_calibration_done)
+        binding.secondaryButton.visibility = View.VISIBLE
+        binding.secondaryButton.setText(R.string.compass_calibration_repeat_figure_eight)
     }
 
     private fun showLiveMapPreview() {
@@ -441,6 +320,7 @@ class CompassCalibrationActivity : AppCompatActivity(), SensorEventListener, Loc
                 uiSettings.isAttributionEnabled = true
             }
             readyMap.setStyle(Style.Builder().fromUri(MAP_STYLE_URL)) { style ->
+                MapStyleLocalizer.localize(style, AppLanguage.forContext(this))
                 mapStyle = style
                 style.addSource(GeoJsonSource(PREVIEW_POSITION_SOURCE, EMPTY_FEATURE_COLLECTION))
                 style.addLayer(
@@ -484,7 +364,7 @@ class CompassCalibrationActivity : AppCompatActivity(), SensorEventListener, Loc
         val heading = latestPhoneHeadingDegrees ?: return
         style.getSourceAs<GeoJsonSource>(PREVIEW_DIRECTION_SOURCE)?.setGeoJson(feature)
         style.getLayerAs<SymbolLayer>(PREVIEW_DIRECTION_LAYER)?.setProperties(
-            iconRotate(HeadingSmoother.normalize(heading + compassPreferences.headingOffsetDegrees)),
+            iconRotate(HeadingSmoother.normalize(heading)),
         )
     }
 

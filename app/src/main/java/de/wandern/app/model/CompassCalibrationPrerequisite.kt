@@ -4,7 +4,7 @@ class CompassCalibrationPrerequisite(
     private val minimumSamples: Int = 8,
     private val minimumStabilizationMillis: Long = 1_500L,
 ) {
-    enum class State { FIGURE_EIGHT_REQUIRED, STABILIZING, READY_TO_WALK }
+    enum class State { FIGURE_EIGHT_REQUIRED, STABILIZING, READY }
 
     data class Progress(
         val state: State,
@@ -34,7 +34,7 @@ class CompassCalibrationPrerequisite(
             nowMillis - stabilizationStartedAtMillis >= minimumStabilizationMillis &&
             sensorQualityConfirmed
         ) {
-            state = State.READY_TO_WALK
+            state = State.READY
         }
         return progress()
     }
