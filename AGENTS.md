@@ -1,6 +1,7 @@
 # Repository workflow
 
 - Commit completed work at sensible, frequent checkpoints without waiting for an explicit request.
+- Push every commit immediately to the current remote branch after creating it.
 - Prefer several focused commits over one large accumulated working tree.
 - Use judgment when grouping tightly coupled changes; keep each commit coherent and verified in proportion to its risk.
 - Before committing, exclude local artifacts, device captures, secrets, generated files, and unrelated user changes.
