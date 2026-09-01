@@ -12,6 +12,7 @@ data class AutoPauseUpdate(
     val autoPaused: Boolean,
     val stationaryEvidence: Boolean,
     val transition: AutoPauseTransition = AutoPauseTransition.NONE,
+    val movingEvidence: Boolean = false,
 )
 
 /**
@@ -105,7 +106,7 @@ class AutoPauseDetector(
             anchor = point
             stationarySinceMillis = null
             stationarySampleCount = 0
-            AutoPauseUpdate(false, stationaryEvidence = false)
+            AutoPauseUpdate(false, stationaryEvidence = false, movingEvidence = true)
         }
         MotionEvidence.AMBIGUOUS -> {
             stationarySinceMillis = null
@@ -129,9 +130,14 @@ class AutoPauseDetector(
                 movingSinceMillis = null
                 stationarySampleCount = 0
                 movingSampleCount = 0
-                AutoPauseUpdate(false, stationaryEvidence = false, AutoPauseTransition.RESUMED)
+                AutoPauseUpdate(
+                    autoPaused = false,
+                    stationaryEvidence = false,
+                    transition = AutoPauseTransition.RESUMED,
+                    movingEvidence = true,
+                )
             } else {
-                AutoPauseUpdate(true, stationaryEvidence = false)
+                AutoPauseUpdate(true, stationaryEvidence = false, movingEvidence = true)
             }
         }
         MotionEvidence.STATIONARY, MotionEvidence.AMBIGUOUS -> {

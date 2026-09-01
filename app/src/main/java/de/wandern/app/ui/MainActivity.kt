@@ -9,7 +9,6 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
-import android.graphics.RectF
 import android.graphics.Typeface
 import android.hardware.GeomagneticField
 import android.hardware.Sensor
@@ -23,17 +22,18 @@ import android.net.Uri
 import android.os.BatteryManager
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.content.IntentFilter
 import android.provider.Settings
 import android.text.format.Formatter
 import android.util.Log
 import android.view.View
+import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.PopupMenu
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
-import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
 import androidx.core.location.LocationManagerCompat
 import androidx.core.os.CancellationSignal
@@ -45,14 +45,15 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import de.wandern.app.R
 import de.wandern.app.data.GpxCodec
 import de.wandern.app.data.ActivityPreferences
-import de.wandern.app.data.CompassPreferences
 import de.wandern.app.data.ElevationEnricher
+import de.wandern.app.data.DetourSessionStore
 import de.wandern.app.data.FitnessPreferences
 import de.wandern.app.data.OfflineMapAvailability
 import de.wandern.app.data.OfflineMapDownloadState
 import de.wandern.app.data.OfflineMapDownloader
 import de.wandern.app.data.OfflineMapStatus
 import de.wandern.app.data.TrackStore
+import de.wandern.app.localization.AppLanguage
 import de.wandern.app.databinding.ActivityMainBinding
 import de.wandern.app.databinding.DialogRecordingStartCheckBinding
 import de.wandern.app.model.GeoMath
@@ -62,12 +63,12 @@ import de.wandern.app.model.GpsQuality
 import de.wandern.app.model.GpsQualityWarningMonitor
 import de.wandern.app.model.HeadingSmoother
 import de.wandern.app.model.HikingFitnessLevel
-import de.wandern.app.model.MapPoiPresenter
 import de.wandern.app.model.OfflineMapPlanner
 import de.wandern.app.model.RecordingState
 import de.wandern.app.model.RecordingRetentionPolicy
 import de.wandern.app.model.RouteProgress
 import de.wandern.app.model.RouteProgressTracker
+import de.wandern.app.model.RouteRejoinAdvisor
 import de.wandern.app.model.RouteEntryMode
 import de.wandern.app.model.RouteStartAssessment
 import de.wandern.app.model.RouteStartAssessor
@@ -78,7 +79,7 @@ import de.wandern.app.model.TrackStats
 import de.wandern.app.model.TourForecaster
 import de.wandern.app.model.TourInsightsAnalyzer
 import de.wandern.app.model.TrackingSnapshot
-import de.wandern.app.model.WalkingCompassCalibrator
+import de.wandern.app.model.projectRecordingDurations
 import de.wandern.app.service.TrackingService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -124,16 +125,16 @@ import org.maplibre.geojson.FeatureCollection
 import org.maplibre.geojson.LineString
 import org.maplibre.geojson.Point
 import java.util.Date
-import java.util.Locale
 import kotlin.math.roundToInt
 
 class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener {
     private lateinit var binding: ActivityMainBinding
+    private val displayLocale get() = AppLanguage.forContext(this).locale
     private lateinit var trackStore: TrackStore
+    private lateinit var detourStore: DetourSessionStore
     private lateinit var offlineMapDownloader: OfflineMapDownloader
     private lateinit var fitnessPreferences: FitnessPreferences
     private lateinit var activityPreferences: ActivityPreferences
-    private lateinit var compassPreferences: CompassPreferences
     private lateinit var locationManager: LocationManager
     private lateinit var sensorManager: SensorManager
     private var rotationVectorSensor: Sensor? = null
@@ -142,26 +143,24 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     private var importedTrack: GpxTrack? = null
     private var offlineMapIdentityTrack: GpxTrack? = null
     private var importedTrackReference: String? = null
+    private var activeDetour = false
     private var latestSnapshot = TrackingSnapshot()
     private var pendingRecordingStart = false
     private var pendingCenterRequest = false
-    private var pendingCompassCalibrationStart = false
     private var selectedActivityType = ActivityType.HIKING
     private var followLocation = true
     private var initialRegionFramingComplete = false
     private var offlineDownloadInProgress = false
     private var latestLocatedPoint: TrackPoint? = null
     private var routeProgressTracker: RouteProgressTracker? = null
+    private var routeRejoinAdvisor: RouteRejoinAdvisor? = null
     private val headingSmoother = HeadingSmoother()
     private var latestCompassHeadingDegrees: Float? = null
     private var compassAccuracy = SensorManager.SENSOR_STATUS_UNRELIABLE
-    private var compassCalibrationDialog: AlertDialog? = null
-    private var compassWalkCalibrator: WalkingCompassCalibrator? = null
-    private var compassCalibrationProgress: WalkingCompassCalibrator.Progress? = null
-    private var completedCompassOffsetDegrees: Float? = null
     private var visibleLocationUpdatesActive = false
     private var recordingDetailsExpanded = false
     private var lastRenderedRecordingState = RecordingState.IDLE
+    private var lastRenderedLiveTrack: GpxTrack? = null
     private val speedSmoother = SpeedSmoother()
     private val gpsQualityWarningMonitor = GpsQualityWarningMonitor()
     private val compassRotationMatrix = FloatArray(9)
@@ -177,6 +176,14 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             latestSnapshot.gpsGapActive,
         )
     }
+    private val recordingTimeTickRunnable = object : Runnable {
+        override fun run() {
+            if (!::binding.isInitialized) return
+            renderLiveRecordingTimes()
+            val now = SystemClock.elapsedRealtime()
+            binding.root.postDelayed(this, RECORDING_TIME_TICK_MILLIS - now % RECORDING_TIME_TICK_MILLIS)
+        }
+    }
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
@@ -185,17 +192,13 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true || hasLocationPermission()
         val startRecording = pendingRecordingStart
         val centerUser = pendingCenterRequest
-        val startCompassCalibration = pendingCompassCalibrationStart
         pendingRecordingStart = false
         pendingCenterRequest = false
-        pendingCompassCalibrationStart = false
         if (!locationGranted) {
             if (startRecording) {
-                toast("Ohne Standortberechtigung kann keine Tour aufgezeichnet werden.")
+                toast(getString(R.string.recording_location_permission_denied))
             } else if (centerUser) {
-                toast("Ohne Standortberechtigung kann dein Standort nicht angezeigt werden.")
-            } else if (startCompassCalibration) {
-                toast(getString(R.string.compass_calibration_location_permission))
+                toast(getString(R.string.map_location_permission_denied))
             }
             return@registerForActivityResult
         }
@@ -205,13 +208,28 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             requestRecordingNotificationPermission()
             sendTrackingAction(TrackingService.ACTION_START, startForeground = true)
         }
-        if (startCompassCalibration) beginCompassWalkCalibration()
     }
 
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
         if (!granted) showRecordingNotificationSettingsDialog()
+    }
+
+    private val detourPlannerLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        if (result.resultCode == RESULT_OK) applyPersistedDetour(announce = true)
+    }
+
+    private val tourEditorLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        if (result.resultCode != RESULT_OK) return@registerForActivityResult
+        val reference = result.data
+            ?.getStringExtra(RoutePlannerActivity.EXTRA_EDIT_TOUR_REFERENCE)
+            ?: return@registerForActivityResult
+        openStoredTour(reference)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -226,16 +244,20 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             insets
         }
         trackStore = TrackStore(this)
+        detourStore = DetourSessionStore(this)
         offlineMapDownloader = OfflineMapDownloader(this, MAP_STYLE_URL)
         fitnessPreferences = FitnessPreferences(this)
         activityPreferences = ActivityPreferences(this)
-        compassPreferences = CompassPreferences(this)
+        clearLegacyCompassCorrection()
         selectedActivityType = activityPreferences.defaultType
         locationManager = getSystemService(LOCATION_SERVICE) as LocationManager
         sensorManager = getSystemService(SENSOR_SERVICE) as SensorManager
         rotationVectorSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
         binding.mapView.onCreate(savedInstanceState)
         binding.actionsCard.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            syncOverlayPositions()
+        }
+        binding.planningBar.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
             syncOverlayPositions()
         }
         binding.recordingCard.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
@@ -258,8 +280,12 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     private fun handleIncomingIntent(intent: Intent?) {
         intent?.getStringExtra(EXTRA_TOUR_REFERENCE)?.let {
             initialRegionFramingComplete = true
-            openStoredTour(it)
+            openStoredTour(
+                reference = it,
+                askForOfflineDownload = intent.getBooleanExtra(EXTRA_OFFER_OFFLINE_MAP, false),
+            )
             intent.removeExtra(EXTRA_TOUR_REFERENCE)
+            intent.removeExtra(EXTRA_OFFER_OFFLINE_MAP)
             return
         }
         if (intent?.action != Intent.ACTION_VIEW) return
@@ -284,6 +310,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
                 addOnMapClickListener(::showMapPoi)
             }
             readyMap.setStyle(Style.Builder().fromUri(MAP_STYLE_URL)) { style ->
+                MapStyleLocalizer.localize(style, AppLanguage.forContext(this))
                 mapStyle = style
                 installTrackLayers(style)
                 redrawTracks()
@@ -295,52 +322,13 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     private fun showMapPoi(coordinate: LatLng): Boolean {
         val readyMap = map ?: return false
         if (mapStyle == null) return false
-        val screenPoint = readyMap.projection.toScreenLocation(coordinate)
-        val hitRadius = POI_TAP_RADIUS_DP * resources.displayMetrics.density
-        val features = readyMap.queryRenderedFeatures(
-            RectF(
-                screenPoint.x - hitRadius,
-                screenPoint.y - hitRadius,
-                screenPoint.x + hitRadius,
-                screenPoint.y + hitRadius,
-            ),
-            *POI_LAYER_IDS,
+        return MapPoiDialog.show(
+            activity = this,
+            map = readyMap,
+            coordinate = coordinate,
+            userPosition = displayedPosition(),
+            distanceFormatter = ::formatRemainingDistance,
         )
-        val feature = features.firstOrNull() ?: return false
-        val name = feature.firstStringProperty("name:de", "name_de", "name", "name_en")
-        val poiClass = feature.firstStringProperty("class")
-        val subclass = feature.firstStringProperty("subclass")
-        val presentation = MapPoiPresenter.present(name, poiClass, subclass)
-        val featurePoint = feature.geometry() as? Point
-        val poiPosition = featurePoint?.let {
-            TrackPoint(latitude = it.latitude(), longitude = it.longitude())
-        } ?: TrackPoint(latitude = coordinate.latitude, longitude = coordinate.longitude)
-        val details = buildList {
-            if (presentation.title != presentation.category) add(presentation.category)
-            displayedPosition()?.let { userPosition ->
-                add(
-                    getString(
-                        R.string.map_poi_distance,
-                        formatRemainingDistance(GeoMath.distanceMeters(userPosition, poiPosition)),
-                    ),
-                )
-            }
-            feature.firstStringProperty("level")?.let {
-                add(getString(R.string.map_poi_level, it))
-            }
-            add(getString(R.string.map_poi_source))
-        }
-        MaterialAlertDialogBuilder(this)
-            .setTitle(presentation.title)
-            .setMessage(details.joinToString("\n"))
-            .setPositiveButton(R.string.ok, null)
-            .show()
-        return true
-    }
-
-    private fun Feature.firstStringProperty(vararg keys: String): String? = keys.firstNotNullOfOrNull { key ->
-        if (!hasProperty(key)) return@firstNotNullOfOrNull null
-        runCatching { getStringProperty(key) }.getOrNull()?.trim()?.takeIf(String::isNotEmpty)
     }
 
     private fun installTrackLayers(style: Style) {
@@ -354,18 +342,12 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
                 lineJoin(LINE_JOIN_ROUND),
             ),
         )
-        style.addImage(ROUTE_DIRECTION_ICON, createRouteDirectionIcon())
-        style.addLayer(
-            SymbolLayer(ROUTE_DIRECTION_LAYER, ROUTE_SOURCE).withProperties(
-                symbolPlacement("line"),
-                symbolSpacing(90f),
-                iconImage(ROUTE_DIRECTION_ICON),
-                iconSize(0.8f),
-                iconRotationAlignment("map"),
-                iconKeepUpright(false),
-                iconAllowOverlap(true),
-                iconIgnorePlacement(true),
-            ),
+        RouteDirectionIndicator.addToStyle(
+            context = this,
+            style = style,
+            sourceId = ROUTE_SOURCE,
+            layerId = ROUTE_DIRECTION_LAYER,
+            iconId = ROUTE_DIRECTION_ICON,
         )
         style.addSource(GeoJsonSource(LIVE_TRACK_SOURCE, EMPTY_FEATURE_COLLECTION))
         style.addLayer(
@@ -418,6 +400,19 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     }
 
     private fun setupActions() {
+        binding.searchPlaceButton.setOnClickListener {
+            val intent = Intent(this, RoutePlannerActivity::class.java)
+                .putExtra(RoutePlannerActivity.EXTRA_OPEN_SEARCH, true)
+            displayedPosition()?.let { position ->
+                intent
+                    .putExtra(RoutePlannerActivity.EXTRA_SEARCH_REFERENCE_LATITUDE, position.latitude)
+                    .putExtra(RoutePlannerActivity.EXTRA_SEARCH_REFERENCE_LONGITUDE, position.longitude)
+            }
+            startActivity(intent)
+        }
+        binding.planRouteButton.setOnClickListener {
+            startActivity(Intent(this, RoutePlannerActivity::class.java))
+        }
         binding.toursButton.setOnClickListener {
             startActivity(Intent(this, TourLibraryActivity::class.java))
         }
@@ -440,6 +435,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         }
         binding.recordingFinishButton.setOnClickListener { confirmStopRecording() }
         binding.recordingDiscardButton.setOnClickListener { confirmDiscardRecording() }
+        binding.recordingDetourButton.setOnClickListener { openDetourPlanner() }
+        binding.recordingUndoDetourButton.setOnClickListener { undoActiveDetour() }
         binding.moreButton.setOnClickListener { showMoreMenu() }
         binding.centerButton.setOnClickListener {
             requestCenterOnUser()
@@ -465,7 +462,11 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
 
     private fun restoreActiveRecording() {
         val activeSession = trackStore.activeSession() ?: return
-        activeSession.routeReference?.let(::restoreActiveRoute)
+        if (detourStore.load(activeSession.id) != null) {
+            applyPersistedDetour(announce = false)
+        } else {
+            activeSession.routeReference?.let(::restoreActiveRoute)
+        }
         val intent = Intent(this, TrackingService::class.java)
             .setAction(TrackingService.ACTION_RESTORE)
         if (activeSession.state == RecordingState.RECORDING) {
@@ -476,7 +477,10 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         binding.root.post(::requestRecordingNotificationPermission)
     }
 
-    private fun restoreActiveRoute(reference: String) {
+    private fun restoreActiveRoute(
+        reference: String,
+        entryMode: RouteEntryMode = RouteEntryMode.OFFICIAL_START,
+    ) {
         if (importedTrackReference == reference) return
         lifecycleScope.launch {
             val result = runCatching {
@@ -485,6 +489,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             result.onSuccess { track ->
                 val activeRouteReference = trackStore.activeSession()?.routeReference
                 if (activeRouteReference == reference) {
+                    activeDetour = false
                     displayTrack(
                         track = track,
                         reference = reference,
@@ -492,6 +497,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
                         announce = false,
                         frameTrack = false,
                     )
+                    routeProgressTracker = RouteProgressTracker(track, entryMode)
+                    renderRouteProgress(latestSnapshot.latestPoint ?: latestLocatedPoint)
                 }
             }.onFailure {
                 Log.e(LOG_TAG, "Active route could not be restored: $reference", it)
@@ -499,7 +506,70 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         }
     }
 
+    private fun applyPersistedDetour(announce: Boolean) {
+        val activeSession = trackStore.activeSession() ?: return
+        val detour = detourStore.load(activeSession.id) ?: return
+        activeDetour = true
+        displayTrack(
+            track = detour.route,
+            reference = detour.originalRouteReference,
+            askForOfflineDownload = false,
+            announce = false,
+            frameTrack = false,
+        )
+        routeProgressTracker = RouteProgressTracker(detour.route, RouteEntryMode.NEAREST_POINT)
+        renderRouteProgress(latestSnapshot.latestPoint ?: latestLocatedPoint)
+        sendTrackingAction(TrackingService.ACTION_UPDATE_NAVIGATION_ROUTE)
+        renderRecordingPanelState(latestSnapshot)
+        if (announce) {
+            showRouteStatus(getString(R.string.detour_saved), R.color.forest_900, SUCCESS_BADGE_MILLIS)
+        }
+    }
+
+    private fun openDetourPlanner() {
+        val session = trackStore.activeSession()
+        val point = latestSnapshot.latestPoint
+            ?: latestSnapshot.latestObservedPoint
+            ?: latestLocatedPoint
+        if (session?.routeReference == null) {
+            toast(getString(R.string.detour_needs_route))
+            return
+        }
+        if (point == null || (point.accuracyMeters != null && point.accuracyMeters > 80f)) {
+            toast(getString(R.string.detour_needs_position))
+            return
+        }
+        val progress = routeProgressTracker?.currentOrInitial()?.distanceAlongRouteMeters ?: 0.0
+        detourPlannerLauncher.launch(
+            Intent(this, DetourPlannerActivity::class.java)
+                .putExtra(DetourPlannerActivity.EXTRA_SESSION_ID, session.id)
+                .putExtra(DetourPlannerActivity.EXTRA_LATITUDE, point.latitude)
+                .putExtra(DetourPlannerActivity.EXTRA_LONGITUDE, point.longitude)
+                .putExtra(DetourPlannerActivity.EXTRA_PROGRESS_METERS, progress),
+        )
+    }
+
+    private fun undoActiveDetour() {
+        val session = trackStore.activeSession() ?: return
+        val originalReference = session.routeReference ?: return
+        detourStore.clear(session.id)
+        activeDetour = false
+        sendTrackingAction(TrackingService.ACTION_UPDATE_NAVIGATION_ROUTE)
+        importedTrackReference = null
+        restoreActiveRoute(originalReference, RouteEntryMode.NEAREST_POINT)
+        binding.recordingUndoDetourButton.visibility = View.GONE
+        showRouteStatus(getString(R.string.detour_removed), R.color.forest_900, INFO_BADGE_MILLIS)
+    }
+
     private fun renderSnapshot(snapshot: TrackingSnapshot) {
+        if (snapshot.state == RecordingState.RECORDING) {
+            stopVisibleLocationUpdates()
+        } else if (
+            lastRenderedRecordingState == RecordingState.RECORDING &&
+            lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)
+        ) {
+            startVisibleLocationUpdates()
+        }
         renderRecordingPanelState(snapshot)
         binding.recordButton.text = getString(R.string.record)
         binding.recordButton.setIconResource(R.drawable.ic_record)
@@ -513,8 +583,17 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             }
             ?.let(speedSmoother::update)
         renderStats(snapshot.stats, currentSpeed)
+        renderLiveRecordingTimes(snapshot)
         snapshot.latestPoint?.let { point ->
+            val previousPoint = latestLocatedPoint
             latestLocatedPoint = point
+            if (
+                previousPoint == null ||
+                point.timeMillis != previousPoint.timeMillis ||
+                point.latitude != previousPoint.latitude ||
+                point.longitude != previousPoint.longitude
+            ) {
+            }
             if (followLocation && snapshot.state == RecordingState.RECORDING) centerOn(point, USER_FOCUS_ZOOM)
         }
         val observedPoint = snapshot.latestObservedPoint ?: snapshot.latestPoint
@@ -522,7 +601,13 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         snapshot.errorMessage?.let { toast(it) }
         renderLocationStatus(observedPoint ?: latestLocatedPoint, snapshot.gpsGapActive)
         renderRouteProgress(snapshot.latestPoint ?: latestLocatedPoint)
-        redrawTracks()
+        renderRouteRejoinGuidance(snapshot.latestPoint ?: latestLocatedPoint)
+        if (snapshot.track !== lastRenderedLiveTrack) {
+            lastRenderedLiveTrack = snapshot.track
+            redrawTracks()
+        } else {
+            renderUserPosition()
+        }
     }
 
     private fun renderRecordingPanelState(snapshot: TrackingSnapshot) {
@@ -540,6 +625,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         }
 
         binding.actionsCard.visibility = if (recordingActive) View.GONE else View.VISIBLE
+        binding.planningBar.visibility = if (recordingActive) View.GONE else View.VISIBLE
         binding.recordingCard.visibility = if (recordingActive) View.VISIBLE else View.GONE
         if (!recordingActive) {
             binding.root.post(::syncOverlayPositions)
@@ -582,6 +668,13 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         } else {
             View.GONE
         }
+        val detourAvailable = importedTrack != null && importedTrackReference != null
+        binding.recordingDetourActions.visibility = if (detourAvailable) View.VISIBLE else View.GONE
+        binding.recordingUndoDetourButton.visibility = if (detourAvailable && activeDetour) {
+            View.VISIBLE
+        } else {
+            View.GONE
+        }
         binding.recordingExpandButton.visibility = if (paused) View.INVISIBLE else View.VISIBLE
         binding.recordingExpandButton.setIconResource(
             if (detailsVisible) R.drawable.ic_expand_more else R.drawable.ic_expand_less,
@@ -613,15 +706,18 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             .setTitle(R.string.discard_recording_title)
             .setMessage(R.string.discard_recording_message)
             .setNegativeButton(R.string.cancel, null)
-            .setPositiveButton(R.string.discard_recording) { _, _ ->
+            .setNeutralButton(R.string.discard_recording) { _, _ ->
                 sendTrackingAction(TrackingService.ACTION_DISCARD)
+            }
+            .setPositiveButton(R.string.finish_and_save) { _, _ ->
+                sendTrackingAction(TrackingService.ACTION_STOP)
             }
             .show()
     }
 
     private fun renderStats(stats: TrackStats, currentSpeedMetersPerSecond: Double?) {
         binding.recordingDistanceText.text = String.format(
-            Locale.GERMANY,
+            displayLocale,
             "%.2f km",
             stats.distanceMeters / 1000.0,
         )
@@ -642,6 +738,12 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         binding.recordingSlopeText.text = stats.currentSlopePercent?.let {
             getString(R.string.slope_percent_value, it)
         } ?: getString(R.string.not_available)
+    }
+
+    private fun renderLiveRecordingTimes(snapshot: TrackingSnapshot = latestSnapshot) {
+        val durations = projectRecordingDurations(snapshot, SystemClock.elapsedRealtime())
+        binding.recordingMovingTimeText.text = formatDuration(durations.movingMillis)
+        binding.recordingTotalTimeText.text = formatDuration(durations.totalMillis)
     }
 
     private fun renderRouteStatus(point: TrackPoint?) {
@@ -734,7 +836,11 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
 
         val layoutParams = binding.routeStatusText.layoutParams as FrameLayout.LayoutParams
         val density = resources.displayMetrics.density
-        val topMargin = (12 * density).roundToInt()
+        val topMargin = if (binding.planningBar.visibility == View.VISIBLE) {
+            binding.planningBar.height + (20 * density).roundToInt()
+        } else {
+            (12 * density).roundToInt()
+        }
         if (layoutParams.topMargin != topMargin) {
             layoutParams.topMargin = topMargin
             binding.routeStatusText.layoutParams = layoutParams
@@ -746,8 +852,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             val result = runCatching {
                 withContext(Dispatchers.IO) {
                     val parsedTrack = contentResolver.openInputStream(uri)?.use {
-                        GpxCodec.parse(it, uri.lastPathSegment ?: "Importierte Route")
-                    } ?: error("Datei konnte nicht geöffnet werden.")
+                        GpxCodec.parse(it, uri.lastPathSegment ?: getString(R.string.imported_route_fallback))
+                    } ?: error(getString(R.string.file_open_error))
                     val track = runCatching { ElevationEnricher().enrichIfMissing(parsedTrack) }
                         .onFailure { Log.w(LOG_TAG, "Elevation enrichment failed", it) }
                         .getOrDefault(parsedTrack)
@@ -760,19 +866,19 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
                 askToDownloadOfflineMap(track) { openTourDetails(reference) }
             }.onFailure {
                 Log.e(LOG_TAG, "GPX import failed for $uri", it)
-                toast("GPX konnte nicht geladen werden: ${it.localizedMessage}")
+                toast(getString(R.string.gpx_load_error, it.localizedMessage ?: getString(R.string.unknown_error)))
             }
         }
     }
 
-    private fun openStoredTour(reference: String) {
+    private fun openStoredTour(reference: String, askForOfflineDownload: Boolean = false) {
         lifecycleScope.launch {
             val result = runCatching {
                 withContext(Dispatchers.IO) { trackStore.loadStoredTrack(reference) }
             }
-            result.onSuccess { displayTrack(it, reference, askForOfflineDownload = false) }
+            result.onSuccess { displayTrack(it, reference, askForOfflineDownload = askForOfflineDownload) }
                 .onFailure {
-                    toast(getString(R.string.tour_open_error, it.localizedMessage ?: "Unbekannter Fehler"))
+                    toast(getString(R.string.tour_open_error, it.localizedMessage ?: getString(R.string.unknown_error)))
                 }
         }
     }
@@ -789,6 +895,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         offlineMapIdentityTrack = track
         importedTrackReference = reference
         routeProgressTracker = RouteProgressTracker(track)
+        routeRejoinAdvisor = RouteRejoinAdvisor(track)
         renderMoreButtonVisibility()
         if (announce) {
             showRouteStatus(
@@ -806,7 +913,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     private fun askToDownloadOfflineMap(track: GpxTrack, onDecision: () -> Unit = {}) {
         val plan = runCatching { OfflineMapPlanner.plan(track) }.getOrElse {
             showRouteStatus(
-                getString(R.string.offline_map_error, it.localizedMessage ?: "Unbekannter Fehler"),
+                getString(R.string.offline_map_error, it.localizedMessage ?: getString(R.string.unknown_error)),
                 R.color.warning,
                 ERROR_BADGE_MILLIS,
             )
@@ -936,7 +1043,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     }
 
     private fun displayHeading(point: TrackPoint): Float? = latestCompassHeadingDegrees
-        ?.let { HeadingSmoother.normalize(it + compassPreferences.headingOffsetDegrees) }
+        ?.let(HeadingSmoother::normalize)
         // A phone without a rotation sensor can still show a coarse movement direction.
         ?: point.bearingDegrees?.takeIf {
             (point.speedMetersPerSecond ?: 0f) >= MIN_DIRECTION_SPEED_METERS_PER_SECOND
@@ -1018,31 +1125,6 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         paint.style = Paint.Style.FILL
         paint.color = Color.parseColor("#1677FF")
         canvas.drawPath(arrow, paint)
-        return bitmap
-    }
-
-    private fun createRouteDirectionIcon(): Bitmap {
-        val density = resources.displayMetrics.density
-        val width = (24 * density).toInt()
-        val height = (14 * density).toInt()
-        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(bitmap)
-        val path = Path().apply {
-            moveTo(2f * density, 2f * density)
-            lineTo(12f * density, height / 2f)
-            lineTo(2f * density, height - 2f * density)
-        }
-        val outline = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE
-            strokeCap = Paint.Cap.ROUND
-            strokeJoin = Paint.Join.ROUND
-            strokeWidth = 5f * density
-            color = Color.WHITE
-        }
-        canvas.drawPath(path, outline)
-        outline.strokeWidth = 2.5f * density
-        outline.color = Color.parseColor("#1677FF")
-        canvas.drawPath(path, outline)
         return bitmap
     }
 
@@ -1151,8 +1233,6 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         val dialog = MaterialAlertDialogBuilder(this)
             .setTitle(R.string.start_check_title)
             .setView(dialogBinding.root)
-            .setNegativeButton(R.string.cancel, null)
-            .setPositiveButton(R.string.start_recording, null)
             .create()
 
         fun renderStartCheck() {
@@ -1161,17 +1241,15 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             dialogBinding.startCheckText.text = lines.joinToString("\n\n") { line ->
                 "${if (line.warning) "⚠" else "✓"}  ${line.text}"
             }
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setText(
+            dialogBinding.confirmStartButton.setText(
                 if (hasWarnings) R.string.start_despite_warnings else R.string.start_recording,
             )
         }
 
-        dialog.setOnShowListener {
-            renderStartCheck()
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                beginRecordingStart(routeEntryMode)
-                dialog.dismiss()
-            }
+        dialogBinding.cancelStartButton.setOnClickListener { dialog.dismiss() }
+        dialogBinding.confirmStartButton.setOnClickListener {
+            beginRecordingStart(routeEntryMode)
+            dialog.dismiss()
         }
         dialogBinding.routeEntryGroup.setOnCheckedChangeListener { _, checkedId ->
             routeEntryMode = if (checkedId == R.id.nearestPointButton) {
@@ -1181,6 +1259,17 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             }
             renderStartCheck()
         }
+        dialog.setOnShowListener {
+            val density = resources.displayMetrics.density
+            val screenWidth = resources.displayMetrics.widthPixels
+            val safeWidth = screenWidth - (START_DIALOG_TOTAL_MARGIN_DP * density).roundToInt()
+            val maximumWidth = (START_DIALOG_MAX_WIDTH_DP * density).roundToInt()
+            dialog.window?.setLayout(
+                minOf(safeWidth, maximumWidth),
+                WindowManager.LayoutParams.WRAP_CONTENT,
+            )
+        }
+        renderStartCheck()
         dialog.show()
     }
 
@@ -1232,7 +1321,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     }
 
     private fun formatRouteKilometer(distanceMeters: Double?): String = distanceMeters
-        ?.let { String.format(Locale.GERMANY, "%.1f", it / 1_000.0) }
+        ?.let { String.format(displayLocale, "%.1f", it / 1_000.0) }
         ?: getString(R.string.not_available)
 
     private fun beginRecordingStart(routeEntryMode: RouteEntryMode?) {
@@ -1483,19 +1572,32 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     private fun showMoreMenu() {
         PopupMenu(this, binding.moreButton).apply {
             if (importedTrack != null) {
+                if (importedTrackReference?.startsWith("imported:") == true) {
+                    menu.add(0, MENU_EDIT_ROUTE, 1, getString(R.string.edit_tour))
+                }
                 menu.add(0, MENU_FIT_ROUTE, 2, getString(R.string.fit_route))
                 menu.add(0, MENU_REVERSE_ROUTE, 3, getString(R.string.reverse_route))
-                menu.add(0, MENU_CLEAR_ROUTE, 3, "Route ausblenden")
+                menu.add(0, MENU_CLEAR_ROUTE, 4, getString(R.string.hide_route))
             }
-            if (menu.size() == 0) menu.add("Keine weiteren Aktionen").isEnabled = false
+            if (menu.size() == 0) menu.add(getString(R.string.no_more_actions)).isEnabled = false
             setOnMenuItemClickListener { item ->
                 when (item.itemId) {
+                    MENU_EDIT_ROUTE -> {
+                        val reference = importedTrackReference ?: return@setOnMenuItemClickListener false
+                        tourEditorLauncher.launch(
+                            Intent(this@MainActivity, RoutePlannerActivity::class.java)
+                                .putExtra(RoutePlannerActivity.EXTRA_EDIT_TOUR_REFERENCE, reference),
+                        )
+                        true
+                    }
                     MENU_CLEAR_ROUTE -> {
                         importedTrack = null
                         offlineMapIdentityTrack = null
                         importedTrackReference = null
                         routeProgressTracker = null
+                        routeRejoinAdvisor = null
                         binding.recordingRouteProgressGroup.visibility = View.GONE
+                        binding.routeRejoinBanner.visibility = View.GONE
                         renderMoreButtonVisibility()
                         hideRouteStatus()
                         redrawTracks()
@@ -1509,6 +1611,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
                     MENU_REVERSE_ROUTE -> {
                         importedTrack = importedTrack?.reversed()
                         routeProgressTracker = importedTrack?.let(::RouteProgressTracker)
+                        routeRejoinAdvisor = importedTrack?.let(::RouteRejoinAdvisor)
                         renderRouteProgress(latestSnapshot.latestPoint ?: latestLocatedPoint)
                         redrawTracks()
                         showRouteStatus(
@@ -1616,7 +1719,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     private fun locateUser(centerAfterFix: Boolean) {
         val providers = enabledLocationProviders()
         if (providers.isEmpty()) {
-            if (centerAfterFix) toast("Standortdienste sind deaktiviert.")
+            if (centerAfterFix) toast(getString(R.string.location_services_disabled))
             return
         }
 
@@ -1658,14 +1761,13 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             speedMetersPerSecond = location.speed.takeIf { location.hasSpeed() },
             bearingDegrees = location.bearing.takeIf { location.hasBearing() },
         )
-        updateCompassWalkCalibration(point)
         val existing = displayedPosition()
         if (existing != null && !isBetterLocation(point, existing)) return
         latestLocatedPoint = point
         renderGpsStatus(point)
         renderLocationStatus(point, latestSnapshot.gpsGapActive)
         renderRouteProgress(point)
-        redrawTracks()
+        renderUserPosition()
         if (centerAfterFix) {
             initialRegionFramingComplete = true
             centerOn(point, USER_FOCUS_ZOOM)
@@ -1676,7 +1778,11 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
 
     @SuppressLint("MissingPermission")
     private fun startVisibleLocationUpdates() {
-        if (visibleLocationUpdatesActive || !hasLocationPermission()) return
+        if (
+            visibleLocationUpdatesActive ||
+            latestSnapshot.state == RecordingState.RECORDING ||
+            !hasLocationPermission()
+        ) return
         val providers = enabledLocationProviders()
         if (providers.isEmpty()) return
         providers.forEach { provider ->
@@ -1740,7 +1846,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     }
 
     private fun formatSpeed(metersPerSecond: Double): String =
-        String.format(Locale.GERMANY, "%.1f", metersPerSecond * 3.6)
+        String.format(displayLocale, "%.1f", metersPerSecond * 3.6)
 
     private fun renderRouteProgress(point: TrackPoint?) {
         val tracker = routeProgressTracker
@@ -1767,9 +1873,63 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         binding.recordingEtaText.text = eta
     }
 
+    private fun renderRouteRejoinGuidance(point: TrackPoint?) {
+        val recordingActive = latestSnapshot.state == RecordingState.RECORDING ||
+            latestSnapshot.state == RecordingState.PAUSED
+        val reliablePoint = point?.takeIf {
+            locationAgeMinutes(it) < STALE_LOCATION_MINUTES &&
+                (it.accuracyMeters == null || it.accuracyMeters <= GpsQuality.RELIABLE_ACCURACY_METERS)
+        }
+        if (!recordingActive || !latestSnapshot.confirmedOffRoute || reliablePoint == null) {
+            binding.routeRejoinBanner.visibility = View.GONE
+            return
+        }
+        val guidance = routeRejoinAdvisor?.advise(
+            position = reliablePoint,
+            progressAnchorMeters = routeProgressTracker?.currentOrInitial()?.distanceAlongRouteMeters,
+        ) ?: run {
+            binding.routeRejoinBanner.visibility = View.GONE
+            return
+        }
+        val heading = latestCompassHeadingDegrees
+        val arrowRotation = if (heading == null) {
+            guidance.bearingDegrees
+        } else {
+            normalizeSignedAngle(guidance.bearingDegrees - heading)
+        }
+        val direction = if (heading == null) {
+            getString(R.string.route_rejoin_compass_bearing, guidance.bearingDegrees.roundToInt())
+        } else {
+            getString(rejoinDirectionLabel(arrowRotation))
+        }
+        binding.routeRejoinArrow.rotation = arrowRotation.toFloat()
+        binding.routeRejoinText.text = getString(
+            R.string.route_rejoin_guidance,
+            formatRemainingDistance(guidance.distanceMeters),
+            direction,
+        )
+        binding.routeRejoinBanner.visibility = View.VISIBLE
+    }
+
+    private fun rejoinDirectionLabel(relativeBearing: Double): Int {
+        val angle = normalizeSignedAngle(relativeBearing)
+        val absolute = kotlin.math.abs(angle)
+        return when {
+            absolute <= 22.5 -> R.string.route_rejoin_straight
+            absolute <= 67.5 && angle > 0.0 -> R.string.route_rejoin_slight_right
+            absolute <= 67.5 -> R.string.route_rejoin_slight_left
+            absolute <= 135.0 && angle > 0.0 -> R.string.route_rejoin_right
+            absolute <= 135.0 -> R.string.route_rejoin_left
+            else -> R.string.route_rejoin_behind
+        }
+    }
+
+    private fun normalizeSignedAngle(degrees: Double): Double =
+        ((degrees + 540.0) % 360.0) - 180.0
+
     private fun formatRemainingDistance(distanceMeters: Double): String =
         if (distanceMeters < 1_000.0) "${distanceMeters.roundToInt()} m"
-        else String.format(Locale.GERMANY, "%.1f km", distanceMeters / 1_000.0)
+        else String.format(displayLocale, "%.1f km", distanceMeters / 1_000.0)
 
     private fun formatEstimatedArrival(progress: RouteProgress): String {
         if (progress.remainingDistanceMeters <= ROUTE_FINISHED_DISTANCE_METERS) {
@@ -1810,57 +1970,12 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         }
         latestCompassHeadingDegrees = smoothed
         renderUserPosition()
+        renderRouteRejoinGuidance(latestSnapshot.latestPoint ?: latestLocatedPoint)
     }
 
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {
         if (sensor?.type != Sensor.TYPE_ROTATION_VECTOR) return
         compassAccuracy = accuracy
-        updateCompassCalibrationDialog()
-    }
-
-    private fun showCompassCalibrationDialog() {
-        if (rotationVectorSensor == null) {
-            MaterialAlertDialogBuilder(this)
-                .setTitle(R.string.compass_calibration_title)
-                .setMessage(R.string.compass_sensor_missing)
-                .setPositiveButton(R.string.ok, null)
-                .show()
-            return
-        }
-        compassCalibrationDialog?.dismiss()
-        compassWalkCalibrator = null
-        compassCalibrationProgress = null
-        completedCompassOffsetDegrees = null
-        val builder = MaterialAlertDialogBuilder(this)
-            .setTitle(R.string.compass_calibration_title)
-            .setMessage(compassCalibrationMessage())
-            .setPositiveButton(R.string.compass_calibration_start, null)
-            .setNegativeButton(R.string.cancel, null)
-        if (compassPreferences.hasHeadingOffset) {
-            builder.setNeutralButton(R.string.compass_calibration_reset, null)
-        }
-        compassCalibrationDialog = builder.create().also { dialog ->
-            dialog.setOnDismissListener {
-                compassWalkCalibrator = null
-                compassCalibrationProgress = null
-                completedCompassOffsetDegrees = null
-                compassCalibrationDialog = null
-            }
-            dialog.show()
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                if (completedCompassOffsetDegrees != null) {
-                    dialog.dismiss()
-                } else if (compassWalkCalibrator == null) {
-                    requestCompassWalkCalibration()
-                }
-            }
-            dialog.getButton(AlertDialog.BUTTON_NEUTRAL)?.setOnClickListener {
-                compassPreferences.clearHeadingOffset()
-                renderUserPosition()
-                toast(getString(R.string.compass_calibration_reset_done))
-                dialog.dismiss()
-            }
-        }
     }
 
     private fun maybeShowCompassCalibrationHint() {
@@ -1876,103 +1991,12 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         }
     }
 
-    private fun updateCompassCalibrationDialog() {
-        val dialog = compassCalibrationDialog ?: return
-        dialog.setMessage(compassCalibrationMessage())
-        val positiveButton = dialog.getButton(AlertDialog.BUTTON_POSITIVE) ?: return
-        when {
-            completedCompassOffsetDegrees != null -> {
-                positiveButton.setText(R.string.finish)
-                positiveButton.isEnabled = true
-            }
-            compassWalkCalibrator != null -> {
-                positiveButton.setText(R.string.compass_calibration_running)
-                positiveButton.isEnabled = false
-            }
-            else -> {
-                positiveButton.setText(R.string.compass_calibration_start)
-                positiveButton.isEnabled = true
-            }
-        }
-    }
 
-    private fun compassCalibrationMessage(): String {
-        val completedOffset = completedCompassOffsetDegrees
-        if (completedOffset != null) {
-            return getString(R.string.compass_calibration_complete, completedOffset)
-        }
-        val progress = compassCalibrationProgress
-        if (compassWalkCalibrator != null) {
-            return when (progress?.state) {
-                WalkingCompassCalibrator.State.WAITING_FOR_PHONE ->
-                    getString(R.string.compass_calibration_waiting_phone)
-                WalkingCompassCalibrator.State.WALK_STRAIGHT ->
-                    getString(R.string.compass_calibration_walk_straight)
-                WalkingCompassCalibrator.State.COLLECTING,
-                WalkingCompassCalibrator.State.READY -> getString(
-                    R.string.compass_calibration_progress,
-                    progress.distanceMeters.roundToInt(),
-                    progress.requiredDistanceMeters.roundToInt(),
-                )
-                else -> getString(R.string.compass_calibration_waiting_gps)
-            }
-        }
-        val savedCorrection = if (compassPreferences.hasHeadingOffset) {
-            getString(R.string.compass_calibration_saved_offset, compassPreferences.headingOffsetDegrees)
-        } else {
-            getString(R.string.compass_calibration_no_saved_offset)
-        }
-        return getString(
-            R.string.compass_calibration_message,
-            compassAccuracyLabel(),
-            savedCorrection,
-        )
-    }
-
-    private fun compassAccuracyLabel(): String = getString(
-        when (compassAccuracy) {
-            SensorManager.SENSOR_STATUS_ACCURACY_HIGH -> R.string.compass_accuracy_high
-            SensorManager.SENSOR_STATUS_ACCURACY_MEDIUM -> R.string.compass_accuracy_medium
-            SensorManager.SENSOR_STATUS_ACCURACY_LOW -> R.string.compass_accuracy_low
-            else -> R.string.compass_accuracy_unreliable
-        },
-    )
-
-    private fun requestCompassWalkCalibration() {
-        if (!hasLocationPermission()) {
-            pendingCompassCalibrationStart = true
-            permissionLauncher.launch(
-                arrayOf(
-                    Manifest.permission.ACCESS_FINE_LOCATION,
-                    Manifest.permission.ACCESS_COARSE_LOCATION,
-                ),
-            )
-            return
-        }
-        beginCompassWalkCalibration()
-    }
-
-    private fun beginCompassWalkCalibration() {
-        compassWalkCalibrator = WalkingCompassCalibrator()
-        compassCalibrationProgress = null
-        completedCompassOffsetDegrees = null
-        startVisibleLocationUpdates()
-        locateUser(centerAfterFix = false)
-        updateCompassCalibrationDialog()
-    }
-
-    private fun updateCompassWalkCalibration(point: TrackPoint) {
-        val calibrator = compassWalkCalibrator ?: return
-        val progress = calibrator.update(point, latestCompassHeadingDegrees)
-        compassCalibrationProgress = progress
-        if (progress.state == WalkingCompassCalibrator.State.READY) {
-            val offset = progress.offsetDegrees ?: return
-            compassPreferences.headingOffsetDegrees = offset
-            completedCompassOffsetDegrees = offset
-            compassWalkCalibrator = null
-            renderUserPosition()
-        }
-        updateCompassCalibrationDialog()
+    private fun clearLegacyCompassCorrection() {
+        getSharedPreferences(LEGACY_COMPASS_PREFERENCES, MODE_PRIVATE)
+            .edit()
+            .remove(LEGACY_COMPASS_OFFSET_KEY)
+            .apply()
     }
 
     private fun startCompassUpdates() {
@@ -1989,7 +2013,12 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
 
     private fun toast(message: String) = Toast.makeText(this, message, Toast.LENGTH_LONG).show()
 
-    override fun onStart() { super.onStart(); binding.mapView.onStart() }
+    override fun onStart() {
+        super.onStart()
+        binding.mapView.onStart()
+        binding.root.removeCallbacks(recordingTimeTickRunnable)
+        binding.root.post(recordingTimeTickRunnable)
+    }
     override fun onResume() {
         super.onResume()
         binding.mapView.onResume()
@@ -2007,10 +2036,13 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         binding.mapView.onPause()
         super.onPause()
     }
-    override fun onStop() { binding.mapView.onStop(); super.onStop() }
+    override fun onStop() {
+        binding.root.removeCallbacks(recordingTimeTickRunnable)
+        binding.mapView.onStop()
+        super.onStop()
+    }
     override fun onLowMemory() { super.onLowMemory(); binding.mapView.onLowMemory() }
     override fun onDestroy() {
-        compassCalibrationDialog?.dismiss()
         binding.routeStatusText.removeCallbacks(restoreRouteStatusRunnable)
         locationRequestSignals.forEach(CancellationSignal::cancel)
         locationRequestSignals.clear()
@@ -2021,8 +2053,12 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
 
     companion object {
         const val EXTRA_TOUR_REFERENCE = "de.wandern.app.MAIN_TOUR_REFERENCE"
+        const val EXTRA_OFFER_OFFLINE_MAP = "de.wandern.app.OFFER_OFFLINE_MAP"
         private const val MAP_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty"
         private const val LOG_TAG = "WandernImport"
+        private const val RECORDING_TIME_TICK_MILLIS = 1_000L
+        private const val LEGACY_COMPASS_PREFERENCES = "compass_preferences"
+        private const val LEGACY_COMPASS_OFFSET_KEY = "heading_offset_degrees"
         private const val ROUTE_SOURCE = "imported-route-source"
         private const val ROUTE_LAYER = "imported-route-layer"
         private const val ROUTE_DIRECTION_LAYER = "imported-route-direction-layer"
@@ -2037,8 +2073,6 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         private const val POSITION_DIRECTION_SOURCE = "position-direction-source"
         private const val POSITION_DIRECTION_LAYER = "position-direction-layer"
         private const val POSITION_DIRECTION_ICON = "position-direction-icon"
-        private val POI_LAYER_IDS = arrayOf("poi_r20", "poi_r7", "poi_r1", "poi_transit")
-        private const val POI_TAP_RADIUS_DP = 22f
         private const val OFF_ROUTE_THRESHOLD_METERS = 50.0
         private const val STALE_LOCATION_MINUTES = 2
         private const val SIGNIFICANT_LOCATION_TIME_MILLIS = 120_000L
@@ -2049,10 +2083,13 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         private const val CIRCULAR_ROUTE_ENDPOINT_DISTANCE_METERS = 50.0
         private const val ROUTE_FINISHED_DISTANCE_METERS = 25.0
         private const val LOW_BATTERY_WARNING_PERCENT = 20
+        private const val START_DIALOG_TOTAL_MARGIN_DP = 24
+        private const val START_DIALOG_MAX_WIDTH_DP = 560
         private const val ROUTE_LOADED_BADGE_MILLIS = 3_000L
         private const val INFO_BADGE_MILLIS = 4_000L
         private const val SUCCESS_BADGE_MILLIS = 4_000L
         private const val ERROR_BADGE_MILLIS = 8_000L
+        private const val MENU_EDIT_ROUTE = 2
         private const val MENU_CLEAR_ROUTE = 3
         private const val MENU_FIT_ROUTE = 5
         private const val MENU_REVERSE_ROUTE = 6

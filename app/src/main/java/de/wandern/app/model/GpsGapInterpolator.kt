@@ -1,5 +1,6 @@
 package de.wandern.app.model
 
+import de.wandern.app.localization.localizedSystemText
 import kotlin.math.max
 
 object GpsGapInterpolator {
@@ -9,8 +10,18 @@ object GpsGapInterpolator {
         intervalMillis: Long = 5_000L,
         maxPoints: Int = 120,
     ): List<TrackPoint> {
-        require(intervalMillis > 0) { "Das Interpolationsintervall muss positiv sein." }
-        require(maxPoints >= 0) { "Die maximale Punktzahl darf nicht negativ sein." }
+        require(intervalMillis > 0) {
+            localizedSystemText(
+                "The interpolation interval must be positive.",
+                "Das Interpolationsintervall muss positiv sein.",
+            )
+        }
+        require(maxPoints >= 0) {
+            localizedSystemText(
+                "The maximum point count cannot be negative.",
+                "Die maximale Punktzahl darf nicht negativ sein.",
+            )
+        }
         val startTime = start.timeMillis ?: return emptyList()
         val endTime = end.timeMillis ?: return emptyList()
         val duration = endTime - startTime

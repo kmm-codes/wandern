@@ -9,6 +9,50 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
+    <LinearLayout
+        android:id="@+id/planningBar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top"
+        android:layout_marginStart="12dp"
+        android:layout_marginTop="12dp"
+        android:layout_marginEnd="12dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/searchPlaceButton"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="0dp"
+            android:layout_height="52dp"
+            android:layout_weight="1"
+            android:gravity="start|center_vertical"
+            android:text="@string/search_place"
+            android:textAllCaps="false"
+            android:textColor="@color/forest_700"
+            app:backgroundTint="@color/sand_50"
+            app:cornerRadius="18dp"
+            app:icon="@drawable/ic_search"
+            app:iconGravity="textStart"
+            app:iconTint="@color/forest_700"
+            app:strokeColor="@color/moss_300" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/planRouteButton"
+            android:layout_width="wrap_content"
+            android:layout_height="52dp"
+            android:layout_marginStart="8dp"
+            android:contentDescription="@string/plan_route"
+            android:text="@string/plan_route_short"
+            android:textAllCaps="false"
+            android:textColor="@color/white"
+            app:backgroundTint="@color/forest_700"
+            app:cornerRadius="18dp"
+            app:icon="@drawable/ic_route"
+            app:iconGravity="textStart"
+            app:iconTint="@color/white" />
+    </LinearLayout>
+
     <TextView
         android:id="@+id/routeStatusText"
         android:layout_width="wrap_content"
@@ -69,6 +113,37 @@
                 android:textSize="13sp"
                 android:textStyle="bold"
                 android:visibility="gone" />
+
+            <LinearLayout
+                android:id="@+id/routeRejoinBanner"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@color/forest_700"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingStart="14dp"
+                android:paddingTop="9dp"
+                android:paddingEnd="14dp"
+                android:paddingBottom="9dp"
+                android:visibility="gone">
+
+                <ImageView
+                    android:id="@+id/routeRejoinArrow"
+                    android:layout_width="28dp"
+                    android:layout_height="28dp"
+                    android:contentDescription="@null"
+                    android:src="@drawable/ic_navigation_arrow" />
+
+                <TextView
+                    android:id="@+id/routeRejoinText"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="10dp"
+                    android:layout_weight="1"
+                    android:textColor="@color/white"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -235,6 +310,38 @@
                             <TextView style="@style/RecordingDetailLabel" android:text="@string/eta_label" />
                         </LinearLayout>
                     </LinearLayout>
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/recordingDetourActions"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp"
+                    android:orientation="horizontal"
+                    android:visibility="gone">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/recordingDetourButton"
+                        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                        android:layout_width="0dp"
+                        android:layout_height="48dp"
+                        android:layout_weight="1"
+                        android:text="@string/detour_action"
+                        android:textAllCaps="false"
+                        app:cornerRadius="14dp"
+                        app:icon="@drawable/ic_route"
+                        app:iconGravity="textStart"
+                        app:strokeColor="@color/forest_700" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/recordingUndoDetourButton"
+                        style="@style/Widget.MaterialComponents.Button.TextButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="48dp"
+                        android:layout_marginStart="6dp"
+                        android:text="@string/detour_undo"
+                        android:textAllCaps="false"
+                        android:visibility="gone" />
                 </LinearLayout>
 
                 <com.google.android.material.button.MaterialButton

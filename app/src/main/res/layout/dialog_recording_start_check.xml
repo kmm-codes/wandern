@@ -18,7 +18,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:lineSpacingExtra="3dp"
-            android:textColor="@color/forest_900"
+            android:textColor="?android:attr/textColorPrimary"
             android:textSize="15sp" />
 
         <LinearLayout
@@ -33,7 +33,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="@string/route_entry_section_title"
-                android:textColor="@color/forest_900"
+                android:textColor="?android:attr/textColorPrimary"
                 android:textSize="17sp"
                 android:textStyle="bold" />
 
@@ -43,7 +43,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="5dp"
                 android:lineSpacingExtra="2dp"
-                android:textColor="@color/forest_700"
+                android:textColor="?android:attr/textColorSecondary"
                 android:textSize="14sp" />
 
             <RadioGroup
@@ -58,15 +58,50 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:minHeight="48dp"
-                    android:textColor="@color/forest_900" />
+                    android:textColor="?android:attr/textColorPrimary" />
 
                 <RadioButton
                     android:id="@+id/nearestPointButton"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:minHeight="48dp"
-                    android:textColor="@color/forest_900" />
+                    android:textColor="?android:attr/textColorPrimary" />
             </RadioGroup>
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/startDialogActions"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="12dp"
+            android:gravity="end|center_vertical"
+            android:orientation="horizontal">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/cancelStartButton"
+                style="@style/Widget.Wandern.Button.TextButton.Dialog"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="0.36"
+                android:maxLines="1"
+                android:minWidth="0dp"
+                android:paddingStart="4dp"
+                android:paddingEnd="4dp"
+                android:text="@string/cancel"
+                android:textSize="13sp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/confirmStartButton"
+                style="@style/Widget.Wandern.Button.TextButton.Dialog"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="0.64"
+                android:maxLines="1"
+                android:minWidth="0dp"
+                android:paddingStart="4dp"
+                android:paddingEnd="4dp"
+                android:text="@string/start_recording"
+                android:textSize="13sp" />
         </LinearLayout>
     </LinearLayout>
 </ScrollView>
