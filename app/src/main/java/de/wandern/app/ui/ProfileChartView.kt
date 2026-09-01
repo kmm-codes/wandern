@@ -11,8 +11,9 @@ import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
+import de.wandern.app.R
+import de.wandern.app.localization.AppLanguage
 import de.wandern.app.model.ProfileSample
-import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.max
 
@@ -63,7 +64,7 @@ class ProfileChartView @JvmOverloads constructor(
 
     private var samples: List<ProfileSample> = emptyList()
     private var unit = ""
-    private var emptyMessage = "Keine Daten verfügbar"
+    private var emptyMessage = context.getString(R.string.no_data_available)
     private var includeZero = false
     private var minimumValueRange = 0.0
     private var colorBySlope = false
@@ -78,7 +79,15 @@ class ProfileChartView @JvmOverloads constructor(
     private var plotLeft = 0f
     private var plotRight = 0f
     private var plotMaxDistance = 1.0
+    private var bottomSystemOcclusionPx = 0
     var onSelectionChanged: ((Double?) -> Unit)? = null
+
+    fun setBottomSystemOcclusion(occlusionPx: Int) {
+        val normalized = occlusionPx.coerceAtLeast(0)
+        if (normalized == bottomSystemOcclusionPx) return
+        bottomSystemOcclusionPx = normalized
+        invalidate()
+    }
 
     private val activateSelection = Runnable {
         if (!longPressArmed || samples.size < 2) return@Runnable
@@ -113,7 +122,10 @@ class ProfileChartView @JvmOverloads constructor(
         linePaint.color = color
         fillPaint.color = Color.argb(38, Color.red(color), Color.green(color), Color.blue(color))
         chartContentDescription = emptyMessage.takeIf { samples.size < 2 }
-            ?: "Diagramm über ${samples.last().distanceMeters / 1000.0} Kilometer"
+            ?: context.getString(
+                R.string.chart_content_description,
+                samples.last().distanceMeters / 1000.0,
+            )
         contentDescription = chartContentDescription
         invalidate()
     }
@@ -127,7 +139,8 @@ class ProfileChartView @JvmOverloads constructor(
 
         val top = 14f * density
         val right = width - 12f * density
-        val bottom = height - 28f * density
+        val safeBottom = bottomSystemOcclusionPx.toFloat()
+        val bottom = height - 28f * density - safeBottom
         val maxDistance = samples.maxOf { it.distanceMeters }.coerceAtLeast(1.0)
         var minValue = samples.minOf { it.value }
         var maxValue = samples.maxOf { it.value }
@@ -188,12 +201,12 @@ class ProfileChartView @JvmOverloads constructor(
         canvas.drawText(maxValueLabel, left - 7f * density, top + 4f * density, labelPaint)
         canvas.drawText(minValueLabel, left - 7f * density, bottom, labelPaint)
         labelPaint.textAlign = Paint.Align.LEFT
-        canvas.drawText("0 km", left, height - 7f * density, labelPaint)
+        canvas.drawText("0 km", left, height - 7f * density - safeBottom, labelPaint)
         labelPaint.textAlign = Paint.Align.RIGHT
         canvas.drawText(
-            String.format(Locale.GERMANY, "%.1f km", maxDistance / 1000.0),
+            String.format(AppLanguage.forContext(context).locale, "%.1f km", maxDistance / 1000.0),
             right,
-            height - 7f * density,
+            height - 7f * density - safeBottom,
             labelPaint,
         )
         drawSelection(canvas, left, top, right, bottom, maxDistance, minValue, valueRange)
@@ -308,8 +321,8 @@ class ProfileChartView @JvmOverloads constructor(
     }
 
     private fun formatValue(value: Double): String = when (unit) {
-        "m" -> String.format(Locale.GERMANY, "%.0f m", value)
-        else -> String.format(Locale.GERMANY, "%.1f %s", value, unit)
+        "m" -> String.format(AppLanguage.forContext(context).locale, "%.0f m", value)
+        else -> String.format(AppLanguage.forContext(context).locale, "%.1f %s", value, unit)
     }
 
     private fun slopeColor(slopePercent: Double?): Int {

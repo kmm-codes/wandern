@@ -1,6 +1,7 @@
 package de.wandern.app.data
 
 import android.content.Context
+import de.wandern.app.R
 import de.wandern.app.model.GpxTrack
 import de.wandern.app.model.OfflineMapPlan
 import de.wandern.app.model.OfflineMapPlanner
@@ -15,12 +16,13 @@ import java.security.MessageDigest
 import java.util.Locale
 
 class OfflineMapDownloader(context: Context, private val styleUrl: String) {
-    private val manager = OfflineManager.getInstance(context.applicationContext)
+    private val context = context.applicationContext
+    private val manager = OfflineManager.getInstance(this.context)
     private val retainedRegions = mutableMapOf<String, OfflineRegion>()
 
     fun download(track: GpxTrack, onState: (OfflineMapDownloadState) -> Unit) {
         val plan = runCatching { OfflineMapPlanner.plan(track) }.getOrElse {
-            onState(OfflineMapDownloadState.Error(it.localizedMessage ?: "Offline-Bereich ist ungültig."))
+            onState(OfflineMapDownloadState.Error(it.localizedMessage ?: context.getString(R.string.offline_area_invalid)))
             return
         }
         val routeId = fingerprint(track)
@@ -37,7 +39,7 @@ class OfflineMapDownloader(context: Context, private val styleUrl: String) {
             }
 
             override fun onError(error: String) {
-                onState(OfflineMapDownloadState.Error("Offline-Karten konnten nicht geprüft werden: $error"))
+                onState(OfflineMapDownloadState.Error(context.getString(R.string.offline_maps_check_error, error)))
             }
         })
     }
@@ -55,7 +57,12 @@ class OfflineMapDownloader(context: Context, private val styleUrl: String) {
                 region.getStatus(object : OfflineRegion.OfflineRegionStatusCallback {
                     override fun onStatus(status: OfflineRegionStatus?) {
                         if (status == null) {
-                            onResult(OfflineMapStatus(OfflineMapAvailability.ERROR, message = "Status ist leer."))
+                            onResult(
+                                OfflineMapStatus(
+                                    OfflineMapAvailability.ERROR,
+                                    message = context.getString(R.string.offline_status_empty),
+                                ),
+                            )
                         } else {
                             onResult(
                                 OfflineMapStatus(
@@ -74,7 +81,10 @@ class OfflineMapDownloader(context: Context, private val styleUrl: String) {
                         onResult(
                             OfflineMapStatus(
                                 OfflineMapAvailability.ERROR,
-                                message = error ?: "Offline-Status konnte nicht gelesen werden.",
+                                message = error ?: context.getString(
+                                    R.string.offline_status_read_error,
+                                    context.getString(R.string.unknown_error),
+                                ),
                             ),
                         )
                     }
@@ -152,7 +162,7 @@ class OfflineMapDownloader(context: Context, private val styleUrl: String) {
                 }
 
                 override fun onError(error: String) {
-                    onState(OfflineMapDownloadState.Error("Offline-Karte konnte nicht angelegt werden: $error"))
+                    onState(OfflineMapDownloadState.Error(context.getString(R.string.offline_map_create_error, error)))
                 }
             },
         )
@@ -182,18 +192,18 @@ class OfflineMapDownloader(context: Context, private val styleUrl: String) {
             }
 
             override fun onError(error: OfflineRegionError) {
-                onState(OfflineMapDownloadState.Error("Kartendownload: ${error.message}"))
+                onState(OfflineMapDownloadState.Error(context.getString(R.string.map_download_error, error.message)))
             }
 
             override fun mapboxTileCountLimitExceeded(limit: Long) {
                 region.setDownloadState(OfflineRegion.STATE_INACTIVE)
-                onState(OfflineMapDownloadState.Error("Kartendownload überschreitet das Limit von $limit Kacheln."))
+                onState(OfflineMapDownloadState.Error(context.getString(R.string.map_download_tile_limit, limit)))
             }
         })
         region.getStatus(object : OfflineRegion.OfflineRegionStatusCallback {
             override fun onStatus(status: OfflineRegionStatus?) {
                 if (status == null) {
-                    onState(OfflineMapDownloadState.Error("Offline-Status ist leer."))
+                    onState(OfflineMapDownloadState.Error(context.getString(R.string.offline_status_empty)))
                     return
                 }
                 if (status.isComplete) {
@@ -205,7 +215,14 @@ class OfflineMapDownloader(context: Context, private val styleUrl: String) {
             }
 
             override fun onError(error: String?) {
-                onState(OfflineMapDownloadState.Error("Offline-Status konnte nicht gelesen werden: ${error ?: "unbekannter Fehler"}"))
+                onState(
+                    OfflineMapDownloadState.Error(
+                        context.getString(
+                            R.string.offline_status_read_error,
+                            error ?: context.getString(R.string.unknown_error),
+                        ),
+                    ),
+                )
             }
         })
     }

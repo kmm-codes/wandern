@@ -1,5 +1,6 @@
 package de.wandern.app.model
 
+import de.wandern.app.localization.localizedSystemText
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.floor
@@ -34,9 +35,24 @@ object OfflineMapPlanner {
         paddingMeters: Double = DEFAULT_PADDING_METERS,
         tileLimit: Long = DEFAULT_TILE_LIMIT,
     ): OfflineMapPlan {
-        require(track.points.isNotEmpty()) { "Für eine leere Route kann keine Offline-Karte erstellt werden." }
-        require(paddingMeters >= 0.0) { "Der Kartenpuffer darf nicht negativ sein." }
-        require(tileLimit > 0) { "Das Kachellimit muss positiv sein." }
+        require(track.points.isNotEmpty()) {
+            localizedSystemText(
+                "An offline map cannot be created for an empty route.",
+                "Für eine leere Route kann keine Offline-Karte erstellt werden.",
+            )
+        }
+        require(paddingMeters >= 0.0) {
+            localizedSystemText(
+                "The map buffer cannot be negative.",
+                "Der Kartenpuffer darf nicht negativ sein.",
+            )
+        }
+        require(tileLimit > 0) {
+            localizedSystemText(
+                "The tile limit must be positive.",
+                "Das Kachellimit muss positiv sein.",
+            )
+        }
 
         val latitudes = track.points.map { it.latitude }
         val longitudes = track.points.map { it.longitude }
@@ -51,7 +67,10 @@ object OfflineMapPlanner {
             west = (longitudes.min() - longitudePadding).coerceAtLeast(-180.0),
         )
         require(bounds.east - bounds.west < 180.0) {
-            "Routen über den 180. Längengrad werden für Offline-Karten noch nicht unterstützt."
+            localizedSystemText(
+                "Routes crossing the 180th meridian are not yet supported for offline maps.",
+                "Routen über den 180. Längengrad werden für Offline-Karten noch nicht unterstützt.",
+            )
         }
 
         var maxZoom = PREFERRED_MAX_ZOOM
@@ -61,7 +80,10 @@ object OfflineMapPlanner {
             tileCount = estimateTileCount(bounds, MIN_ZOOM, maxZoom)
         }
         require(tileCount <= tileLimit) {
-            "Der GPX-Bereich ist selbst in niedriger Detailstufe zu groß für den automatischen Download."
+            localizedSystemText(
+                "The GPX area is too large for automatic download even at a low detail level.",
+                "Der GPX-Bereich ist selbst in niedriger Detailstufe zu groß für den automatischen Download.",
+            )
         }
         return OfflineMapPlan(bounds, MIN_ZOOM, maxZoom, tileCount)
     }
@@ -84,4 +106,3 @@ object OfflineMapPlanner {
         return (1.0 - ln(tan(radians) + 1.0 / cos(radians)) / PI) / 2.0 * 2.0.pow(zoom)
     }
 }
-

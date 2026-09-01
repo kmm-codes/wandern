@@ -51,22 +51,53 @@
             app:strokeColor="@color/forest_700" />
     </com.google.android.material.button.MaterialButtonToggleGroup>
 
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/importToursButton"
+    <LinearLayout
+        android:id="@+id/plannedTourActions"
         android:layout_width="match_parent"
-        android:layout_height="52dp"
+        android:layout_height="wrap_content"
         android:layout_marginStart="12dp"
         android:layout_marginTop="10dp"
         android:layout_marginEnd="12dp"
-        android:maxLines="1"
-        android:text="@string/import_gpx_files"
-        android:textAllCaps="false"
-        android:textColor="@color/white"
-        app:backgroundTint="@color/forest_700"
-        app:cornerRadius="14dp"
-        app:icon="@drawable/ic_route"
-        app:iconGravity="textStart"
-        app:iconTint="@color/white" />
+        android:orientation="horizontal">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/planRouteButton"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="0dp"
+            android:layout_height="52dp"
+            android:layout_weight="1"
+            android:maxLines="1"
+            android:text="@string/plan_route"
+            android:textAllCaps="false"
+            android:textColor="@color/forest_700"
+            app:autoSizeMaxTextSize="14sp"
+            app:autoSizeMinTextSize="10sp"
+            app:autoSizeStepGranularity="1sp"
+            app:autoSizeTextType="uniform"
+            app:cornerRadius="14dp"
+            app:icon="@drawable/ic_route"
+            app:iconGravity="textStart"
+            app:iconTint="@color/forest_700"
+            app:strokeColor="@color/forest_700" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/importToursButton"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="0dp"
+            android:layout_height="52dp"
+            android:layout_marginStart="8dp"
+            android:layout_weight="1"
+            android:maxLines="1"
+            android:text="@string/import_gpx_files_short"
+            android:textAllCaps="false"
+            android:textColor="@color/forest_700"
+            app:autoSizeMaxTextSize="14sp"
+            app:autoSizeMinTextSize="10sp"
+            app:autoSizeStepGranularity="1sp"
+            app:autoSizeTextType="uniform"
+            app:cornerRadius="14dp"
+            app:strokeColor="@color/forest_700" />
+    </LinearLayout>
 
     <TextView
         android:id="@+id/emptyText"
