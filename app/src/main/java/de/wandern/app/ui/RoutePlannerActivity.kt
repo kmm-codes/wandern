@@ -413,12 +413,12 @@ class RoutePlannerActivity : AppCompatActivity() {
                         ?: error(getString(R.string.recording_no_longer_active))
                     val override = recordingRouteStore.load(sessionId)
                     val detour = detourStore.load(sessionId)
-                    val route = override?.route
-                        ?: detour?.route
+                    val route = detour?.route
+                        ?: override?.route
                         ?: session.routeReference?.let(trackStore::loadStoredTrack)?.asRouteDefinition()
                     val storedControls = when {
-                        override != null -> override.controlPoints
                         detour != null -> emptyList()
+                        override != null -> override.controlPoints
                         session.routeReference != null -> trackStore.loadRouteControlPoints(session.routeReference)
                         else -> emptyList()
                     }

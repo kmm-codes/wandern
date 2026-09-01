@@ -17,6 +17,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import de.wandern.app.R
 import de.wandern.app.data.DetourSessionStore
 import de.wandern.app.data.OnlineRoutingClient
+import de.wandern.app.data.RecordingRouteStore
 import de.wandern.app.data.TrackStore
 import de.wandern.app.localization.AppLanguage
 import de.wandern.app.databinding.ActivityDetourPlannerBinding
@@ -63,11 +64,13 @@ class DetourPlannerActivity : AppCompatActivity() {
     private val displayLocale get() = AppLanguage.forContext(this).locale
     private lateinit var trackStore: TrackStore
     private lateinit var detourStore: DetourSessionStore
+    private lateinit var recordingRouteStore: RecordingRouteStore
     private val routingClient = OnlineRoutingClient()
     private var map: MapLibreMap? = null
     private var mapStyle: Style? = null
     private var sessionId = -1L
-    private lateinit var originalRouteReference: String
+    private var originalRouteReference: String? = null
+    private var restoresRecordingRoute = false
     private lateinit var route: GpxTrack
     private lateinit var routePath: RoutePath
     private lateinit var currentPosition: TrackPoint
@@ -89,6 +92,7 @@ class DetourPlannerActivity : AppCompatActivity() {
         }
         trackStore = TrackStore(this)
         detourStore = DetourSessionStore(this)
+        recordingRouteStore = RecordingRouteStore(this)
         if (!loadInputs()) {
             toast(getString(R.string.detour_needs_route))
             finish()
@@ -102,9 +106,15 @@ class DetourPlannerActivity : AppCompatActivity() {
     private fun loadInputs(): Boolean {
         sessionId = intent.getLongExtra(EXTRA_SESSION_ID, -1L)
         val session = trackStore.activeSession()?.takeIf { it.id == sessionId } ?: return false
-        originalRouteReference = session.routeReference ?: return false
-        route = detourStore.load(sessionId)?.route
-            ?: runCatching { trackStore.loadStoredTrack(originalRouteReference) }.getOrNull()
+        val existingDetour = detourStore.load(sessionId)
+        val recordingRoute = recordingRouteStore.load(sessionId)
+        originalRouteReference = existingDetour?.originalRouteReference ?: session.routeReference
+        restoresRecordingRoute = existingDetour?.restoresRecordingRoute ?: (recordingRoute != null)
+        route = existingDetour?.route
+            ?: recordingRoute?.route
+            ?: session.routeReference?.let { reference ->
+                runCatching { trackStore.loadStoredTrack(reference) }.getOrNull()
+            }
             ?: return false
         if (route.points.size < 2) return false
         routePath = RoutePath(route)
@@ -342,6 +352,7 @@ class DetourPlannerActivity : AppCompatActivity() {
             detourStore.save(
                 sessionId = sessionId,
                 originalRouteReference = originalRouteReference,
+                restoresRecordingRoute = restoresRecordingRoute,
                 candidate = found,
                 corridorStartMeters = selectedCorridor.startDistanceMeters,
                 corridorEndMeters = selectedCorridor.endDistanceMeters,

@@ -524,7 +524,7 @@ class TrackingService : Service(), LocationListener {
 
     private fun configureRoute(reference: String?) {
         activeRoute = sessionId?.let { id ->
-            recordingRouteStore.load(id)?.route ?: detourStore.load(id)?.route
+            detourStore.load(id)?.route ?: recordingRouteStore.load(id)?.route
         } ?: reference?.let { runCatching { trackStore.loadStoredTrack(it) }.getOrNull() }
         resetRouteDeviationState()
     }

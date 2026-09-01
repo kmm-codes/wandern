@@ -12,6 +12,7 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import de.wandern.app.R
+import de.wandern.app.data.RecordingRouteStore
 import de.wandern.app.data.TrackStore
 import de.wandern.app.model.ActivityType
 import de.wandern.app.model.GpxTrack
@@ -98,6 +99,34 @@ class RecordingRecoveryFlowTest {
                     .setAction(TrackingService.ACTION_DISCARD),
             )
             SystemClock.sleep(250)
+            store.discardSession(sessionId)
+            discardActiveSessions(store)
+        }
+    }
+
+    @Test
+    fun recordingOnlyRouteOffersDetourAction() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val store = TrackStore(context)
+        val recordingRoutes = RecordingRouteStore(context)
+        discardActiveSessions(store)
+        val sessionId = store.createSession(activityType = ActivityType.HIKING)
+        recordingRoutes.save(sessionId, testRoute(), emptyList())
+        store.updateState(sessionId, RecordingState.PAUSED)
+
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                waitUntil(scenario) { activity ->
+                    activity.findViewById<View>(R.id.recordingDetourActions).visibility == View.VISIBLE
+                }
+            }
+        } finally {
+            context.startService(
+                Intent(context, TrackingService::class.java)
+                    .setAction(TrackingService.ACTION_DISCARD),
+            )
+            SystemClock.sleep(250)
+            recordingRoutes.clear(sessionId)
             store.discardSession(sessionId)
             discardActiveSessions(store)
         }

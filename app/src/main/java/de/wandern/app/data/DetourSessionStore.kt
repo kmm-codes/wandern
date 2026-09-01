@@ -9,7 +9,8 @@ import java.io.File
 
 data class ActiveDetour(
     val sessionId: Long,
-    val originalRouteReference: String,
+    val originalRouteReference: String?,
+    val restoresRecordingRoute: Boolean,
     val route: GpxTrack,
     val corridorStartMeters: Double,
     val corridorEndMeters: Double,
@@ -26,11 +27,18 @@ class DetourSessionStore(context: Context) {
     @Synchronized
     fun save(
         sessionId: Long,
-        originalRouteReference: String,
+        originalRouteReference: String?,
         candidate: DetourRouteCandidate,
         corridorStartMeters: Double,
         corridorEndMeters: Double,
+        restoresRecordingRoute: Boolean = false,
     ): ActiveDetour {
+        require(originalRouteReference != null || restoresRecordingRoute) {
+            localizedSystemText(
+                "A base route is required for the detour.",
+                "Für die Umleitung wird eine Ausgangsroute benötigt.",
+            )
+        }
         val target = routeFile(sessionId)
         val temporary = File(directory, "${target.name}.tmp")
         temporary.writeText(GpxCodec.encode(candidate.track), Charsets.UTF_8)
@@ -44,7 +52,8 @@ class DetourSessionStore(context: Context) {
         preferences.edit().putString(
             key(sessionId),
             JSONObject().apply {
-                put("original_route_reference", originalRouteReference)
+                originalRouteReference?.let { put("original_route_reference", it) }
+                put("restores_recording_route", restoresRecordingRoute)
                 put("corridor_start", corridorStartMeters)
                 put("corridor_end", corridorEndMeters)
                 put("rejoin_distance", candidate.rejoinDistanceMeters)
@@ -70,10 +79,13 @@ class DetourSessionStore(context: Context) {
             }
         }
             .getOrNull() ?: return null
-        val original = metadata.optString("original_route_reference").takeIf(String::isNotBlank) ?: return null
+        val original = metadata.optString("original_route_reference").takeIf(String::isNotBlank)
+        val restoresRecordingRoute = metadata.optBoolean("restores_recording_route", false)
+        if (original == null && !restoresRecordingRoute) return null
         return ActiveDetour(
             sessionId = sessionId,
             originalRouteReference = original,
+            restoresRecordingRoute = restoresRecordingRoute,
             route = route,
             corridorStartMeters = metadata.optDouble("corridor_start", 0.0),
             corridorEndMeters = metadata.optDouble("corridor_end", 0.0),

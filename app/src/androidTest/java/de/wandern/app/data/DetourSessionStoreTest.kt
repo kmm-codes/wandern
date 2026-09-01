@@ -45,10 +45,46 @@ class DetourSessionStoreTest {
         val restored = store.load(SESSION_ID)
 
         assertEquals("planned:42", restored?.originalRouteReference)
+        assertEquals(false, restored?.restoresRecordingRoute)
         assertEquals(track.points.size, restored?.route?.points?.size)
         assertEquals(650.0, restored?.corridorEndMeters ?: 0.0, 0.0)
         store.clear(SESSION_ID)
         assertNull(store.load(SESSION_ID))
+    }
+
+    @Test
+    fun persistsDetourForRecordingOnlyRoute() {
+        val track = GpxTrack(
+            name = "Temporäre Route",
+            segments = listOf(
+                listOf(
+                    TrackPoint(48.0, 8.0),
+                    TrackPoint(48.002, 8.003),
+                ),
+            ),
+            activityType = ActivityType.HIKING,
+        )
+        val candidate = DetourRouteCandidate(
+            track = track,
+            rejoinDistanceMeters = 500.0,
+            skippedRouteMeters = 150.0,
+            extraDistanceMeters = 100.0,
+            directToDestination = false,
+        )
+
+        store.save(
+            sessionId = SESSION_ID,
+            originalRouteReference = null,
+            candidate = candidate,
+            corridorStartMeters = 100.0,
+            corridorEndMeters = 300.0,
+            restoresRecordingRoute = true,
+        )
+
+        val restored = store.load(SESSION_ID)
+        assertNull(restored?.originalRouteReference)
+        assertEquals(true, restored?.restoresRecordingRoute)
+        assertEquals(track.points.size, restored?.route?.points?.size)
     }
 
     private companion object {

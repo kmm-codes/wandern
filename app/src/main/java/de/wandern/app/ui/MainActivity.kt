@@ -146,7 +146,6 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     private var offlineMapIdentityTrack: GpxTrack? = null
     private var importedTrackReference: String? = null
     private var activeDetour = false
-    private var activeRecordingRouteOverride = false
     private var latestSnapshot = TrackingSnapshot()
     private var pendingRecordingStart = false
     private var pendingCenterRequest = false
@@ -485,10 +484,10 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
 
     private fun restoreActiveRecording() {
         val activeSession = trackStore.activeSession() ?: return
-        if (recordingRouteStore.load(activeSession.id) != null) {
-            applyPersistedRecordingRoute(announce = false)
-        } else if (detourStore.load(activeSession.id) != null) {
+        if (detourStore.load(activeSession.id) != null) {
             applyPersistedDetour(announce = false)
+        } else if (recordingRouteStore.load(activeSession.id) != null) {
+            applyPersistedRecordingRoute(announce = false)
         } else {
             activeSession.routeReference?.let(::restoreActiveRoute)
         }
@@ -515,7 +514,6 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
                 val activeRouteReference = trackStore.activeSession()?.routeReference
                 if (activeRouteReference == reference) {
                     activeDetour = false
-                    activeRecordingRouteOverride = false
                     displayTrack(
                         track = track,
                         reference = reference,
@@ -536,7 +534,6 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         val activeSession = trackStore.activeSession() ?: return
         val detour = detourStore.load(activeSession.id) ?: return
         activeDetour = true
-        activeRecordingRouteOverride = false
         displayTrack(
             track = detour.route,
             reference = detour.originalRouteReference,
@@ -557,7 +554,6 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         val activeSession = trackStore.activeSession() ?: return
         val activeRoute = recordingRouteStore.load(activeSession.id) ?: return
         activeDetour = false
-        activeRecordingRouteOverride = true
         displayTrack(
             track = activeRoute.route,
             reference = activeSession.routeReference,
@@ -607,7 +603,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         val point = latestSnapshot.latestPoint
             ?: latestSnapshot.latestObservedPoint
             ?: latestLocatedPoint
-        if (session?.routeReference == null) {
+        if (session == null || importedTrack == null) {
             toast(getString(R.string.detour_needs_route))
             return
         }
@@ -627,12 +623,17 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
 
     private fun undoActiveDetour() {
         val session = trackStore.activeSession() ?: return
-        val originalReference = session.routeReference ?: return
+        val detour = detourStore.load(session.id) ?: return
         detourStore.clear(session.id)
         activeDetour = false
         sendTrackingAction(TrackingService.ACTION_UPDATE_NAVIGATION_ROUTE)
-        importedTrackReference = null
-        restoreActiveRoute(originalReference, RouteEntryMode.NEAREST_POINT)
+        if (detour.restoresRecordingRoute && recordingRouteStore.load(session.id) != null) {
+            applyPersistedRecordingRoute(announce = false)
+        } else {
+            val originalReference = detour.originalRouteReference ?: session.routeReference ?: return
+            importedTrackReference = null
+            restoreActiveRoute(originalReference, RouteEntryMode.NEAREST_POINT)
+        }
         binding.recordingUndoDetourButton.visibility = View.GONE
         showRouteStatus(getString(R.string.detour_removed), R.color.forest_900, INFO_BADGE_MILLIS)
     }
@@ -697,7 +698,6 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
                 state == RecordingState.RECORDING -> recordingDetailsExpanded = false
                 !recordingActive -> {
                     recordingDetailsExpanded = false
-                    activeRecordingRouteOverride = false
                 }
             }
             lastRenderedRecordingState = state
@@ -747,9 +747,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         } else {
             View.GONE
         }
-        val detourAvailable = importedTrack != null &&
-            importedTrackReference != null &&
-            !activeRecordingRouteOverride
+        val detourAvailable = importedTrack != null
         binding.recordingRouteButton.text = getString(
             if (importedTrack != null) R.string.edit_recording_route else R.string.set_recording_destination,
         )
