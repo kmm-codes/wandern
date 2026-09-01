@@ -36,9 +36,9 @@
     <string name="compass_accuracy_low">low · calibrate</string>
     <string name="compass_accuracy_unreliable">unreliable · keep away from magnets</string>
     <string name="compass_calibration_step_figure_eight">Calibrate sensor</string>
-    <string name="compass_calibration_figure_eight_title">Move the phone in a figure eight</string>
-    <string name="compass_calibration_figure_eight_message">Remove magnetic cases or mounts. Slowly draw a large sideways figure eight in the air several times with your phone. Rotate your palm slightly as you move.</string>
-    <string name="compass_calibration_figure_eight_animation">Animation: The phone moves several times along a sideways figure eight while rotating.</string>
+    <string name="compass_calibration_figure_eight_title">Move and tilt the phone</string>
+    <string name="compass_calibration_figure_eight_message">Remove magnetic cases or mounts. Slowly move the phone in a large sideways figure eight several times while tilting it in every direction. Let its front, back and edges face different directions in turn. The figure eight does not have to be exact.</string>
+    <string name="compass_calibration_figure_eight_animation">Animation: The phone moves along a sideways figure eight. Tilt and rotate it in every direction as well.</string>
     <string name="compass_calibration_figure_eight_confirm">Figure eight completed</string>
     <string name="compass_calibration_sensor_status">Sensor: %1$s</string>
     <string name="compass_calibration_step_checking">Applying calibration</string>

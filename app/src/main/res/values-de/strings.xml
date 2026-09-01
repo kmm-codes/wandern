@@ -37,9 +37,9 @@
     <string name="compass_accuracy_low">niedrig · kalibrieren</string>
     <string name="compass_accuracy_unreliable">unzuverlässig · Abstand zu Magneten halten</string>
     <string name="compass_calibration_step_figure_eight">Sensor kalibrieren</string>
-    <string name="compass_calibration_figure_eight_title">Bewege das Handy in einer Acht</string>
-    <string name="compass_calibration_figure_eight_message">Entferne magnetische Hüllen oder Halterungen. Zeichne mit dem Handy mehrmals langsam eine große liegende Acht in die Luft. Drehe dabei auch die Handfläche etwas mit.</string>
-    <string name="compass_calibration_figure_eight_animation">Animation: Das Handy wird mehrmals entlang einer liegenden Acht bewegt und dabei mitgedreht.</string>
+    <string name="compass_calibration_figure_eight_title">Bewege und kippe das Handy</string>
+    <string name="compass_calibration_figure_eight_message">Entferne magnetische Hüllen oder Halterungen. Bewege das Handy mehrmals langsam in einer großen liegenden Acht und kippe es dabei in alle Richtungen. Vorderseite, Rückseite und Kanten sollen nacheinander in unterschiedliche Richtungen zeigen. Die Acht muss nicht exakt sein.</string>
+    <string name="compass_calibration_figure_eight_animation">Animation: Das Handy bewegt sich entlang einer liegenden Acht. Kippe und drehe es dabei zusätzlich in alle Richtungen.</string>
     <string name="compass_calibration_figure_eight_confirm">Achter durchgeführt</string>
     <string name="compass_calibration_sensor_status">Sensor: %1$s</string>
     <string name="compass_calibration_step_checking">Achter wird übernommen</string>
