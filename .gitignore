@@ -3,5 +3,8 @@
 local.properties
 **/build/
 captures/
+.codex/
+.codex-device-captures/
+.codex-remote-attachments/
+.kotlin/
 *.iml
-
