@@ -13,6 +13,8 @@ param(
     [string]$Avd = 'Pixel_Tablet_2',
     [ValidateRange(30, 1200)][int]$BootTimeoutSeconds = 300,
     [ValidateRange(0, 7200)][int]$BudgetWaitSeconds = 900,
+    [switch]$CaptureDebugScenes,
+    [switch]$DebugScenesOnly,
     [switch]$KeepEmulator
 )
 
@@ -124,8 +126,25 @@ try {
     }
     Write-Host "EMULATOR-STATE RESET OK serial=$serial package=de.wandern.app" -ForegroundColor Green
 
-    & (Join-Path $repository 'scripts\check.ps1') -DeviceSerial $serial
-    if ($LASTEXITCODE -ne 0) { throw 'Der lokale Android-Gate ist fehlgeschlagen.' }
+    if ($DebugScenesOnly) {
+        & (Join-Path $repository 'gradlew.bat') :app:assembleDebug
+        if ($LASTEXITCODE -ne 0) { throw 'Debug-Build für Szenen fehlgeschlagen.' }
+        & $adb -s $serial install -r (Join-Path $repository 'app\build\outputs\apk\debug\app-debug.apk')
+        if ($LASTEXITCODE -ne 0) { throw 'Debug-APK konnte nicht installiert werden.' }
+    } else {
+        & (Join-Path $repository 'scripts\check.ps1') -DeviceSerial $serial
+        if ($LASTEXITCODE -ne 0) { throw 'Der lokale Android-Gate ist fehlgeschlagen.' }
+    }
+    if ($CaptureDebugScenes -or $DebugScenesOnly) {
+        $debugScenes = @('route-collapsed', 'route-medium', 'route-stats-medium', 'route-expanded')
+        for ($sceneIndex = 0; $sceneIndex -lt $debugScenes.Count; $sceneIndex++) {
+            $scene = $debugScenes[$sceneIndex]
+            & (Join-Path $repository 'scripts\debug-scene.ps1') `
+                -Scene $scene -DeviceSerial $serial -WaitMilliseconds 1200 `
+                -DismissSystemEducation:($DebugScenesOnly -and $sceneIndex -eq 0)
+            if ($LASTEXITCODE -ne 0) { throw "Debug-Screenshot fehlgeschlagen: $scene" }
+        }
+    }
     Write-Host "WANDERN-E2E OK avd=$Avd serial=$serial" -ForegroundColor Green
 }
 finally {

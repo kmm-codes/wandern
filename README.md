@@ -90,6 +90,32 @@ ausgeführt werden:
 .\scripts\check.ps1 -DeviceSerial <ADB-SERIENNUMMER>
 ```
 
+### Aufzeichnungs-UI ohne Tippen prüfen
+
+Die Debug-APK akzeptiert reproduzierbare Mock-Szenen über einen expliziten
+ADB-Intent. Das Skript öffnet die laufende App direkt im gewünschten Zustand
+und erstellt auf Wunsch einen Screenshot; eine Klick-Automatisierung ist nicht
+nötig:
+
+```powershell
+.\scripts\debug-scene.ps1 route-medium
+.\scripts\debug-scene.ps1 route-stats-medium
+.\scripts\debug-scene.ps1 route-paused-expanded -OutputPath .\captures\paused.png
+```
+
+Verfügbare Szenen stehen über die Parametervervollständigung bzw. `Get-Help`
+bereit. Mit `-NoScreenshot` wird nur der Zustand injiziert, mit `-DeviceSerial`
+ein bestimmtes Gerät gewählt. Technisch entspricht der direkte Aufruf:
+
+```powershell
+adb shell am start -W -n de.wandern.app/.ui.MainActivity `
+  -a de.wandern.app.DEBUG_SCENARIO --es scenario route-medium
+```
+
+Die Mock-Schnittstelle wird durch `BuildConfig.DEBUG` abgeschirmt und verändert
+weder gespeicherte Touren noch laufende Aufzeichnungssitzungen. Release-Builds
+ignorieren den Debug-Intent.
+
 Für einen autonomen Lauf reserviert der Emulator-Runner zuerst Wanderns feste
 AVD-Lane `Pixel_Tablet_2`, startet sie headless innerhalb des hostweiten
 Vier-Emulator-Budgets und gibt Emulator sowie Lease im `finally` wieder frei:
@@ -97,6 +123,12 @@ Vier-Emulator-Budgets und gibt Emulator sowie Lease im `finally` wieder frei:
 ```powershell
 .\scripts\test-emulator.ps1
 ```
+
+Mit `-CaptureDebugScenes` werden nach den Gerätetests zusätzlich die zentralen
+Aufzeichnungszustände injiziert und unter
+`.codex-device-captures/debug-scenes/` fotografiert, bevor der Emulator wieder
+freigegeben wird. `-DebugScenesOnly` überspringt das vollständige Test-Gate und
+führt nur Build, Installation und die visuellen Szenen aus.
 
 Der produktneutrale Koordinator wird aus dem Geschwister-Repo
 [`android-emulator-fleet`](https://github.com/kmm-codes/android-emulator-fleet)

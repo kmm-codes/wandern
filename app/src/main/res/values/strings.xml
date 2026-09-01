@@ -138,6 +138,7 @@
     <string name="resume">Resume</string>
     <string name="show_recording_details">Show recording details</string>
     <string name="hide_recording_details">Hide recording details</string>
+    <string name="recording_more_actions">Route and recording</string>
     <string name="hold_to_pause">Press and hold to pause</string>
     <string name="pause_hold_hint">Press and hold to pause the recording manually.</string>
     <string name="finish_and_save">Finish &amp; save</string>

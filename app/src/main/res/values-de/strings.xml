@@ -139,6 +139,7 @@
     <string name="resume">Fortsetzen</string>
     <string name="show_recording_details">Aufnahmedetails anzeigen</string>
     <string name="hide_recording_details">Aufnahmedetails ausblenden</string>
+    <string name="recording_more_actions">Route und Aufzeichnung</string>
     <string name="hold_to_pause">Zum Pausieren gedrückt halten</string>
     <string name="pause_hold_hint">Gedrückt halten, um die Aufzeichnung manuell zu pausieren.</string>
     <string name="finish_and_save">Beenden &amp; speichern</string>

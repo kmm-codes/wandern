@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.coordinatorlayout.widget.CoordinatorLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
@@ -79,6 +79,22 @@
         android:layout_marginBottom="110dp"
         android:contentDescription="@string/center_location"
         android:src="@drawable/ic_my_location"
+        android:translationZ="12dp"
+        app:backgroundTint="@color/sand_50"
+        app:fabSize="mini"
+        app:tint="@color/forest_900" />
+
+    <com.google.android.material.floatingactionbutton.FloatingActionButton
+        android:id="@+id/recordingDetourFab"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="end|bottom"
+        android:layout_marginEnd="18dp"
+        android:layout_marginBottom="174dp"
+        android:contentDescription="@string/detour_action"
+        android:src="@drawable/ic_route"
+        android:translationZ="12dp"
+        android:visibility="gone"
         app:backgroundTint="@color/sand_50"
         app:fabSize="mini"
         app:tint="@color/forest_900" />
@@ -86,294 +102,147 @@
     <com.google.android.material.card.MaterialCardView
         android:id="@+id/recordingCard"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom"
-        android:layout_marginStart="12dp"
-        android:layout_marginEnd="12dp"
-        android:layout_marginBottom="12dp"
+        android:layout_height="match_parent"
         android:visibility="gone"
         app:cardBackgroundColor="@color/sand_50"
         app:cardCornerRadius="20dp"
-        app:cardElevation="8dp">
+        app:cardElevation="8dp"
+        app:layout_behavior="com.google.android.material.bottomsheet.BottomSheetBehavior">
 
         <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
+            android:layout_height="match_parent"
             android:orientation="vertical">
 
-            <TextView
-                android:id="@+id/recordingPausedBanner"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:background="@color/warning"
-                android:gravity="center"
-                android:padding="9dp"
-                android:text="@string/recording_paused"
-                android:textColor="@color/white"
-                android:textSize="13sp"
-                android:textStyle="bold"
-                android:visibility="gone" />
-
             <LinearLayout
-                android:id="@+id/routeRejoinBanner"
+                android:id="@+id/recordingCollapsedContent"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:background="@color/forest_700"
-                android:gravity="center_vertical"
-                android:orientation="horizontal"
-                android:paddingStart="14dp"
-                android:paddingTop="9dp"
-                android:paddingEnd="14dp"
-                android:paddingBottom="9dp"
-                android:visibility="gone">
-
-                <ImageView
-                    android:id="@+id/routeRejoinArrow"
-                    android:layout_width="28dp"
-                    android:layout_height="28dp"
-                    android:contentDescription="@null"
-                    android:src="@drawable/ic_navigation_arrow" />
-
-                <TextView
-                    android:id="@+id/routeRejoinText"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="10dp"
-                    android:layout_weight="1"
-                    android:textColor="@color/white"
-                    android:textSize="13sp"
-                    android:textStyle="bold" />
-            </LinearLayout>
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:gravity="center_vertical"
-                android:orientation="horizontal"
-                android:paddingStart="14dp"
-                android:paddingTop="6dp"
-                android:paddingEnd="8dp">
-
-                <TextView
-                    android:id="@+id/recordingStatusText"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="@string/recording_running"
-                    android:textColor="@color/forest_700"
-                    android:textSize="12sp"
-                    android:textStyle="bold" />
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/recordingExpandButton"
-                    style="@style/Widget.MaterialComponents.Button.TextButton"
-                    android:layout_width="44dp"
-                    android:layout_height="40dp"
-                    android:contentDescription="@string/show_recording_details"
-                    android:insetTop="0dp"
-                    android:insetBottom="0dp"
-                    android:padding="10dp"
-                    app:icon="@drawable/ic_expand_more"
-                    app:iconGravity="textStart"
-                    app:iconPadding="0dp"
-                    app:iconTint="@color/forest_700" />
-            </LinearLayout>
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:baselineAligned="false"
-                android:orientation="horizontal"
-                android:paddingStart="14dp"
-                android:paddingEnd="14dp"
-                android:paddingBottom="12dp">
-
-                <LinearLayout style="@style/RecordingStatCell">
-                    <TextView android:id="@+id/recordingDistanceText" style="@style/RecordingStatValue" android:text="@string/distance_empty" />
-                    <TextView style="@style/RecordingStatLabel" android:text="@string/distance_label" />
-                </LinearLayout>
-
-                <LinearLayout style="@style/RecordingStatCell">
-                    <TextView android:id="@+id/recordingMovingTimeText" style="@style/RecordingStatValue" android:text="@string/duration_empty" />
-                    <TextView style="@style/RecordingStatLabel" android:text="@string/moving_time" />
-                </LinearLayout>
-
-                <LinearLayout style="@style/RecordingStatCell">
-                    <TextView android:id="@+id/recordingCurrentSpeedText" style="@style/RecordingStatValue" android:text="@string/not_available" />
-                    <TextView style="@style/RecordingStatLabel" android:text="@string/current_speed_short" />
-                </LinearLayout>
-
-                <LinearLayout style="@style/RecordingStatCell">
-                    <TextView android:id="@+id/recordingAscentText" style="@style/RecordingStatValue" android:text="@string/ascent_empty" />
-                    <TextView style="@style/RecordingStatLabel" android:text="@string/ascent_short" />
-                </LinearLayout>
-            </LinearLayout>
-
-            <LinearLayout
-                android:id="@+id/recordingExpandedGroup"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:paddingStart="14dp"
-                android:paddingEnd="14dp"
-                android:paddingBottom="12dp"
-                android:visibility="gone">
+                android:orientation="vertical">
 
                 <View
-                    android:layout_width="match_parent"
-                    android:layout_height="1dp"
-                    android:layout_marginBottom="12dp"
-                    android:background="@color/moss_300" />
+                    android:layout_width="46dp"
+                    android:layout_height="4dp"
+                    android:layout_gravity="center_horizontal"
+                    android:layout_marginTop="10dp"
+                    android:layout_marginBottom="4dp"
+                    android:background="@drawable/bottom_drawer_handle" />
 
-                <LinearLayout
-                    android:id="@+id/recordingElevationGroup"
+                <TextView
+                    android:id="@+id/recordingPausedBanner"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginBottom="12dp"
-                    android:orientation="vertical">
+                    android:background="@color/warning"
+                    android:gravity="center"
+                    android:padding="7dp"
+                    android:text="@string/recording_paused"
+                    android:textColor="@color/white"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:visibility="gone" />
+
+                <LinearLayout
+                    android:id="@+id/routeRejoinBanner"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="@color/forest_700"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingStart="14dp"
+                    android:paddingTop="7dp"
+                    android:paddingEnd="14dp"
+                    android:paddingBottom="7dp"
+                    android:visibility="gone">
+
+                    <ImageView
+                        android:id="@+id/routeRejoinArrow"
+                        android:layout_width="26dp"
+                        android:layout_height="26dp"
+                        android:contentDescription="@null"
+                        android:src="@drawable/ic_navigation_arrow" />
 
                     <TextView
-                        android:layout_width="wrap_content"
+                        android:id="@+id/routeRejoinText"
+                        android:layout_width="0dp"
                         android:layout_height="wrap_content"
-                        android:text="@string/elevation_profile"
-                        android:textColor="@color/forest_900"
-                        android:textSize="13sp"
+                        android:layout_marginStart="10dp"
+                        android:layout_weight="1"
+                        android:textColor="@color/white"
+                        android:textSize="12sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingStart="14dp"
+                    android:paddingEnd="8dp">
+
+                    <TextView
+                        android:id="@+id/recordingStatusText"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/recording_running"
+                        android:textColor="@color/forest_700"
+                        android:textSize="12sp"
                         android:textStyle="bold" />
 
-                    <de.wandern.app.ui.ProfileChartView
-                        android:id="@+id/recordingElevationChart"
-                        android:layout_width="match_parent"
-                        android:layout_height="128dp"
-                        android:layout_marginTop="2dp" />
-                </LinearLayout>
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:baselineAligned="false"
-                    android:orientation="horizontal">
-
-                    <LinearLayout style="@style/RecordingDetailCell">
-                        <TextView android:id="@+id/recordingAverageSpeedText" style="@style/RecordingDetailValue" android:text="@string/not_available" />
-                        <TextView style="@style/RecordingDetailLabel" android:text="@string/average_speed_short" />
-                    </LinearLayout>
-
-                    <LinearLayout style="@style/RecordingDetailCell">
-                        <TextView android:id="@+id/recordingAveragePaceText" style="@style/RecordingDetailValue" android:text="@string/not_available" />
-                        <TextView style="@style/RecordingDetailLabel" android:text="@string/average_pace" />
-                    </LinearLayout>
-
-                    <LinearLayout style="@style/RecordingDetailCell">
-                        <TextView android:id="@+id/recordingTotalTimeText" style="@style/RecordingDetailValue" android:text="@string/duration_empty" />
-                        <TextView style="@style/RecordingDetailLabel" android:text="@string/total_time" />
-                    </LinearLayout>
-
-                    <LinearLayout style="@style/RecordingDetailCell">
-                        <TextView android:id="@+id/recordingDescentText" style="@style/RecordingDetailValue" android:text="@string/descent_empty" />
-                        <TextView style="@style/RecordingDetailLabel" android:text="@string/descent" />
-                    </LinearLayout>
-                </LinearLayout>
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="10dp"
-                    android:baselineAligned="false"
-                    android:orientation="horizontal">
-
-                    <LinearLayout style="@style/RecordingDetailCell">
-                        <TextView android:id="@+id/recordingSlopeText" style="@style/RecordingDetailValue" android:text="@string/not_available" />
-                        <TextView style="@style/RecordingDetailLabel" android:text="@string/slope_label" />
-                    </LinearLayout>
-
-                    <LinearLayout style="@style/RecordingDetailCell">
-                        <TextView android:id="@+id/recordingGpsText" style="@style/RecordingDetailValue" android:text="@string/not_available" />
-                        <TextView style="@style/RecordingDetailLabel" android:text="@string/gps_label" />
-                    </LinearLayout>
-                </LinearLayout>
-
-                <LinearLayout
-                    android:id="@+id/recordingRouteProgressGroup"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="14dp"
-                    android:orientation="vertical"
-                    android:visibility="gone">
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:baselineAligned="false"
-                        android:orientation="horizontal">
-
-                        <LinearLayout style="@style/RecordingDetailCell">
-                            <TextView android:id="@+id/recordingRouteProgressText" style="@style/RecordingDetailValue" android:text="@string/route_progress_empty" />
-                            <TextView style="@style/RecordingDetailLabel" android:text="@string/route_progress_label" />
-                        </LinearLayout>
-
-                        <LinearLayout style="@style/RecordingDetailCell">
-                            <TextView android:id="@+id/recordingRemainingDistanceText" style="@style/RecordingDetailValue" android:text="@string/remaining_distance_empty" />
-                            <TextView style="@style/RecordingDetailLabel" android:text="@string/remaining_distance_label" />
-                        </LinearLayout>
-
-                        <LinearLayout style="@style/RecordingDetailCell">
-                            <TextView android:id="@+id/recordingEtaText" style="@style/RecordingDetailValue" android:text="@string/not_available" />
-                            <TextView style="@style/RecordingDetailLabel" android:text="@string/eta_label" />
-                        </LinearLayout>
-                    </LinearLayout>
-                </LinearLayout>
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/recordingRouteButton"
-                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-                    android:layout_width="match_parent"
-                    android:layout_height="48dp"
-                    android:layout_marginTop="14dp"
-                    android:text="@string/set_recording_destination"
-                    android:textAllCaps="false"
-                    app:cornerRadius="14dp"
-                    app:icon="@drawable/ic_route"
-                    app:iconGravity="textStart"
-                    app:strokeColor="@color/forest_700" />
-
-                <LinearLayout
-                    android:id="@+id/recordingDetourActions"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="14dp"
-                    android:orientation="horizontal"
-                    android:visibility="gone">
-
                     <com.google.android.material.button.MaterialButton
-                        android:id="@+id/recordingDetourButton"
-                        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-                        android:layout_width="0dp"
-                        android:layout_height="48dp"
-                        android:layout_weight="1"
-                        android:text="@string/detour_action"
-                        android:textAllCaps="false"
-                        app:cornerRadius="14dp"
-                        app:icon="@drawable/ic_route"
-                        app:iconGravity="textStart"
-                        app:strokeColor="@color/forest_700" />
-
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/recordingUndoDetourButton"
+                        android:id="@+id/recordingExpandButton"
                         style="@style/Widget.MaterialComponents.Button.TextButton"
-                        android:layout_width="wrap_content"
-                        android:layout_height="48dp"
-                        android:layout_marginStart="6dp"
-                        android:text="@string/detour_undo"
-                        android:textAllCaps="false"
-                        android:visibility="gone" />
+                        android:layout_width="44dp"
+                        android:layout_height="38dp"
+                        android:contentDescription="@string/show_recording_details"
+                        android:insetTop="0dp"
+                        android:insetBottom="0dp"
+                        android:padding="10dp"
+                        app:icon="@drawable/ic_expand_less"
+                        app:iconGravity="textStart"
+                        app:iconPadding="0dp"
+                        app:iconTint="@color/forest_700" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:baselineAligned="false"
+                    android:orientation="horizontal"
+                    android:paddingStart="14dp"
+                    android:paddingEnd="14dp"
+                    android:paddingBottom="8dp">
+
+                    <LinearLayout style="@style/RecordingStatCell">
+                        <TextView android:id="@+id/recordingDistanceText" style="@style/RecordingStatValue" android:text="@string/distance_empty" />
+                        <TextView style="@style/RecordingStatLabel" android:text="@string/distance_label" />
+                    </LinearLayout>
+
+                    <LinearLayout style="@style/RecordingStatCell">
+                        <TextView android:id="@+id/recordingMovingTimeText" style="@style/RecordingStatValue" android:text="@string/duration_empty" />
+                        <TextView style="@style/RecordingStatLabel" android:text="@string/moving_time" />
+                    </LinearLayout>
+
+                    <LinearLayout style="@style/RecordingStatCell">
+                        <TextView android:id="@+id/recordingCurrentSpeedText" style="@style/RecordingStatValue" android:text="@string/not_available" />
+                        <TextView style="@style/RecordingStatLabel" android:text="@string/current_speed_short" />
+                    </LinearLayout>
+
+                    <LinearLayout style="@style/RecordingStatCell">
+                        <TextView android:id="@+id/recordingAscentText" style="@style/RecordingStatValue" android:text="@string/ascent_empty" />
+                        <TextView style="@style/RecordingStatLabel" android:text="@string/ascent_short" />
+                    </LinearLayout>
                 </LinearLayout>
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/recordingPauseButton"
                     style="@style/Widget.MaterialComponents.Button.OutlinedButton"
                     android:layout_width="match_parent"
-                    android:layout_height="52dp"
-                    android:layout_marginTop="14dp"
+                    android:layout_height="48dp"
+                    android:layout_marginStart="14dp"
+                    android:layout_marginEnd="14dp"
+                    android:layout_marginBottom="10dp"
                     android:longClickable="true"
                     android:text="@string/hold_to_pause"
                     android:textAllCaps="false"
@@ -386,7 +255,9 @@
                     android:id="@+id/recordingPausedActions"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="14dp"
+                    android:layout_marginStart="14dp"
+                    android:layout_marginEnd="14dp"
+                    android:layout_marginBottom="10dp"
                     android:orientation="horizontal"
                     android:visibility="gone">
 
@@ -394,7 +265,7 @@
                         android:id="@+id/recordingResumeButton"
                         style="@style/Widget.MaterialComponents.Button.OutlinedButton"
                         android:layout_width="0dp"
-                        android:layout_height="52dp"
+                        android:layout_height="48dp"
                         android:layout_weight="1"
                         android:text="@string/resume"
                         android:textAllCaps="false"
@@ -404,32 +275,237 @@
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/recordingFinishButton"
                         android:layout_width="0dp"
-                        android:layout_height="52dp"
+                        android:layout_height="48dp"
                         android:layout_marginStart="8dp"
                         android:layout_weight="1"
-                        android:maxLines="1"
                         android:text="@string/finish"
                         android:textAllCaps="false"
                         android:textColor="@color/white"
-                        app:autoSizeMaxTextSize="14sp"
-                        app:autoSizeMinTextSize="10sp"
-                        app:autoSizeStepGranularity="1sp"
-                        app:autoSizeTextType="uniform"
                         app:backgroundTint="@color/forest_700"
                         app:cornerRadius="14dp" />
                 </LinearLayout>
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/recordingDiscardButton"
-                    style="@style/Widget.MaterialComponents.Button.TextButton"
-                    android:layout_width="match_parent"
-                    android:layout_height="44dp"
-                    android:layout_marginTop="18dp"
-                    android:text="@string/discard_recording"
-                    android:textAllCaps="false"
-                    android:textColor="@color/warning"
-                    android:visibility="gone" />
             </LinearLayout>
+
+            <de.wandern.app.ui.DrawerContentScrollView
+                android:id="@+id/recordingExpandedGroup"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:fillViewport="false"
+                android:overScrollMode="never">
+
+                <LinearLayout
+                    android:id="@+id/recordingScrollableContent"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:paddingBottom="14dp">
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:layout_marginStart="14dp"
+                        android:layout_marginEnd="14dp"
+                        android:background="@color/moss_300" />
+
+                    <de.wandern.app.ui.RecordingCarouselView
+                        android:id="@+id/recordingInfoCarousel"
+                        android:layout_width="match_parent"
+                        android:layout_height="220dp"
+                        android:fillViewport="true"
+                        android:overScrollMode="never"
+                        android:scrollbars="none">
+
+                        <LinearLayout
+                            android:id="@+id/recordingCarouselPages"
+                            android:layout_width="wrap_content"
+                            android:layout_height="match_parent"
+                            android:orientation="horizontal">
+
+                            <LinearLayout
+                                android:id="@+id/recordingElevationGroup"
+                                android:layout_width="match_parent"
+                                android:layout_height="match_parent"
+                                android:orientation="vertical"
+                                android:paddingStart="14dp"
+                                android:paddingTop="12dp"
+                                android:paddingEnd="14dp">
+
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="@string/elevation_profile"
+                                    android:textColor="@color/forest_900"
+                                    android:textSize="13sp"
+                                    android:textStyle="bold" />
+
+                                <de.wandern.app.ui.ProfileChartView
+                                    android:id="@+id/recordingElevationChart"
+                                    android:layout_width="match_parent"
+                                    android:layout_height="0dp"
+                                    android:layout_marginTop="2dp"
+                                    android:layout_weight="1" />
+                            </LinearLayout>
+
+                            <LinearLayout
+                                android:id="@+id/recordingPerformancePage"
+                                android:layout_width="match_parent"
+                                android:layout_height="match_parent"
+                                android:orientation="vertical"
+                                android:paddingStart="14dp"
+                                android:paddingTop="14dp"
+                                android:paddingEnd="14dp">
+
+                                <LinearLayout style="@style/RecordingCarouselRow">
+                                    <LinearLayout style="@style/RecordingDetailCell">
+                                        <TextView android:id="@+id/recordingAverageSpeedText" style="@style/RecordingDetailValue" android:text="@string/not_available" />
+                                        <TextView style="@style/RecordingDetailLabel" android:text="@string/average_speed_short" />
+                                    </LinearLayout>
+                                    <LinearLayout style="@style/RecordingDetailCell">
+                                        <TextView android:id="@+id/recordingAveragePaceText" style="@style/RecordingDetailValue" android:text="@string/not_available" />
+                                        <TextView style="@style/RecordingDetailLabel" android:text="@string/average_pace" />
+                                    </LinearLayout>
+                                </LinearLayout>
+
+                                <LinearLayout style="@style/RecordingCarouselRow">
+                                    <LinearLayout style="@style/RecordingDetailCell">
+                                        <TextView android:id="@+id/recordingTotalTimeText" style="@style/RecordingDetailValue" android:text="@string/duration_empty" />
+                                        <TextView style="@style/RecordingDetailLabel" android:text="@string/total_time" />
+                                    </LinearLayout>
+                                    <LinearLayout style="@style/RecordingDetailCell">
+                                        <TextView android:id="@+id/recordingDescentText" style="@style/RecordingDetailValue" android:text="@string/descent_empty" />
+                                        <TextView style="@style/RecordingDetailLabel" android:text="@string/descent" />
+                                    </LinearLayout>
+                                </LinearLayout>
+
+                                <LinearLayout style="@style/RecordingCarouselRow">
+                                    <LinearLayout style="@style/RecordingDetailCell">
+                                        <TextView android:id="@+id/recordingSlopeText" style="@style/RecordingDetailValue" android:text="@string/not_available" />
+                                        <TextView style="@style/RecordingDetailLabel" android:text="@string/slope_label" />
+                                    </LinearLayout>
+                                    <LinearLayout style="@style/RecordingDetailCell">
+                                        <TextView android:id="@+id/recordingGpsText" style="@style/RecordingDetailValue" android:text="@string/not_available" />
+                                        <TextView style="@style/RecordingDetailLabel" android:text="@string/gps_label" />
+                                    </LinearLayout>
+                                </LinearLayout>
+
+                                <LinearLayout
+                                    android:id="@+id/recordingRouteProgressGroup"
+                                    style="@style/RecordingCarouselRow"
+                                    android:visibility="gone">
+                                    <LinearLayout style="@style/RecordingDetailCell">
+                                        <TextView android:id="@+id/recordingRouteProgressText" style="@style/RecordingDetailValue" android:text="@string/route_progress_empty" />
+                                        <TextView style="@style/RecordingDetailLabel" android:text="@string/route_progress_label" />
+                                    </LinearLayout>
+                                    <LinearLayout style="@style/RecordingDetailCell">
+                                        <TextView android:id="@+id/recordingRemainingDistanceText" style="@style/RecordingDetailValue" android:text="@string/remaining_distance_empty" />
+                                        <TextView style="@style/RecordingDetailLabel" android:text="@string/remaining_distance_label" />
+                                    </LinearLayout>
+                                    <LinearLayout style="@style/RecordingDetailCell">
+                                        <TextView android:id="@+id/recordingEtaText" style="@style/RecordingDetailValue" android:text="@string/not_available" />
+                                        <TextView style="@style/RecordingDetailLabel" android:text="@string/eta_label" />
+                                    </LinearLayout>
+                                </LinearLayout>
+                            </LinearLayout>
+                        </LinearLayout>
+                    </de.wandern.app.ui.RecordingCarouselView>
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="24dp"
+                        android:gravity="center"
+                        android:orientation="horizontal">
+
+                        <View
+                            android:id="@+id/recordingPageDotElevation"
+                            android:layout_width="8dp"
+                            android:layout_height="8dp"
+                            android:background="@drawable/carousel_dot_selected" />
+
+                        <View
+                            android:id="@+id/recordingPageDotStats"
+                            android:layout_width="8dp"
+                            android:layout_height="8dp"
+                            android:layout_marginStart="8dp"
+                            android:background="@drawable/carousel_dot_unselected" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:id="@+id/recordingAdvancedActions"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:paddingStart="14dp"
+                        android:paddingEnd="14dp"
+                        android:visibility="invisible">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp"
+                            android:text="@string/recording_more_actions"
+                            android:textColor="@color/forest_900"
+                            android:textSize="13sp"
+                            android:textStyle="bold" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/recordingRouteButton"
+                            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                            android:layout_width="match_parent"
+                            android:layout_height="48dp"
+                            android:layout_marginTop="10dp"
+                            android:text="@string/set_recording_destination"
+                            android:textAllCaps="false"
+                            app:cornerRadius="14dp"
+                            app:icon="@drawable/ic_route"
+                            app:iconGravity="textStart"
+                            app:strokeColor="@color/forest_700" />
+
+                        <LinearLayout
+                            android:id="@+id/recordingDetourActions"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="10dp"
+                            android:orientation="horizontal"
+                            android:visibility="gone">
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/recordingDetourButton"
+                                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                                android:layout_width="0dp"
+                                android:layout_height="48dp"
+                                android:layout_weight="1"
+                                android:text="@string/detour_action"
+                                android:textAllCaps="false"
+                                app:cornerRadius="14dp"
+                                app:icon="@drawable/ic_route"
+                                app:iconGravity="textStart"
+                                app:strokeColor="@color/forest_700" />
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/recordingUndoDetourButton"
+                                style="@style/Widget.MaterialComponents.Button.TextButton"
+                                android:layout_width="wrap_content"
+                                android:layout_height="48dp"
+                                android:layout_marginStart="6dp"
+                                android:text="@string/detour_undo"
+                                android:textAllCaps="false"
+                                android:visibility="gone" />
+                        </LinearLayout>
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/recordingDiscardButton"
+                            style="@style/Widget.MaterialComponents.Button.TextButton"
+                            android:layout_width="match_parent"
+                            android:layout_height="44dp"
+                            android:layout_marginTop="12dp"
+                            android:text="@string/discard_recording"
+                            android:textAllCaps="false"
+                            android:textColor="@color/warning"
+                            android:visibility="gone" />
+                    </LinearLayout>
+                </LinearLayout>
+            </de.wandern.app.ui.DrawerContentScrollView>
         </LinearLayout>
     </com.google.android.material.card.MaterialCardView>
 
@@ -508,4 +584,4 @@
                 app:strokeColor="@color/forest_700" />
         </LinearLayout>
     </com.google.android.material.card.MaterialCardView>
-</FrameLayout>
+</androidx.coordinatorlayout.widget.CoordinatorLayout>

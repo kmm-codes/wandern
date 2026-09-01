@@ -29,7 +29,6 @@ import android.text.format.Formatter
 import android.util.Log
 import android.view.View
 import android.view.WindowManager
-import android.widget.FrameLayout
 import android.widget.PopupMenu
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -39,9 +38,13 @@ import androidx.core.location.LocationManagerCompat
 import androidx.core.os.CancellationSignal
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.doOnPreDraw
+import androidx.core.view.updatePadding
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.bottomsheet.BottomSheetBehavior
+import de.wandern.app.BuildConfig
 import de.wandern.app.R
 import de.wandern.app.data.GpxCodec
 import de.wandern.app.data.ActivityPreferences
@@ -160,7 +163,11 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     private var latestCompassHeadingDegrees: Float? = null
     private var compassAccuracy = SensorManager.SENSOR_STATUS_UNRELIABLE
     private var visibleLocationUpdatesActive = false
-    private var recordingDetailsExpanded = false
+    private lateinit var recordingSheetBehavior: BottomSheetBehavior<com.google.android.material.card.MaterialCardView>
+    private var recordingDrawerState = BottomSheetBehavior.STATE_COLLAPSED
+    private var recordingDrawerInitializedForSession = false
+    private var debugSnapshotOverride = false
+    private var recordingSafeBottomInset = 0
     private var lastRenderedRecordingState = RecordingState.IDLE
     private var lastRenderedLiveTrack: GpxTrack? = null
     private var recordingElevationSource: GpxTrack? = null
@@ -250,7 +257,18 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         setContentView(binding.root)
         ViewCompat.setOnApplyWindowInsetsListener(binding.root) { view, insets ->
             val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            val navigationBars = insets.getInsets(WindowInsetsCompat.Type.navigationBars())
+            val tappable = insets.getInsets(WindowInsetsCompat.Type.tappableElement())
+            val safeBottom = maxOf(
+                systemBars.bottom,
+                navigationBars.bottom,
+                tappable.bottom,
+                navigationBarHeightFallback(),
+            )
             view.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom)
+            recordingSafeBottomInset = safeBottom
+            binding.recordingScrollableContent.updatePadding(bottom = dp(14) + recordingSafeBottomInset)
+            binding.recordingCard.post(::updateRecordingDrawerExtents)
             insets
         }
         trackStore = TrackStore(this)
@@ -272,9 +290,14 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             syncOverlayPositions()
         }
         binding.recordingCard.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            updateRecordingDrawerExtents()
             syncOverlayPositions()
         }
+        binding.recordingScrollableContent.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            updateRecordingDrawerExtents()
+        }
 
+        setupRecordingDrawer()
         setupMap()
         setupActions()
         observeTracking()
@@ -289,6 +312,10 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     }
 
     private fun handleIncomingIntent(intent: Intent?) {
+        if (BuildConfig.DEBUG && intent?.action == ACTION_DEBUG_SCENARIO) {
+            applyDebugScenario(intent.getStringExtra(EXTRA_DEBUG_SCENARIO).orEmpty())
+            return
+        }
         intent?.getStringExtra(EXTRA_TOUR_REFERENCE)?.let {
             initialRegionFramingComplete = true
             openStoredTour(
@@ -326,8 +353,130 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
                 installTrackLayers(style)
                 redrawTracks()
                 frameInitialRegionIfNeeded(displayedPosition())
+                if (debugSnapshotOverride) importedTrack?.let(::fitTrack)
             }
         }
+    }
+
+    private fun applyDebugScenario(rawScenario: String) {
+        val scenario = rawScenario.ifBlank { "route-medium" }.lowercase()
+        debugSnapshotOverride = true
+        recordingDrawerInitializedForSession = true
+        activeDetour = scenario.contains("detour")
+
+        val route = if (scenario.startsWith("free")) null else debugRoute()
+        val recordedTrack = debugRecordedTrack(route)
+        val latest = recordedTrack.points.lastOrNull()
+        val observed = if (scenario.contains("off-route") && latest != null) {
+            latest.copy(longitude = latest.longitude + 0.004, accuracyMeters = 12f)
+        } else {
+            latest
+        }
+        if (route == null) {
+            importedTrack = null
+            offlineMapIdentityTrack = null
+            importedTrackReference = null
+            routeProgressTracker = null
+            routeRejoinAdvisor = null
+            redrawTracks()
+        } else {
+            displayTrack(
+                track = route,
+                reference = null,
+                askForOfflineDownload = false,
+                announce = false,
+                frameTrack = true,
+            )
+        }
+        val paused = scenario.contains("paused")
+        val snapshot = TrackingSnapshot(
+            state = if (paused) RecordingState.PAUSED else RecordingState.RECORDING,
+            track = recordedTrack,
+            stats = TrackStats(
+                distanceMeters = if (route == null) 4_860.0 else 5_420.0,
+                durationMillis = 4_218_000L,
+                movingDurationMillis = 3_774_000L,
+                pauseDurationMillis = 444_000L,
+                pauseCount = 2,
+                ascentMeters = 286.0,
+                descentMeters = 174.0,
+                averageSpeedMetersPerSecond = 1.44,
+                paceSecondsPerKilometer = 694.0,
+                currentSlopePercent = 6.4,
+                pointCount = recordedTrack.points.size,
+            ),
+            latestPoint = latest,
+            latestObservedPoint = observed,
+            gpsGapActive = scenario.contains("gps-gap"),
+            autoPaused = scenario.contains("auto-pause"),
+            routeDeviationMeters = if (scenario.contains("off-route")) 92.0 else 8.0,
+            confirmedOffRoute = scenario.contains("off-route"),
+            activityType = ActivityType.HIKING,
+            capturedAtElapsedRealtimeMillis = SystemClock.elapsedRealtime(),
+            movementTimeRunning = !paused,
+        )
+        latestSnapshot = snapshot
+        renderSnapshot(snapshot)
+        binding.recordingInfoCarousel.showPage(
+            if (scenario.contains("stats")) RECORDING_PAGE_STATS else RECORDING_PAGE_ELEVATION,
+            animate = false,
+        )
+        val drawerState = when {
+            scenario.contains("expanded") -> BottomSheetBehavior.STATE_EXPANDED
+            scenario.contains("collapsed") -> BottomSheetBehavior.STATE_COLLAPSED
+            else -> BottomSheetBehavior.STATE_HALF_EXPANDED
+        }
+        binding.recordingCard.post {
+            updateRecordingDrawerExtents()
+            setRecordingDrawerState(drawerState)
+            importedTrack?.let(::fitTrack)
+        }
+        intent.removeExtra(EXTRA_DEBUG_SCENARIO)
+    }
+
+    private fun debugRoute(): GpxTrack {
+        val points = (0..120).map { index ->
+            val fraction = index / 120.0
+            TrackPoint(
+                latitude = 48.805 - fraction * 0.092 + kotlin.math.sin(fraction * Math.PI * 3.0) * 0.006,
+                longitude = 8.205 + fraction * 0.065 + kotlin.math.sin(fraction * Math.PI * 2.0) * 0.010,
+                elevationMeters = 132.0 + fraction * 470.0 + kotlin.math.sin(fraction * Math.PI * 5.0) * 55.0,
+            )
+        }
+        return GpxTrack(
+            name = "Debug · Schwarzwaldroute",
+            segments = listOf(points),
+            activityType = ActivityType.HIKING,
+        )
+    }
+
+    private fun debugRecordedTrack(route: GpxTrack?): GpxTrack {
+        val points = if (route != null) {
+            route.points.take(52)
+        } else {
+            (0..64).map { index ->
+                val fraction = index / 64.0
+                TrackPoint(
+                    latitude = 48.765 + fraction * 0.032 + kotlin.math.sin(fraction * Math.PI * 4.0) * 0.003,
+                    longitude = 8.245 + fraction * 0.025,
+                    elevationMeters = 155.0 + fraction * 220.0 + kotlin.math.sin(fraction * Math.PI * 3.0) * 38.0,
+                )
+            }
+        }
+        val now = System.currentTimeMillis()
+        return GpxTrack(
+            name = "Debug · laufende Aufzeichnung",
+            segments = listOf(
+                points.mapIndexed { index, point ->
+                    point.copy(
+                        timeMillis = now - (points.lastIndex - index) * 60_000L,
+                        accuracyMeters = 9f,
+                        speedMetersPerSecond = 1.5f,
+                    )
+                },
+            ),
+            activityType = ActivityType.HIKING,
+        )
     }
 
     private fun showMapPoi(coordinate: LatLng): Boolean {
@@ -433,8 +582,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             }
         }
         binding.recordingExpandButton.setOnClickListener {
-            recordingDetailsExpanded = !recordingDetailsExpanded
-            renderRecordingPanelState(latestSnapshot)
+            cycleRecordingDrawer()
         }
         binding.recordingPauseButton.setOnClickListener { toast(getString(R.string.pause_hold_hint)) }
         binding.recordingPauseButton.setOnLongClickListener {
@@ -448,6 +596,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         binding.recordingDiscardButton.setOnClickListener { confirmDiscardRecording() }
         binding.recordingRouteButton.setOnClickListener { openRecordingRouteEditor() }
         binding.recordingDetourButton.setOnClickListener { openDetourPlanner() }
+        binding.recordingDetourFab.setOnClickListener { openDetourPlanner() }
         binding.recordingUndoDetourButton.setOnClickListener { undoActiveDetour() }
         binding.moreButton.setOnClickListener { showMoreMenu() }
         binding.centerButton.setOnClickListener {
@@ -461,10 +610,137 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         renderMoreButtonVisibility()
     }
 
+    private fun setupRecordingDrawer() {
+        recordingSheetBehavior = BottomSheetBehavior.from(binding.recordingCard).apply {
+            isDraggable = true
+            isHideable = false
+            skipCollapsed = false
+            isFitToContents = false
+            expandedOffset = 0
+            state = BottomSheetBehavior.STATE_COLLAPSED
+            addBottomSheetCallback(object : BottomSheetBehavior.BottomSheetCallback() {
+                override fun onSlide(bottomSheet: View, slideOffset: Float) {
+                    syncOverlayPositions()
+                }
+
+                override fun onStateChanged(bottomSheet: View, newState: Int) {
+                    if (newState == BottomSheetBehavior.STATE_DRAGGING ||
+                        newState == BottomSheetBehavior.STATE_SETTLING
+                    ) return
+                    recordingDrawerState = newState
+                    renderRecordingDrawerChrome()
+                    scheduleOverlayPositionSync()
+                }
+            })
+        }
+        binding.recordingCollapsedContent.setOnClickListener {
+            cycleRecordingDrawer()
+        }
+        listOf(
+            binding.recordingExpandButton,
+            binding.recordingPauseButton,
+            binding.recordingResumeButton,
+            binding.recordingFinishButton,
+        ).forEach { control ->
+            control.setOnTouchListener { _, event ->
+                if (event.actionMasked == android.view.MotionEvent.ACTION_DOWN) {
+                    control.parent?.requestDisallowInterceptTouchEvent(true)
+                }
+                false
+            }
+        }
+        binding.recordingInfoCarousel.onPageChanged = ::renderRecordingCarouselPage
+        binding.recordingPageDotElevation.setOnClickListener {
+            binding.recordingInfoCarousel.showPage(RECORDING_PAGE_ELEVATION)
+        }
+        binding.recordingPageDotStats.setOnClickListener {
+            binding.recordingInfoCarousel.showPage(RECORDING_PAGE_STATS)
+        }
+        renderRecordingCarouselPage(RECORDING_PAGE_ELEVATION)
+    }
+
+    private fun cycleRecordingDrawer() {
+        val nextState = when (recordingDrawerState) {
+            BottomSheetBehavior.STATE_COLLAPSED -> BottomSheetBehavior.STATE_HALF_EXPANDED
+            BottomSheetBehavior.STATE_HALF_EXPANDED -> BottomSheetBehavior.STATE_EXPANDED
+            else -> BottomSheetBehavior.STATE_COLLAPSED
+        }
+        setRecordingDrawerState(nextState)
+    }
+
+    private fun setRecordingDrawerState(state: Int) {
+        if (!::recordingSheetBehavior.isInitialized) return
+        recordingDrawerState = state
+        recordingSheetBehavior.state = state
+        renderRecordingDrawerChrome()
+        scheduleOverlayPositionSync()
+    }
+
+    private fun updateRecordingDrawerExtents() {
+        if (!::recordingSheetBehavior.isInitialized || binding.recordingCard.height <= 0) return
+        val collapsedContentHeight = binding.recordingCollapsedContent.height.coerceAtLeast(dp(150))
+        // CoordinatorLayout clips at its padded system-bar edge, while BottomSheetBehavior
+        // calculates offsets against the full parent height. Compensate that clipped strip once.
+        val parentBottomPadding = binding.root.paddingBottom
+        val collapsedVisibleHeight = collapsedContentHeight + recordingSafeBottomInset + parentBottomPadding
+        if (recordingSheetBehavior.peekHeight != collapsedVisibleHeight) {
+            recordingSheetBehavior.peekHeight = collapsedVisibleHeight
+        }
+        val desiredHalfHeight = collapsedContentHeight + dp(285) +
+            recordingSafeBottomInset + parentBottomPadding
+        val parentHeight = (binding.recordingCard.parent as? View)?.height ?: return
+        val halfRatio = (desiredHalfHeight.toFloat() / parentHeight.toFloat()).coerceIn(0.42f, 0.72f)
+        if (kotlin.math.abs(recordingSheetBehavior.halfExpandedRatio - halfRatio) > 0.01f) {
+            recordingSheetBehavior.halfExpandedRatio = halfRatio
+        }
+        val naturalExpandedHeight = collapsedContentHeight +
+            binding.recordingScrollableContent.measuredHeight + parentBottomPadding
+        val contentSizedOffset = (parentHeight - naturalExpandedHeight).coerceAtLeast(dp(56))
+        if (recordingSheetBehavior.expandedOffset != contentSizedOffset) {
+            recordingSheetBehavior.expandedOffset = contentSizedOffset
+        }
+        updateRecordingScrollAvailability()
+        scheduleOverlayPositionSync()
+    }
+
+    private fun renderRecordingDrawerChrome() {
+        val expanded = recordingDrawerState == BottomSheetBehavior.STATE_EXPANDED
+        binding.recordingAdvancedActions.visibility = if (expanded) View.VISIBLE else View.INVISIBLE
+        binding.recordingExpandedGroup.contentScrollingEnabled = expanded
+        binding.recordingExpandButton.setIconResource(
+            if (expanded) R.drawable.ic_expand_more else R.drawable.ic_expand_less,
+        )
+        binding.recordingExpandButton.contentDescription = getString(
+            if (expanded) R.string.hide_recording_details else R.string.show_recording_details,
+        )
+        binding.recordingScrollableContent.post(::updateRecordingScrollAvailability)
+    }
+
+    private fun updateRecordingScrollAvailability() {
+        val expanded = recordingDrawerState == BottomSheetBehavior.STATE_EXPANDED
+        val availableExpandedHeight = (
+            (binding.recordingCard.parent as? View)?.height ?: binding.recordingCard.height
+        ) - recordingSheetBehavior.expandedOffset - binding.recordingCollapsedContent.height
+        val overflows = binding.recordingScrollableContent.measuredHeight > availableExpandedHeight
+        binding.recordingExpandedGroup.contentScrollingEnabled = expanded && overflows
+    }
+
+    private fun renderRecordingCarouselPage(page: Int) {
+        binding.recordingPageDotElevation.setBackgroundResource(
+            if (page == RECORDING_PAGE_ELEVATION) R.drawable.carousel_dot_selected
+            else R.drawable.carousel_dot_unselected,
+        )
+        binding.recordingPageDotStats.setBackgroundResource(
+            if (page == RECORDING_PAGE_STATS) R.drawable.carousel_dot_selected
+            else R.drawable.carousel_dot_unselected,
+        )
+    }
+
     private fun observeTracking() {
         lifecycleScope.launch {
             repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
                 TrackingService.snapshots.collect { snapshot ->
+                    if (debugSnapshotOverride) return@collect
                     latestSnapshot = snapshot
                     renderSnapshot(snapshot)
                     presentFinishedRecording(snapshot)
@@ -693,12 +969,17 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         val stateChanged = state != lastRenderedRecordingState
         if (stateChanged) {
             speedSmoother.reset()
-            when {
-                state == RecordingState.PAUSED -> recordingDetailsExpanded = true
-                state == RecordingState.RECORDING -> recordingDetailsExpanded = false
-                !recordingActive -> {
-                    recordingDetailsExpanded = false
+            if (recordingActive && !recordingDrawerInitializedForSession) {
+                recordingDrawerInitializedForSession = true
+                binding.recordingCard.post {
+                    setRecordingDrawerState(
+                        if (state == RecordingState.PAUSED) BottomSheetBehavior.STATE_HALF_EXPANDED
+                        else BottomSheetBehavior.STATE_COLLAPSED,
+                    )
                 }
+            } else if (!recordingActive) {
+                recordingDrawerInitializedForSession = false
+                recordingDrawerState = BottomSheetBehavior.STATE_COLLAPSED
             }
             lastRenderedRecordingState = state
         }
@@ -707,12 +988,12 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         binding.planningBar.visibility = if (recordingActive) View.GONE else View.VISIBLE
         binding.recordingCard.visibility = if (recordingActive) View.VISIBLE else View.GONE
         if (!recordingActive) {
+            binding.recordingDetourFab.visibility = View.GONE
             binding.root.post(::syncOverlayPositions)
             return
         }
 
         val paused = state == RecordingState.PAUSED
-        val detailsVisible = recordingDetailsExpanded || paused
         binding.recordingStatusText.text = recordingStateLabel(
             when {
                 paused -> R.string.recording_paused
@@ -737,7 +1018,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
                 if (paused) R.color.white else R.color.forest_900,
             ),
         )
-        binding.recordingExpandedGroup.visibility = if (detailsVisible) View.VISIBLE else View.GONE
+        binding.recordingExpandedGroup.visibility = View.VISIBLE
         binding.recordingPauseButton.visibility = if (paused) View.GONE else View.VISIBLE
         binding.recordingPausedActions.visibility = if (paused) View.VISIBLE else View.GONE
         binding.recordingDiscardButton.visibility = if (
@@ -748,6 +1029,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             View.GONE
         }
         val detourAvailable = importedTrack != null
+        binding.recordingDetourFab.visibility = if (detourAvailable) View.VISIBLE else View.GONE
         binding.recordingRouteButton.text = getString(
             if (importedTrack != null) R.string.edit_recording_route else R.string.set_recording_destination,
         )
@@ -757,13 +1039,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         } else {
             View.GONE
         }
-        binding.recordingExpandButton.visibility = if (paused) View.INVISIBLE else View.VISIBLE
-        binding.recordingExpandButton.setIconResource(
-            if (detailsVisible) R.drawable.ic_expand_more else R.drawable.ic_expand_less,
-        )
-        binding.recordingExpandButton.contentDescription = getString(
-            if (detailsVisible) R.string.hide_recording_details else R.string.show_recording_details,
-        )
+        binding.recordingExpandButton.visibility = View.VISIBLE
+        renderRecordingDrawerChrome()
         binding.root.post(::syncOverlayPositions)
     }
 
@@ -909,14 +1186,20 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         val recordingActive = latestSnapshot.state == RecordingState.RECORDING ||
             latestSnapshot.state == RecordingState.PAUSED
         val bottomOverlay = if (recordingActive) binding.recordingCard else binding.actionsCard
-        val centerParams = binding.centerButton.layoutParams as FrameLayout.LayoutParams
-        val centerBottomMargin = bottomOverlay.height + (38 * resources.displayMetrics.density).roundToInt()
-        if (centerParams.bottomMargin != centerBottomMargin) {
-            centerParams.bottomMargin = centerBottomMargin
-            binding.centerButton.layoutParams = centerParams
+        val overlayTop = bottomOverlay.y.roundToInt()
+        if (binding.root.height > 0 && overlayTop > 0 && binding.centerButton.height > 0) {
+            val minimumTop = binding.root.paddingTop + dp(12)
+            val centerTop = (overlayTop - binding.centerButton.height - dp(16))
+                .coerceAtLeast(minimumTop)
+            binding.centerButton.y = centerTop.toFloat()
+            if (binding.recordingDetourFab.height > 0) {
+                binding.recordingDetourFab.y = (
+                    centerTop - binding.recordingDetourFab.height - dp(8)
+                ).coerceAtLeast(minimumTop).toFloat()
+            }
         }
 
-        val layoutParams = binding.routeStatusText.layoutParams as FrameLayout.LayoutParams
+        val layoutParams = binding.routeStatusText.layoutParams as androidx.coordinatorlayout.widget.CoordinatorLayout.LayoutParams
         val density = resources.displayMetrics.density
         val topMargin = if (binding.planningBar.visibility == View.VISIBLE) {
             binding.planningBar.height + (20 * density).roundToInt()
@@ -927,6 +1210,15 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             layoutParams.topMargin = topMargin
             binding.routeStatusText.layoutParams = layoutParams
         }
+    }
+
+    private fun scheduleOverlayPositionSync() {
+        binding.root.doOnPreDraw { syncOverlayPositions() }
+    }
+
+    private fun navigationBarHeightFallback(): Int {
+        val resourceId = resources.getIdentifier("navigation_bar_height", "dimen", "android")
+        return if (resourceId != 0) resources.getDimensionPixelSize(resourceId) else 0
     }
 
     private fun importGpx(uri: Uri) {
@@ -1930,6 +2222,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     private fun formatSpeed(metersPerSecond: Double): String =
         String.format(displayLocale, "%.1f", metersPerSecond * 3.6)
 
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).roundToInt()
+
     private fun renderRouteProgress(point: TrackPoint?) {
         val route = importedTrack
         val tracker = routeProgressTracker
@@ -2193,6 +2487,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     companion object {
         const val EXTRA_TOUR_REFERENCE = "de.wandern.app.MAIN_TOUR_REFERENCE"
         const val EXTRA_OFFER_OFFLINE_MAP = "de.wandern.app.OFFER_OFFLINE_MAP"
+        const val ACTION_DEBUG_SCENARIO = "de.wandern.app.DEBUG_SCENARIO"
+        const val EXTRA_DEBUG_SCENARIO = "scenario"
         private const val MAP_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty"
         private const val LOG_TAG = "WandernImport"
         private const val RECORDING_TIME_TICK_MILLIS = 1_000L
@@ -2235,6 +2531,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         private const val MENU_FIT_ROUTE = 5
         private const val MENU_REVERSE_ROUTE = 6
         private const val EMPTY_FEATURE_COLLECTION = "{\"type\":\"FeatureCollection\",\"features\":[]}"
+        private const val RECORDING_PAGE_ELEVATION = 0
+        private const val RECORDING_PAGE_STATS = 1
     }
 
     private data class StartCheckLine(val text: String, val warning: Boolean)
