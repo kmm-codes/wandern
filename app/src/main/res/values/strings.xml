@@ -46,10 +46,10 @@
     <string name="compass_calibration_checking_message">Hold the phone still and level for a moment. Android often applies a new magnetometer calibration only after restarting the sensor.</string>
     <string name="compass_calibration_checking_button">Checking sensor…</string>
     <string name="compass_calibration_repeat_figure_eight">Repeat figure eight</string>
-    <string name="compass_calibration_live_preview">Live check: Turn while holding the phone. The blue arrow should follow the top edge of the phone.</string>
+    <string name="compass_calibration_live_preview">Live check: The map stays north-up. Turn while holding the phone flat: the blue arrow must visibly rotate on the map. Compare it with a known road or a landmark in front of you.</string>
     <string name="compass_calibration_step_complete">Done</string>
     <string name="compass_calibration_complete_title">Compass checked</string>
-    <string name="compass_calibration_complete_message">Android reports usable sensor accuracy again. Check the blue arrow on the map: it directly follows the top edge of the phone.</string>
+    <string name="compass_calibration_complete_message">Android reports usable sensor accuracy again. On the north-up map, check that the blue arrow points toward a known direction and moves when you turn.</string>
     <string name="compass_calibration_done">Back to map</string>
     <string name="open_gpx">Open GPX</string>
     <string name="record">Record</string>

@@ -225,12 +225,7 @@ class CompassCalibrationActivity : AppCompatActivity(), SensorEventListener, Loc
     override fun onLocationChanged(location: Location) {
         latestLocation = location
         renderMapPreviewPosition()
-        if (!mapCentered) {
-            mapCentered = true
-            map?.animateCamera(
-                CameraUpdateFactory.newLatLngZoom(LatLng(location.latitude, location.longitude), 17.0),
-            )
-        }
+        centerMapPreviewIfReady()
     }
 
     private fun isSensorQualityConfirmed(): Boolean {
@@ -318,6 +313,7 @@ class CompassCalibrationActivity : AppCompatActivity(), SensorEventListener, Loc
                 uiSettings.isCompassEnabled = false
                 uiSettings.isLogoEnabled = true
                 uiSettings.isAttributionEnabled = true
+                uiSettings.isRotateGesturesEnabled = false
             }
             readyMap.setStyle(Style.Builder().fromUri(MAP_STYLE_URL)) { style ->
                 MapStyleLocalizer.localize(style, AppLanguage.forContext(this))
@@ -330,6 +326,15 @@ class CompassCalibrationActivity : AppCompatActivity(), SensorEventListener, Loc
                         circleOpacity(0.18f),
                     ),
                 )
+                style.addLayer(
+                    CircleLayer(PREVIEW_POSITION_LAYER, PREVIEW_POSITION_SOURCE).withProperties(
+                        circleColor(Color.parseColor("#1677FF")),
+                        circleRadius(9f),
+                        circleStrokeColor(Color.WHITE),
+                        circleStrokeWidth(3f),
+                    ),
+                )
+                // Above the dot, the asymmetric arrow remains visible while it rotates.
                 style.addImage(PREVIEW_DIRECTION_ICON, createDirectionIcon())
                 style.addSource(GeoJsonSource(PREVIEW_DIRECTION_SOURCE, EMPTY_FEATURE_COLLECTION))
                 style.addLayer(
@@ -341,17 +346,23 @@ class CompassCalibrationActivity : AppCompatActivity(), SensorEventListener, Loc
                         iconIgnorePlacement(true),
                     ),
                 )
-                style.addLayer(
-                    CircleLayer(PREVIEW_POSITION_LAYER, PREVIEW_POSITION_SOURCE).withProperties(
-                        circleColor(Color.parseColor("#1677FF")),
-                        circleRadius(9f),
-                        circleStrokeColor(Color.WHITE),
-                        circleStrokeWidth(3f),
-                    ),
-                )
                 renderMapPreviewPosition()
+                centerMapPreviewIfReady()
             }
         }
+    }
+
+    private fun centerMapPreviewIfReady() {
+        if (mapCentered || mapStyle == null) return
+        val readyMap = map ?: return
+        val location = latestLocation ?: return
+        mapCentered = true
+        readyMap.animateCamera(
+            CameraUpdateFactory.newLatLngZoom(
+                LatLng(location.latitude, location.longitude),
+                PREVIEW_ZOOM,
+            ),
+        )
     }
 
     private fun renderMapPreviewPosition() {
@@ -370,15 +381,15 @@ class CompassCalibrationActivity : AppCompatActivity(), SensorEventListener, Loc
 
     private fun createDirectionIcon(): Bitmap {
         val density = resources.displayMetrics.density
-        val size = (42 * density).toInt()
+        val size = (52 * density).toInt()
         val center = size / 2f
         val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
         val arrow = Path().apply {
             moveTo(center, 1.5f * density)
-            lineTo(center + 8f * density, center + 6f * density)
-            lineTo(center, center + 2f * density)
-            lineTo(center - 8f * density, center + 6f * density)
+            lineTo(center + 10f * density, center + 8f * density)
+            lineTo(center, center + 3f * density)
+            lineTo(center - 10f * density, center + 8f * density)
             close()
         }
         val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -426,6 +437,7 @@ class CompassCalibrationActivity : AppCompatActivity(), SensorEventListener, Loc
     companion object {
         private const val SENSOR_RESTART_DELAY_MILLIS = 350L
         private const val MAX_HEADING_ACCURACY_DEGREES = 25f
+        private const val PREVIEW_ZOOM = 18.0
         private const val MAP_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty"
         private const val PREVIEW_POSITION_SOURCE = "compass-preview-position-source"
         private const val PREVIEW_POSITION_HALO_LAYER = "compass-preview-position-halo"
