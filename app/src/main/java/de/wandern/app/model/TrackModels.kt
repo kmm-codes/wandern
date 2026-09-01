@@ -172,6 +172,7 @@ data class TrackingSnapshot(
     val latestPoint: TrackPoint? = null,
     val latestObservedPoint: TrackPoint? = null,
     val savedTrackPath: String? = null,
+    val savedTourReference: String? = null,
     val errorMessage: String? = null,
     val gpsGapActive: Boolean = false,
     val autoPaused: Boolean = false,

@@ -332,6 +332,7 @@ class TrackingService : Service(), LocationListener {
             latestPoint = lastTrustedPoint ?: track.points.lastOrNull(),
             latestObservedPoint = lastObservedPoint,
             savedTrackPath = file.absolutePath,
+            savedTourReference = "recorded:$id",
             activityType = activityType,
             capturedAtElapsedRealtimeMillis = stoppedAtElapsedRealtime,
         )

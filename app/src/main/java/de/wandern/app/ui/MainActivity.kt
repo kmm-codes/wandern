@@ -466,9 +466,19 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
                 TrackingService.snapshots.collect { snapshot ->
                     latestSnapshot = snapshot
                     renderSnapshot(snapshot)
+                    presentFinishedRecording(snapshot)
                 }
             }
         }
+    }
+
+    private fun presentFinishedRecording(snapshot: TrackingSnapshot) {
+        if (snapshot.state != RecordingState.FINISHED) return
+        val reference = snapshot.savedTourReference ?: return
+        val preferences = getSharedPreferences(COMPLETION_PRESENTATION_PREFERENCES, MODE_PRIVATE)
+        if (preferences.getString(KEY_LAST_PRESENTED_RECORDING, null) == reference) return
+        preferences.edit().putString(KEY_LAST_PRESENTED_RECORDING, reference).apply()
+        openTourDetails(reference)
     }
 
     private fun restoreActiveRecording() {
@@ -2129,6 +2139,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         private const val MAP_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty"
         private const val LOG_TAG = "WandernImport"
         private const val RECORDING_TIME_TICK_MILLIS = 1_000L
+        private const val COMPLETION_PRESENTATION_PREFERENCES = "completion_presentation"
+        private const val KEY_LAST_PRESENTED_RECORDING = "last_presented_recording"
         private const val LEGACY_COMPASS_PREFERENCES = "compass_preferences"
         private const val LEGACY_COMPASS_OFFSET_KEY = "heading_offset_degrees"
         private const val ROUTE_SOURCE = "imported-route-source"
