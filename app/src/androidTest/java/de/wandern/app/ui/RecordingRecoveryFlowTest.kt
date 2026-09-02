@@ -77,6 +77,7 @@ class RecordingRecoveryFlowTest {
     fun openingAppSurfacesPausedRecordingWithoutStartingAnotherOne() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val store = TrackStore(context)
+        context.stopService(Intent(context, TrackingService::class.java))
         discardActiveSessions(store)
         val sessionId = store.createSession(activityType = ActivityType.E_BIKE)
         store.updateState(sessionId, RecordingState.PAUSED)
@@ -84,7 +85,9 @@ class RecordingRecoveryFlowTest {
         try {
             ActivityScenario.launch(MainActivity::class.java).use { scenario ->
                 waitUntil(scenario) { activity ->
-                    activity.findViewById<View>(R.id.recordingCard).visibility == View.VISIBLE
+                    activity.findViewById<TextView>(R.id.recordingStatusText).text.toString() ==
+                        "${activity.getString(R.string.recording_paused)} · " +
+                        activity.getString(ActivityType.E_BIKE.labelRes())
                 }
                 scenario.onActivity { activity ->
                     assertEquals(
