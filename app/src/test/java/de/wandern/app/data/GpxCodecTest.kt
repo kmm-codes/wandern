@@ -7,6 +7,8 @@ import de.wandern.app.model.TrackPoint
 import de.wandern.app.model.RouteAttributeSegment
 import de.wandern.app.model.RouteSurface
 import de.wandern.app.model.RouteWayType
+import de.wandern.app.model.NavigationManeuver
+import de.wandern.app.model.NavigationManeuverType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
@@ -139,6 +141,26 @@ class GpxCodecTest {
         val parsed = GpxCodec.parse(GpxCodec.encode(original).byteInputStream())
 
         assertEquals(original.routeAttributes, parsed.routeAttributes)
+    }
+
+    @Test
+    fun `round trip preserves navigation maneuvers`() {
+        val original = GpxTrack(
+            "Navigation",
+            listOf(listOf(TrackPoint(48.1, 11.5), TrackPoint(48.2, 11.6))),
+            navigationManeuvers = listOf(
+                NavigationManeuver(
+                    NavigationManeuverType.SLIGHT_RIGHT,
+                    TrackPoint(48.15, 11.55),
+                    420.5,
+                    38.0,
+                ),
+            ),
+        )
+
+        val parsed = GpxCodec.parse(GpxCodec.encode(original).byteInputStream())
+
+        assertEquals(original.navigationManeuvers, parsed.navigationManeuvers)
     }
 
     @Test

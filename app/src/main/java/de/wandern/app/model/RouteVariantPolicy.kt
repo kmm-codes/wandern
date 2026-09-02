@@ -7,6 +7,7 @@ object RouteVariantPolicy {
     fun reversed(route: GpxTrack): GpxTrack = route.copy(
         segments = route.segments.asReversed().map { segment -> segment.asReversed() },
         routeAttributes = route.routeAttributes.asReversed(),
+        navigationManeuvers = emptyList(),
     )
 
     fun isClosed(route: GpxTrack, maximumEndpointDistanceMeters: Double = 50.0): Boolean {
@@ -20,6 +21,7 @@ object RouteVariantPolicy {
         return route.copy(
             segments = listOf(outbound + outbound.dropLast(1).asReversed()),
             routeAttributes = route.routeAttributes + route.routeAttributes.asReversed(),
+            navigationManeuvers = emptyList(),
         )
     }
 
@@ -36,6 +38,7 @@ object RouteVariantPolicy {
             name = localizedSystemText("Loop", "Rundweg"),
             segments = listOf(outboundPoints + inboundPoints.drop(1)),
             routeAttributes = outbound.routeAttributes + inbound.routeAttributes,
+            navigationManeuvers = emptyList(),
         )
     }
 

@@ -7,6 +7,8 @@ import de.wandern.app.model.ElevationSource
 import de.wandern.app.model.RouteAttributeSegment
 import de.wandern.app.model.RouteSurface
 import de.wandern.app.model.RouteWayType
+import de.wandern.app.model.NavigationManeuver
+import de.wandern.app.model.NavigationManeuverType
 import de.wandern.app.model.TrackPoint
 import java.io.InputStream
 import java.time.Instant
@@ -84,7 +86,29 @@ object GpxCodec {
                 }
             }
         }
-        return GpxTrack(name, segments, elevationSource, activityType, routeAttributes)
+        val navigationManeuvers = document.getElementsByTagNameNS("*", "navigationManeuver").let { nodes ->
+            buildList {
+                for (index in 0 until nodes.length) {
+                    val attributes = nodes.item(index).attributes ?: continue
+                    val type = attributes.getNamedItem("type")?.nodeValue
+                        ?.let { runCatching { NavigationManeuverType.valueOf(it) }.getOrNull() }
+                        ?: continue
+                    val latitude = attributes.getNamedItem("latitude")?.nodeValue?.toDoubleOrNull()
+                        ?.takeIf { it in -90.0..90.0 }
+                        ?: continue
+                    val longitude = attributes.getNamedItem("longitude")?.nodeValue?.toDoubleOrNull()
+                        ?.takeIf { it in -180.0..180.0 }
+                        ?: continue
+                    val distance = attributes.getNamedItem("distanceMeters")?.nodeValue?.toDoubleOrNull()
+                        ?.takeIf { it.isFinite() && it >= 0.0 }
+                        ?: continue
+                    val angle = attributes.getNamedItem("turnAngleDegrees")?.nodeValue?.toDoubleOrNull()
+                        ?.takeIf(Double::isFinite)
+                    add(NavigationManeuver(type, TrackPoint(latitude, longitude), distance, angle))
+                }
+            }
+        }
+        return GpxTrack(name, segments, elevationSource, activityType, routeAttributes, navigationManeuvers)
     }
 
     fun encode(track: GpxTrack): String = buildString {
@@ -92,7 +116,10 @@ object GpxCodec {
         append("<gpx version=\"1.1\" creator=\"Wandern\" xmlns=\"http://www.topografix.com/GPX/1/1\" ")
         append("xmlns:wandern=\"https://wandern.local/gpx/1\">\n")
         append("  <metadata><name>").append(escape(track.name)).append("</name>")
-        if (track.elevationSource != null || track.activityType != null || track.routeAttributes.isNotEmpty()) {
+        if (
+            track.elevationSource != null || track.activityType != null ||
+            track.routeAttributes.isNotEmpty() || track.navigationManeuvers.isNotEmpty()
+        ) {
             append("<extensions>")
             track.elevationSource?.let { source ->
                 append("<wandern:elevationSource>")
@@ -114,6 +141,24 @@ object GpxCodec {
                         .append("\"/>")
                 }
                 append("</wandern:routeAttributes>")
+            }
+            if (track.navigationManeuvers.isNotEmpty()) {
+                append("<wandern:navigationManeuvers>")
+                track.navigationManeuvers.forEach { maneuver ->
+                    append("<wandern:navigationManeuver type=\"").append(maneuver.type.name)
+                        .append("\" latitude=\"").append(formatCoordinate(maneuver.point.latitude))
+                        .append("\" longitude=\"").append(formatCoordinate(maneuver.point.longitude))
+                        .append("\" distanceMeters=\"")
+                        .append("%.2f".format(java.util.Locale.US, maneuver.distanceAlongRouteMeters))
+                        .append("\"")
+                    maneuver.turnAngleDegrees?.let { angle ->
+                        append(" turnAngleDegrees=\"")
+                            .append("%.1f".format(java.util.Locale.US, angle))
+                            .append("\"")
+                    }
+                    append("/>")
+                }
+                append("</wandern:navigationManeuvers>")
             }
             append("</extensions>")
         }

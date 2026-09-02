@@ -22,12 +22,14 @@ data class GpxTrack(
     val elevationSource: ElevationSource? = null,
     val activityType: ActivityType? = null,
     val routeAttributes: List<RouteAttributeSegment> = emptyList(),
+    val navigationManeuvers: List<NavigationManeuver> = emptyList(),
 ) {
     val points: List<TrackPoint> get() = segments.flatten()
 
     fun reversed(): GpxTrack = copy(
         segments = segments.asReversed().map { it.asReversed() },
         routeAttributes = routeAttributes.asReversed(),
+        navigationManeuvers = emptyList(),
     )
 
     companion object {
@@ -181,4 +183,5 @@ data class TrackingSnapshot(
     val activityType: ActivityType? = null,
     val capturedAtElapsedRealtimeMillis: Long = 0L,
     val movementTimeRunning: Boolean = false,
+    val navigationGuidance: NavigationGuidance? = null,
 )

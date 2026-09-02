@@ -5,6 +5,7 @@ import de.wandern.app.model.ActivityType
 import de.wandern.app.model.GpxTrack
 import de.wandern.app.model.RouteAttributeClassifier
 import de.wandern.app.model.RouteAttributeSegment
+import de.wandern.app.model.NavigationManeuverGenerator
 import de.wandern.app.model.TrackPoint
 import org.json.JSONArray
 import org.json.JSONObject
@@ -137,12 +138,12 @@ class OnlineRoutingClient(
                     ),
                 )
             }
-            return GpxTrack(
+            return NavigationManeuverGenerator.withGeneratedManeuvers(GpxTrack(
                 name = routeName,
                 segments = segments,
                 activityType = activityType,
                 routeAttributes = parseRouteAttributes(features),
-            )
+            ))
         }
 
         private fun parseRouteAttributes(features: JSONArray): List<RouteAttributeSegment> {
