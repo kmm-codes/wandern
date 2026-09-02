@@ -57,7 +57,10 @@ object NavigationSimulation {
         val departureDistance = route.navigationManeuvers
             .asSequence()
             .map(NavigationManeuver::distanceAlongRouteMeters)
-            .firstOrNull { it >= from + MIN_NEXT_TURN_DISTANCE_METERS }
+            .firstOrNull {
+                it >= from + MIN_NEXT_TURN_DISTANCE_METERS &&
+                    it <= from + MAX_NEXT_TURN_AHEAD_METERS
+            }
             ?.coerceAtMost(path.totalDistanceMeters)
             ?: (from + DEFAULT_DEPARTURE_AHEAD_METERS).coerceAtMost(path.totalDistanceMeters)
         val routePoints = spacedRoutePoints(path, from, departureDistance, stepMeters)
@@ -217,6 +220,7 @@ object NavigationSimulation {
     private const val DEFAULT_STEP_METERS = 10.0
     private const val DEFAULT_DEPARTURE_AHEAD_METERS = 100.0
     private const val MIN_NEXT_TURN_DISTANCE_METERS = 20.0
+    private const val MAX_NEXT_TURN_AHEAD_METERS = 250.0
     private const val HEADING_SAMPLE_METERS = 15.0
     private const val DEFAULT_ACCURACY_METERS = 6f
 }

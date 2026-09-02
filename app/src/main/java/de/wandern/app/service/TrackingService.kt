@@ -20,6 +20,7 @@ import android.speech.tts.TextToSpeech
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
+import de.wandern.app.BuildConfig
 import de.wandern.app.R
 import de.wandern.app.data.TrackStore
 import de.wandern.app.data.DetourSessionStore
@@ -89,6 +90,8 @@ class TrackingService : Service(), LocationListener {
     private var lastFullSnapshotElapsedRealtime = 0L
     private var lastNotificationElapsedRealtime = 0L
     private var bootEpochOffsetMillis = 0L
+    private var debugSimulationEnabled = false
+    private var debugElapsedRealtimeMillis: Long? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -107,6 +110,7 @@ class TrackingService : Service(), LocationListener {
                 intent.getStringExtra(EXTRA_ROUTE_NAME),
                 intent.getStringExtra(EXTRA_ROUTE_REFERENCE),
                 ActivityType.fromStoredValue(intent.getStringExtra(EXTRA_ACTIVITY_TYPE)),
+                BuildConfig.DEBUG && intent.getBooleanExtra(EXTRA_DEBUG_SIMULATION, false),
             )
             ACTION_RESTORE -> restoreAfterProcessRestart()
             ACTION_PAUSE -> pauseRecording()
@@ -114,6 +118,7 @@ class TrackingService : Service(), LocationListener {
             ACTION_STOP -> stopRecording()
             ACTION_DISCARD -> discardRecording()
             ACTION_UPDATE_NAVIGATION_ROUTE -> updateNavigationRoute()
+            ACTION_DEBUG_SIMULATE_LOCATIONS -> if (BuildConfig.DEBUG) simulateLocations(intent)
             else -> restoreAfterProcessRestart()
         }
         return START_STICKY
@@ -281,6 +286,7 @@ class TrackingService : Service(), LocationListener {
         routeName: String?,
         routeReference: String?,
         requestedActivityType: ActivityType,
+        debugSimulationRequested: Boolean = false,
     ) {
         if (sessionId != null) return
         trackStore.activeSession()?.let {
@@ -288,10 +294,12 @@ class TrackingService : Service(), LocationListener {
             return
         }
         activityType = requestedActivityType
+        debugSimulationEnabled = debugSimulationRequested
+        debugElapsedRealtimeMillis = null
         locationPipeline.setActivityType(activityType)
         locationPipeline.reset()
         sessionId = trackStore.createSession(routeName, routeReference, activityType)
-        recordingClock.start(SystemClock.elapsedRealtime())
+        recordingClock.start(currentElapsedRealtimeMillis())
         segmentIndex = 0
         lastAcceptedPoint = null
         lastAcceptedElapsedRealtimeMillis = null
@@ -304,12 +312,12 @@ class TrackingService : Service(), LocationListener {
         configureRoute(routeReference)
         startAsForeground()
         publishSnapshot(RecordingState.RECORDING)
-        requestLocationUpdates()
+        if (!debugSimulationEnabled) requestLocationUpdates()
     }
 
     private fun pauseRecording() {
         val id = sessionId ?: return
-        recordingClock.setMoving(false, SystemClock.elapsedRealtime())
+        recordingClock.setMoving(false, currentElapsedRealtimeMillis())
         removeLocationUpdates()
         gpsGapActive = false
         gpsQualityWarningMonitor.reset()
@@ -323,7 +331,7 @@ class TrackingService : Service(), LocationListener {
     private fun resumeRecording() {
         if (sessionId == null) return
         // Movement time resumes with the first reliable movement evidence, not merely the tap.
-        recordingClock.setMoving(false, SystemClock.elapsedRealtime())
+        recordingClock.setMoving(false, currentElapsedRealtimeMillis())
         startNewTrackSegment()
         locationPipeline.reset()
         gpsGapActive = false
@@ -333,7 +341,7 @@ class TrackingService : Service(), LocationListener {
         resetRouteDeviationState()
         publishSnapshot(RecordingState.RECORDING)
         startAsForeground()
-        requestLocationUpdates()
+        if (!debugSimulationEnabled) requestLocationUpdates()
         updateNotification()
     }
 
@@ -343,7 +351,7 @@ class TrackingService : Service(), LocationListener {
             return
         }
         removeLocationUpdates()
-        val stoppedAtElapsedRealtime = SystemClock.elapsedRealtime()
+        val stoppedAtElapsedRealtime = currentElapsedRealtimeMillis()
         recordingClock.setMoving(false, stoppedAtElapsedRealtime)
         val file = runCatching { trackStore.finishSession(id) }.getOrElse {
             publishError(getString(R.string.finish_tour_error, it.localizedMessage ?: getString(R.string.unknown_error)))
@@ -368,6 +376,8 @@ class TrackingService : Service(), LocationListener {
         locationPipeline.setActivityType(activityType)
         locationPipeline.reset()
         recordingClock.reset()
+        debugSimulationEnabled = false
+        debugElapsedRealtimeMillis = null
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
@@ -395,6 +405,8 @@ class TrackingService : Service(), LocationListener {
         autoPauseDetector.reset()
         locationPipeline.reset()
         recordingClock.reset()
+        debugSimulationEnabled = false
+        debugElapsedRealtimeMillis = null
         _snapshots.value = TrackingSnapshot()
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         stopSelf()
@@ -427,7 +439,7 @@ class TrackingService : Service(), LocationListener {
         autoPaused = false
         autoPauseDetector.reset()
         recordingClock.start(
-            nowElapsedRealtimeMillis = SystemClock.elapsedRealtime(),
+            nowElapsedRealtimeMillis = currentElapsedRealtimeMillis(),
             totalMillis = (System.currentTimeMillis() - active.startedAtMillis).coerceAtLeast(0L),
             movingMillis = restoredStats.movingDurationMillis,
             moving = false,
@@ -437,8 +449,52 @@ class TrackingService : Service(), LocationListener {
         publishSnapshot(active.state)
         if (active.state == RecordingState.RECORDING) {
             startAsForeground()
-            requestLocationUpdates()
+            if (!debugSimulationEnabled) requestLocationUpdates()
         }
+    }
+
+    private fun simulateLocations(intent: Intent) {
+        if (!debugSimulationEnabled || _snapshots.value.state != RecordingState.RECORDING) return
+        val latitudes = intent.getDoubleArrayExtra(EXTRA_DEBUG_LATITUDES) ?: return
+        val longitudes = intent.getDoubleArrayExtra(EXTRA_DEBUG_LONGITUDES) ?: return
+        val elevations = intent.getDoubleArrayExtra(EXTRA_DEBUG_ELEVATIONS) ?: return
+        val elapsedOffsets = intent.getLongArrayExtra(EXTRA_DEBUG_ELAPSED_MILLIS) ?: return
+        val speeds = intent.getFloatArrayExtra(EXTRA_DEBUG_SPEEDS) ?: return
+        val bearings = intent.getFloatArrayExtra(EXTRA_DEBUG_BEARINGS) ?: return
+        val count = listOf(
+            latitudes.size,
+            longitudes.size,
+            elevations.size,
+            elapsedOffsets.size,
+            speeds.size,
+            bearings.size,
+        ).minOrNull() ?: return
+        if (count == 0) return
+        val accuracy = intent.getFloatExtra(EXTRA_DEBUG_ACCURACY_METERS, 6f).coerceAtLeast(0.1f)
+        val baseElapsed = debugElapsedRealtimeMillis ?: SystemClock.elapsedRealtime()
+        for (index in 0 until count) {
+            val elapsed = baseElapsed + elapsedOffsets[index].coerceAtLeast(0L)
+            debugElapsedRealtimeMillis = elapsed
+            val point = TrackPoint(
+                latitude = latitudes[index],
+                longitude = longitudes[index],
+                elevationMeters = elevations[index].takeIf(Double::isFinite),
+                timeMillis = bootEpochOffsetMillis + elapsed,
+                accuracyMeters = accuracy,
+                speedMetersPerSecond = speeds[index].takeIf(Float::isFinite),
+                bearingDegrees = bearings[index].takeIf(Float::isFinite),
+            )
+            lastObservedPoint = point
+            val decision = locationPipeline.process(
+                LocationSample(
+                    point = point,
+                    elapsedRealtimeMillis = elapsed,
+                    source = LocationSampleSource.GPS,
+                ),
+            )
+            handleLocationDecision(decision, point)
+        }
+        updateNotification()
     }
 
     private fun requestLocationUpdates() {
@@ -471,7 +527,7 @@ class TrackingService : Service(), LocationListener {
     private fun publishSnapshot(state: RecordingState) {
         val id = sessionId ?: return
         val track = trackStore.loadTrack(id)
-        val capturedAt = SystemClock.elapsedRealtime()
+        val capturedAt = currentElapsedRealtimeMillis()
         _snapshots.value = TrackingSnapshot(
             state = state,
             track = track,
@@ -491,7 +547,7 @@ class TrackingService : Service(), LocationListener {
     }
 
     private fun publishRecordingUpdate(point: TrackPoint, liveTrack: GpxTrack) {
-        val now = SystemClock.elapsedRealtime()
+        val now = currentElapsedRealtimeMillis()
         if (now - lastFullSnapshotElapsedRealtime >= FULL_SNAPSHOT_INTERVAL_MILLIS) {
             publishSnapshot(RecordingState.RECORDING)
         } else {
@@ -500,7 +556,7 @@ class TrackingService : Service(), LocationListener {
     }
 
     private fun publishObservedLocation(point: TrackPoint) {
-        val capturedAt = SystemClock.elapsedRealtime()
+        val capturedAt = currentElapsedRealtimeMillis()
         _snapshots.value = _snapshots.value.copy(
             stats = withRecordingTimes(_snapshots.value.stats, capturedAt),
             latestObservedPoint = point,
@@ -519,7 +575,7 @@ class TrackingService : Service(), LocationListener {
         point: TrackPoint,
         track: GpxTrack = _snapshots.value.track,
     ) {
-        val capturedAt = SystemClock.elapsedRealtime()
+        val capturedAt = currentElapsedRealtimeMillis()
         _snapshots.value = _snapshots.value.copy(
             track = track,
             stats = withRecordingTimes(_snapshots.value.stats, capturedAt),
@@ -696,16 +752,16 @@ class TrackingService : Service(), LocationListener {
                 0
             },
         )
-        lastNotificationElapsedRealtime = SystemClock.elapsedRealtime()
+        lastNotificationElapsedRealtime = currentElapsedRealtimeMillis()
     }
 
     private fun updateNotification() {
         getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, buildNotification())
-        lastNotificationElapsedRealtime = SystemClock.elapsedRealtime()
+        lastNotificationElapsedRealtime = currentElapsedRealtimeMillis()
     }
 
     private fun updateNotificationIfDue() {
-        val now = SystemClock.elapsedRealtime()
+        val now = currentElapsedRealtimeMillis()
         if (now - lastNotificationElapsedRealtime >= NOTIFICATION_UPDATE_INTERVAL_MILLIS) {
             updateNotification()
         }
@@ -834,9 +890,18 @@ class TrackingService : Service(), LocationListener {
         const val ACTION_STOP = "de.wandern.app.action.STOP"
         const val ACTION_DISCARD = "de.wandern.app.action.DISCARD"
         const val ACTION_UPDATE_NAVIGATION_ROUTE = "de.wandern.app.action.UPDATE_NAVIGATION_ROUTE"
+        const val ACTION_DEBUG_SIMULATE_LOCATIONS = "de.wandern.app.action.DEBUG_SIMULATE_LOCATIONS"
         const val EXTRA_ROUTE_NAME = "de.wandern.app.extra.ROUTE_NAME"
         const val EXTRA_ROUTE_REFERENCE = "de.wandern.app.extra.ROUTE_REFERENCE"
         const val EXTRA_ACTIVITY_TYPE = "de.wandern.app.extra.ACTIVITY_TYPE"
+        const val EXTRA_DEBUG_SIMULATION = "de.wandern.app.extra.DEBUG_SIMULATION"
+        const val EXTRA_DEBUG_LATITUDES = "de.wandern.app.extra.DEBUG_LATITUDES"
+        const val EXTRA_DEBUG_LONGITUDES = "de.wandern.app.extra.DEBUG_LONGITUDES"
+        const val EXTRA_DEBUG_ELEVATIONS = "de.wandern.app.extra.DEBUG_ELEVATIONS"
+        const val EXTRA_DEBUG_ELAPSED_MILLIS = "de.wandern.app.extra.DEBUG_ELAPSED_MILLIS"
+        const val EXTRA_DEBUG_SPEEDS = "de.wandern.app.extra.DEBUG_SPEEDS"
+        const val EXTRA_DEBUG_BEARINGS = "de.wandern.app.extra.DEBUG_BEARINGS"
+        const val EXTRA_DEBUG_ACCURACY_METERS = "de.wandern.app.extra.DEBUG_ACCURACY_METERS"
 
         private const val CHANNEL_ID = "tracking"
         private const val NOTIFICATION_ID = 101
@@ -853,4 +918,7 @@ class TrackingService : Service(), LocationListener {
         private val _snapshots = MutableStateFlow(TrackingSnapshot())
         val snapshots: StateFlow<TrackingSnapshot> = _snapshots.asStateFlow()
     }
+
+    private fun currentElapsedRealtimeMillis(): Long =
+        debugElapsedRealtimeMillis ?: SystemClock.elapsedRealtime()
 }

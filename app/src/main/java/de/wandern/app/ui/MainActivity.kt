@@ -328,6 +328,23 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             applyDebugScenario(intent.getStringExtra(EXTRA_DEBUG_SCENARIO).orEmpty())
             return
         }
+        if (BuildConfig.DEBUG && intent?.getBooleanExtra(EXTRA_DEBUG_START_RECORDING, false) == true) {
+            ContextCompat.startForegroundService(
+                this,
+                Intent(this, TrackingService::class.java)
+                    .setAction(TrackingService.ACTION_START)
+                    .putExtra(TrackingService.EXTRA_ROUTE_NAME, intent.getStringExtra(EXTRA_DEBUG_ROUTE_NAME))
+                    .putExtra(TrackingService.EXTRA_ROUTE_REFERENCE, intent.getStringExtra(EXTRA_TOUR_REFERENCE))
+                    .putExtra(
+                        TrackingService.EXTRA_ACTIVITY_TYPE,
+                        intent.getStringExtra(EXTRA_DEBUG_ACTIVITY_TYPE),
+                    )
+                    .putExtra(TrackingService.EXTRA_DEBUG_SIMULATION, true),
+            )
+            intent.removeExtra(EXTRA_DEBUG_START_RECORDING)
+            intent.removeExtra(EXTRA_DEBUG_ROUTE_NAME)
+            intent.removeExtra(EXTRA_DEBUG_ACTIVITY_TYPE)
+        }
         intent?.getStringExtra(EXTRA_TOUR_REFERENCE)?.let {
             initialRegionFramingComplete = true
             openStoredTour(
@@ -2819,6 +2836,9 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         const val EXTRA_OFFER_OFFLINE_MAP = "de.wandern.app.OFFER_OFFLINE_MAP"
         const val ACTION_DEBUG_SCENARIO = "de.wandern.app.DEBUG_SCENARIO"
         const val EXTRA_DEBUG_SCENARIO = "scenario"
+        const val EXTRA_DEBUG_START_RECORDING = "de.wandern.app.DEBUG_START_RECORDING"
+        const val EXTRA_DEBUG_ROUTE_NAME = "de.wandern.app.DEBUG_ROUTE_NAME"
+        const val EXTRA_DEBUG_ACTIVITY_TYPE = "de.wandern.app.DEBUG_ACTIVITY_TYPE"
         private const val MAP_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty"
         private const val LOG_TAG = "WandernImport"
         private const val RECORDING_TIME_TICK_MILLIS = 1_000L

@@ -65,6 +65,30 @@ class NavigationSimulationTest {
         assertTrue(RoutePath(route).nearestDistanceAlongRoute(samples.last().point)!! >= 375.0)
     }
 
+    @Test
+    fun `deviation does not walk to a distant maneuver before leaving route`() {
+        val distantManeuverRoute = route.copy(
+            navigationManeuvers = listOf(
+                NavigationManeuver(
+                    type = NavigationManeuverType.ARRIVE,
+                    point = route.points.last(),
+                    distanceAlongRouteMeters = RoutePath(route).totalDistanceMeters,
+                ),
+            ),
+        )
+
+        val samples = NavigationSimulation.deviateAtNextTurn(
+            route = distantManeuverRoute,
+            fromDistanceMeters = 100.0,
+            direction = SimulationTurnDirection.RIGHT,
+            deviationDistanceMeters = 500.0,
+            speedKilometersPerHour = 5.0,
+        )
+
+        assertEquals(600.0, routeDistance(samples), 12.0)
+        assertTrue(samples.size < 70)
+    }
+
     private fun routeDistance(samples: List<SimulatedLocationSample>): Double = samples
         .map(SimulatedLocationSample::point)
         .zipWithNext()
