@@ -11,10 +11,12 @@ import android.content.pm.PackageManager
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
+import android.media.AudioAttributes
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
 import android.os.SystemClock
+import android.speech.tts.TextToSpeech
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
@@ -36,10 +38,16 @@ import de.wandern.app.model.LocationSample
 import de.wandern.app.model.LocationSampleDecision
 import de.wandern.app.model.LocationSamplePipeline
 import de.wandern.app.model.LocationSampleSource
+import de.wandern.app.model.NavigationAnnouncementStage
+import de.wandern.app.model.NavigationGuidance
+import de.wandern.app.model.NavigationGuidanceTracker
+import de.wandern.app.model.NavigationManeuverType
 import de.wandern.app.model.RecordingState
 import de.wandern.app.model.RecordingClock
 import de.wandern.app.model.RouteDeviationEvent
 import de.wandern.app.model.RouteDeviationMonitor
+import de.wandern.app.model.RouteEntryMode
+import de.wandern.app.model.RouteProgressTracker
 import de.wandern.app.model.TrackAnalyzer
 import de.wandern.app.model.TrackPoint
 import de.wandern.app.model.TrackStats
@@ -70,6 +78,12 @@ class TrackingService : Service(), LocationListener {
     private var routeDeviationMeters: Double? = null
     private var confirmedOffRoute = false
     private val routeDeviationMonitor = RouteDeviationMonitor()
+    private var navigationProgressTracker: RouteProgressTracker? = null
+    private var navigationGuidanceTracker: NavigationGuidanceTracker? = null
+    private var navigationGuidance: NavigationGuidance? = null
+    private var textToSpeech: TextToSpeech? = null
+    private var textToSpeechReady = false
+    private var pendingSpokenInstruction: String? = null
     private val recordingClock = RecordingClock()
     private var lastFullSnapshotElapsedRealtime = 0L
     private var lastNotificationElapsedRealtime = 0L
@@ -82,6 +96,7 @@ class TrackingService : Service(), LocationListener {
         detourStore = DetourSessionStore(this)
         recordingRouteStore = RecordingRouteStore(this)
         bootEpochOffsetMillis = System.currentTimeMillis() - SystemClock.elapsedRealtime()
+        initializeTextToSpeech()
         createNotificationChannel()
     }
 
@@ -155,6 +170,7 @@ class TrackingService : Service(), LocationListener {
         val point = sample.point
         lastTrustedPoint = point
         updateRouteDeviation(point)
+        updateNavigationGuidance(point)
 
         val autoPauseUpdate = autoPauseDetector.update(point, sample.elapsedRealtimeMillis)
         autoPaused = autoPauseUpdate.autoPaused
@@ -247,6 +263,10 @@ class TrackingService : Service(), LocationListener {
 
     override fun onDestroy() {
         removeLocationUpdates()
+        textToSpeech?.stop()
+        textToSpeech?.shutdown()
+        textToSpeech = null
+        textToSpeechReady = false
         super.onDestroy()
     }
 
@@ -458,6 +478,7 @@ class TrackingService : Service(), LocationListener {
             activityType = activityType,
             capturedAtElapsedRealtimeMillis = capturedAt,
             movementTimeRunning = recordingClock.isMoving,
+            navigationGuidance = navigationGuidance,
         )
         lastFullSnapshotElapsedRealtime = capturedAt
     }
@@ -483,6 +504,7 @@ class TrackingService : Service(), LocationListener {
             confirmedOffRoute = confirmedOffRoute,
             capturedAtElapsedRealtimeMillis = capturedAt,
             movementTimeRunning = recordingClock.isMoving,
+            navigationGuidance = navigationGuidance,
         )
     }
 
@@ -499,6 +521,7 @@ class TrackingService : Service(), LocationListener {
             confirmedOffRoute = confirmedOffRoute,
             capturedAtElapsedRealtimeMillis = capturedAt,
             movementTimeRunning = recordingClock.isMoving,
+            navigationGuidance = navigationGuidance,
         )
     }
 
@@ -526,6 +549,9 @@ class TrackingService : Service(), LocationListener {
         activeRoute = sessionId?.let { id ->
             detourStore.load(id)?.route ?: recordingRouteStore.load(id)?.route
         } ?: reference?.let { runCatching { trackStore.loadStoredTrack(it) }.getOrNull() }
+        navigationProgressTracker = activeRoute?.let { RouteProgressTracker(it, RouteEntryMode.NEAREST_POINT) }
+        navigationGuidanceTracker = activeRoute?.let(::NavigationGuidanceTracker)
+        navigationGuidance = null
         resetRouteDeviationState()
     }
 
@@ -541,6 +567,92 @@ class TrackingService : Service(), LocationListener {
         routeDeviationMeters = null
         confirmedOffRoute = false
         routeDeviationMonitor.reset()
+    }
+
+    private fun updateNavigationGuidance(point: TrackPoint) {
+        val progress = navigationProgressTracker?.update(point) ?: run {
+            navigationGuidance = null
+            return
+        }
+        val suppress = confirmedOffRoute ||
+            (routeDeviationMeters ?: Double.POSITIVE_INFINITY) > MAX_NAVIGATION_GUIDANCE_DEVIATION_METERS
+        val guidance = navigationGuidanceTracker?.update(progress.distanceAlongRouteMeters, suppress)
+        navigationGuidance = guidance
+        if (guidance?.announcement != null) {
+            speakNavigationGuidance(guidance)
+            updateNotification()
+        }
+    }
+
+    private fun initializeTextToSpeech() {
+        textToSpeech = TextToSpeech(applicationContext) { status ->
+            textToSpeechReady = status == TextToSpeech.SUCCESS
+            if (!textToSpeechReady) return@TextToSpeech
+            textToSpeech?.language = AppLanguage.forContext(this).locale
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                textToSpeech?.setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .build(),
+                )
+            }
+            pendingSpokenInstruction?.let { instruction ->
+                pendingSpokenInstruction = null
+                speak(instruction)
+            }
+        }
+    }
+
+    private fun speakNavigationGuidance(guidance: NavigationGuidance) {
+        val instruction = when (guidance.announcement) {
+            NavigationAnnouncementStage.APPROACH -> getString(
+                R.string.navigation_in_distance,
+                formatNavigationDistance(guidance.distanceMeters),
+                getString(navigationManeuverLabel(guidance.maneuver.type)),
+            )
+            NavigationAnnouncementStage.NOW -> getString(
+                R.string.navigation_now,
+                getString(navigationManeuverLabel(guidance.maneuver.type)),
+            )
+            NavigationAnnouncementStage.ARRIVED -> getString(R.string.navigation_arrived)
+            null -> return
+        }
+        if (textToSpeechReady) speak(instruction) else pendingSpokenInstruction = instruction
+    }
+
+    private fun speak(instruction: String) {
+        textToSpeech?.speak(
+            instruction,
+            TextToSpeech.QUEUE_FLUSH,
+            null,
+            "navigation-${SystemClock.elapsedRealtime()}",
+        )
+    }
+
+    private fun navigationManeuverLabel(type: NavigationManeuverType): Int = when (type) {
+        NavigationManeuverType.STRAIGHT -> R.string.navigation_straight
+        NavigationManeuverType.SLIGHT_LEFT -> R.string.navigation_slight_left
+        NavigationManeuverType.LEFT -> R.string.navigation_left
+        NavigationManeuverType.SHARP_LEFT -> R.string.navigation_sharp_left
+        NavigationManeuverType.SLIGHT_RIGHT -> R.string.navigation_slight_right
+        NavigationManeuverType.RIGHT -> R.string.navigation_right
+        NavigationManeuverType.SHARP_RIGHT -> R.string.navigation_sharp_right
+        NavigationManeuverType.U_TURN -> R.string.navigation_u_turn
+        NavigationManeuverType.ARRIVE -> R.string.navigation_destination
+    }
+
+    private fun formatNavigationDistance(distanceMeters: Double): String {
+        val rounded = when {
+            distanceMeters < 50.0 -> (distanceMeters / 5.0).toInt() * 5
+            distanceMeters < 1_000.0 -> (distanceMeters / 10.0).toInt() * 10
+            else -> null
+        }
+        return rounded?.let { getString(R.string.route_attribute_meters, it.coerceAtLeast(0)) }
+            ?: getString(
+                R.string.route_attribute_kilometers,
+                String.format(AppLanguage.forContext(this).locale, "%.1f", distanceMeters / 1_000.0),
+            )
     }
 
     private fun updateRouteDeviation(point: TrackPoint) {
@@ -613,11 +725,13 @@ class TrackingService : Service(), LocationListener {
             ascent,
             descent,
         )
+        val navigationText = navigationGuidance?.let(::formatNavigationGuidance)
+        val notificationText = navigationText ?: stateText
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(title)
-            .setContentText(stateText)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(stateText))
+            .setContentText(notificationText)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(notificationText))
             .setContentIntent(launchPendingIntent)
             .setOnlyAlertOnce(true)
             .setOngoing(true)
@@ -625,6 +739,24 @@ class TrackingService : Service(), LocationListener {
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .build()
+    }
+
+    private fun formatNavigationGuidance(guidance: NavigationGuidance): String = when {
+        guidance.maneuver.type == NavigationManeuverType.ARRIVE && guidance.distanceMeters <= 18.0 ->
+            getString(R.string.navigation_arrived)
+        guidance.maneuver.type == NavigationManeuverType.ARRIVE -> getString(
+            R.string.navigation_destination_in_distance,
+            formatNavigationDistance(guidance.distanceMeters),
+        )
+        guidance.distanceMeters <= 22.0 -> getString(
+            R.string.navigation_now,
+            getString(navigationManeuverLabel(guidance.maneuver.type)),
+        )
+        else -> getString(
+            R.string.navigation_in_distance,
+            formatNavigationDistance(guidance.distanceMeters),
+            getString(navigationManeuverLabel(guidance.maneuver.type)),
+        )
     }
 
     private fun formatNotificationDuration(millis: Long): String {
@@ -705,6 +837,7 @@ class TrackingService : Service(), LocationListener {
         private const val MAX_INTERPOLATED_GAP_MILLIS = 90_000L
         private const val FULL_SNAPSHOT_INTERVAL_MILLIS = 15_000L
         private const val NOTIFICATION_UPDATE_INTERVAL_MILLIS = 30_000L
+        private const val MAX_NAVIGATION_GUIDANCE_DEVIATION_METERS = 60.0
 
         private val _snapshots = MutableStateFlow(TrackingSnapshot())
         val snapshots: StateFlow<TrackingSnapshot> = _snapshots.asStateFlow()

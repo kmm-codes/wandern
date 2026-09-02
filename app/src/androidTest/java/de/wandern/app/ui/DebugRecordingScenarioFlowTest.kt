@@ -5,6 +5,7 @@ import android.content.Intent
 import android.graphics.Rect
 import android.os.SystemClock
 import android.view.View
+import android.widget.TextView
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.espresso.Espresso.onView
@@ -227,6 +228,36 @@ class DebugRecordingScenarioFlowTest {
                 assertEquals(
                     activity.getString(de.wandern.app.R.string.set_recording_destination),
                     routeButton.text.toString(),
+                )
+            }
+        }
+    }
+
+    @Test
+    fun navigationScenarioShowsTurnInstructionAboveMap() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val intent = Intent(context, MainActivity::class.java)
+            .setAction(MainActivity.ACTION_DEBUG_SCENARIO)
+            .putExtra(MainActivity.EXTRA_DEBUG_SCENARIO, "route-navigation-collapsed")
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+        ActivityScenario.launch<MainActivity>(intent).use { scenario ->
+            waitUntil(scenario) { activity ->
+                activity.findViewById<View>(de.wandern.app.R.id.navigationManeuverBanner).isShown
+            }
+            scenario.onActivity { activity ->
+                val banner = activity.findViewById<View>(de.wandern.app.R.id.navigationManeuverBanner)
+                val drawer = activity.findViewById<View>(de.wandern.app.R.id.recordingCard)
+                val text = activity.findViewById<TextView>(de.wandern.app.R.id.navigationManeuverText)
+                assertTrue(banner.isShown)
+                assertTrue(banner.bottom < drawer.top)
+                assertEquals(
+                    activity.getString(
+                        de.wandern.app.R.string.navigation_in_distance,
+                        "85 m",
+                        activity.getString(de.wandern.app.R.string.navigation_right),
+                    ),
+                    text.text.toString(),
                 )
             }
         }

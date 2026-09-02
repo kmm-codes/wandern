@@ -152,10 +152,13 @@ gesperrtem Bildschirm gibt es einen [einfachen Akku-Testplan](POWER_TEST_PLAN.md
 ## Navigation
 
 Die App folgt einer gespeicherten Route, zeigt den eigenen Standort und warnt
-bei Abweichungen. Ohne Internet zeigt sie zusätzlich die Richtung und
-Luftlinienentfernung zu einem sinnvollen Wiedereinstieg. Neue Routen werden
-aktuell online über BRouter berechnet. Abbiegeansagen und eine automatische
-Neuberechnung des begehbaren Rückwegs gehören noch nicht zum Funktionsumfang.
+bei Abweichungen. Während einer Aufzeichnung zeigt und spricht sie das nächste
+Manöver; die Hinweise werden mit der Tour gespeichert und für ältere oder
+importierte GPX-Dateien konservativ aus der Routengeometrie abgeleitet. Ohne
+Internet zeigt sie zusätzlich die Richtung und Luftlinienentfernung zu einem
+sinnvollen Wiedereinstieg. Neue Routen werden aktuell online über BRouter
+berechnet. Eine automatische Neuberechnung des begehbaren Rückwegs gehört noch
+nicht zum Funktionsumfang.
 
 ## Datenquellen
 

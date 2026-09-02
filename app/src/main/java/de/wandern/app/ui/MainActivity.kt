@@ -67,6 +67,9 @@ import de.wandern.app.model.GpsQuality
 import de.wandern.app.model.GpsQualityWarningMonitor
 import de.wandern.app.model.HeadingSmoother
 import de.wandern.app.model.HikingFitnessLevel
+import de.wandern.app.model.NavigationGuidance
+import de.wandern.app.model.NavigationManeuver
+import de.wandern.app.model.NavigationManeuverType
 import de.wandern.app.model.OfflineMapPlanner
 import de.wandern.app.model.RecordingState
 import de.wandern.app.model.RecordingRetentionPolicy
@@ -418,6 +421,19 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             activityType = ActivityType.HIKING,
             capturedAtElapsedRealtimeMillis = SystemClock.elapsedRealtime(),
             movementTimeRunning = !paused,
+            navigationGuidance = if (scenario.contains("navigation") && route != null) {
+                NavigationGuidance(
+                    maneuver = NavigationManeuver(
+                        type = NavigationManeuverType.RIGHT,
+                        point = route.points[60],
+                        distanceAlongRouteMeters = 0.0,
+                        turnAngleDegrees = 90.0,
+                    ),
+                    distanceMeters = 85.0,
+                )
+            } else {
+                null
+            },
         )
         latestSnapshot = snapshot
         renderSnapshot(snapshot)
@@ -1000,6 +1016,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         snapshot.errorMessage?.let { toast(it) }
         renderLocationStatus(observedPoint ?: latestLocatedPoint, snapshot.gpsGapActive)
         renderRouteProgress(snapshot.latestPoint ?: latestLocatedPoint)
+        renderNavigationGuidance(snapshot.navigationGuidance)
         renderRouteRejoinGuidance(snapshot.latestPoint ?: latestLocatedPoint)
         if (snapshot.track !== lastRenderedLiveTrack) {
             lastRenderedLiveTrack = snapshot.track
@@ -2408,6 +2425,59 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             direction,
         )
         binding.routeRejoinBanner.visibility = View.VISIBLE
+    }
+
+    private fun renderNavigationGuidance(guidance: NavigationGuidance?) {
+        val recordingActive = latestSnapshot.state == RecordingState.RECORDING ||
+            latestSnapshot.state == RecordingState.PAUSED
+        if (!recordingActive || latestSnapshot.confirmedOffRoute || guidance == null) {
+            binding.navigationManeuverBanner.visibility = View.GONE
+            binding.routeStatusText.translationY = 0f
+            return
+        }
+        binding.navigationManeuverArrow.rotation = navigationArrowRotation(guidance.maneuver.type)
+        binding.navigationManeuverText.text = when {
+            guidance.maneuver.type == NavigationManeuverType.ARRIVE && guidance.distanceMeters <= 18.0 ->
+                getString(R.string.navigation_arrived)
+            guidance.maneuver.type == NavigationManeuverType.ARRIVE -> getString(
+                R.string.navigation_destination_in_distance,
+                formatRemainingDistance(guidance.distanceMeters),
+            )
+            guidance.distanceMeters <= 22.0 -> getString(
+                R.string.navigation_now,
+                getString(navigationManeuverLabel(guidance.maneuver.type)),
+            )
+            else -> getString(
+                R.string.navigation_in_distance,
+                formatRemainingDistance(guidance.distanceMeters),
+                getString(navigationManeuverLabel(guidance.maneuver.type)),
+            )
+        }
+        binding.navigationManeuverBanner.visibility = View.VISIBLE
+        binding.routeStatusText.translationY = dp(68).toFloat()
+    }
+
+    private fun navigationManeuverLabel(type: NavigationManeuverType): Int = when (type) {
+        NavigationManeuverType.STRAIGHT -> R.string.navigation_straight
+        NavigationManeuverType.SLIGHT_LEFT -> R.string.navigation_slight_left
+        NavigationManeuverType.LEFT -> R.string.navigation_left
+        NavigationManeuverType.SHARP_LEFT -> R.string.navigation_sharp_left
+        NavigationManeuverType.SLIGHT_RIGHT -> R.string.navigation_slight_right
+        NavigationManeuverType.RIGHT -> R.string.navigation_right
+        NavigationManeuverType.SHARP_RIGHT -> R.string.navigation_sharp_right
+        NavigationManeuverType.U_TURN -> R.string.navigation_u_turn
+        NavigationManeuverType.ARRIVE -> R.string.navigation_destination
+    }
+
+    private fun navigationArrowRotation(type: NavigationManeuverType): Float = when (type) {
+        NavigationManeuverType.STRAIGHT, NavigationManeuverType.ARRIVE -> 0f
+        NavigationManeuverType.SLIGHT_RIGHT -> 40f
+        NavigationManeuverType.RIGHT -> 90f
+        NavigationManeuverType.SHARP_RIGHT -> 135f
+        NavigationManeuverType.U_TURN -> 180f
+        NavigationManeuverType.SHARP_LEFT -> -135f
+        NavigationManeuverType.LEFT -> -90f
+        NavigationManeuverType.SLIGHT_LEFT -> -40f
     }
 
     private fun rejoinDirectionLabel(relativeBearing: Double): Int {
