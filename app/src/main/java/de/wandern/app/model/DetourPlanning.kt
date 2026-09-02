@@ -27,6 +27,11 @@ data class DetourRouteCandidate(
         skippedRouteMeters > 1_500.0 || extraDistanceMeters > 1_500.0
 }
 
+enum class RouteAdjustmentKind {
+    DETOUR,
+    REJOIN,
+}
+
 class RoutePath(track: GpxTrack) {
     val points: List<TrackPoint> = track.points
     private val distances: List<Double>
@@ -178,6 +183,26 @@ object DetourPlanner {
             .distinct()
     }
 
+    fun rejoinDistances(
+        route: GpxTrack,
+        currentPosition: TrackPoint,
+        progressDistanceMeters: Double,
+    ): List<Double> {
+        val path = RoutePath(route)
+        val progress = progressDistanceMeters.coerceIn(0.0, path.totalDistanceMeters)
+        val advised = RouteRejoinAdvisor(route).advise(currentPosition, progress)?.distanceAlongRouteMeters
+            ?: path.nearestDistanceAlongRoute(
+                currentPosition,
+                minimumDistanceMeters = (progress - REJOIN_BACKWARD_TOLERANCE_METERS).coerceAtLeast(0.0),
+            )
+            ?: return emptyList()
+        val minimum = (progress - REJOIN_BACKWARD_TOLERANCE_METERS).coerceAtLeast(0.0)
+        return (REJOIN_ACCESS_OFFSETS_METERS.map { advised + it } + path.totalDistanceMeters)
+            .map { it.coerceIn(minimum, path.totalDistanceMeters) }
+            .distinctBy { (it / REJOIN_DISTANCE_DEDUPLICATION_METERS).toInt() }
+            .take(MAX_REJOIN_CANDIDATES)
+    }
+
     fun combine(
         route: GpxTrack,
         currentProgressMeters: Double,
@@ -213,6 +238,42 @@ object DetourPlanner {
         )
     }
 
+    fun combineRejoin(
+        route: GpxTrack,
+        currentProgressMeters: Double,
+        connector: GpxTrack,
+        rejoinDistanceMeters: Double,
+    ): DetourRouteCandidate {
+        val path = RoutePath(route)
+        val progress = currentProgressMeters.coerceIn(0.0, path.totalDistanceMeters)
+        val rejoin = rejoinDistanceMeters.coerceIn(
+            (progress - REJOIN_BACKWARD_TOLERANCE_METERS).coerceAtLeast(0.0),
+            path.totalDistanceMeters,
+        )
+        val connectorSegments = connector.segments
+            .map { it.distinctAdjacent() }
+            .filter { it.size >= 2 }
+        val tail = path.slice(rejoin, path.totalDistanceMeters).distinctAdjacent()
+        val combined = GpxTrack(
+            name = route.name,
+            segments = buildList {
+                addAll(connectorSegments)
+                if (tail.size >= 2) add(tail)
+            },
+            activityType = route.activityType,
+        )
+        val originalRemaining = (path.totalDistanceMeters - progress).coerceAtLeast(0.0)
+        return DetourRouteCandidate(
+            track = combined,
+            detourTrack = connector.copy(segments = connectorSegments),
+            departureDistanceMeters = progress,
+            rejoinDistanceMeters = rejoin,
+            skippedRouteMeters = (rejoin - progress).coerceAtLeast(0.0),
+            extraDistanceMeters = TrackAnalyzer.calculate(combined).distanceMeters - originalRemaining,
+            directToDestination = rejoin >= path.totalDistanceMeters - 1.0,
+        )
+    }
+
     fun originalRouteOutsideDetour(
         route: GpxTrack,
         departureDistanceMeters: Double,
@@ -243,4 +304,8 @@ object DetourPlanner {
     private const val NO_GO_SAMPLE_SPACING_METERS = 35.0
     private const val MAX_NO_GO_POINTS = 60
     private val REJOIN_OFFSETS_METERS = listOf(100.0, 250.0, 500.0, 1_000.0, 2_000.0, 3_500.0)
+    private val REJOIN_ACCESS_OFFSETS_METERS = listOf(0.0, 200.0, 500.0)
+    private const val REJOIN_BACKWARD_TOLERANCE_METERS = 25.0
+    private const val REJOIN_DISTANCE_DEDUPLICATION_METERS = 40.0
+    private const val MAX_REJOIN_CANDIDATES = 3
 }

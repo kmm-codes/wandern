@@ -28,6 +28,8 @@ import de.wandern.app.model.DetourRouteCandidate
 import de.wandern.app.model.GeoMath
 import de.wandern.app.model.GpxTrack
 import de.wandern.app.model.RoutePath
+import de.wandern.app.model.RouteAdjustmentKind
+import de.wandern.app.model.TrackAnalyzer
 import de.wandern.app.model.TrackPoint
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -80,6 +82,7 @@ class DetourPlannerActivity : AppCompatActivity() {
     private var candidates: List<DetourRouteCandidate> = emptyList()
     private var selectedCandidateIndex = 0
     private var routing = false
+    private var plannerMode = PlannerMode.DETOUR
 
     private val selectedCandidate: DetourRouteCandidate?
         get() = candidates.getOrNull(selectedCandidateIndex)
@@ -102,12 +105,23 @@ class DetourPlannerActivity : AppCompatActivity() {
             finish()
             return
         }
+        configurePlannerMode()
         setupActions()
         setupMap()
-        updateCorridor()
+        if (plannerMode == PlannerMode.REJOIN) {
+            prepareRejoinPlanner()
+            binding.root.post(::calculateRejoin)
+        } else {
+            updateCorridor()
+        }
     }
 
     private fun loadInputs(): Boolean {
+        plannerMode = if (intent.getStringExtra(EXTRA_MODE) == MODE_REJOIN) {
+            PlannerMode.REJOIN
+        } else {
+            PlannerMode.DETOUR
+        }
         sessionId = intent.getLongExtra(EXTRA_SESSION_ID, -1L)
         val session = trackStore.activeSession()?.takeIf { it.id == sessionId } ?: return false
         val existingDetour = detourStore.load(sessionId)
@@ -131,9 +145,22 @@ class DetourPlannerActivity : AppCompatActivity() {
         return true
     }
 
+    private fun configurePlannerMode() {
+        if (plannerMode != PlannerMode.REJOIN) return
+        binding.toolbar.setTitle(R.string.route_rejoin_title)
+        binding.plannerTitleText.setText(R.string.route_rejoin_title)
+        binding.instructionText.setText(R.string.route_rejoin_instruction)
+        binding.corridorLengthText.visibility = View.GONE
+        binding.corridorLengthSlider.visibility = View.GONE
+        binding.findDetourButton.setText(R.string.route_rejoin_find)
+        binding.useDetourButton.setText(R.string.route_rejoin_use)
+    }
+
     private fun setupActions() {
         binding.toolbar.setNavigationOnClickListener { finish() }
-        binding.findDetourButton.setOnClickListener { calculateDetour() }
+        binding.findDetourButton.setOnClickListener {
+            if (plannerMode == PlannerMode.REJOIN) calculateRejoin() else calculateDetour()
+        }
         binding.useDetourButton.setOnClickListener { selectedCandidate?.let(::confirmAndUse) }
         binding.previousDetourButton.setOnClickListener { selectCandidate(-1) }
         binding.nextDetourButton.setOnClickListener { selectCandidate(1) }
@@ -159,7 +186,7 @@ class DetourPlannerActivity : AppCompatActivity() {
                 uiSettings.isCompassEnabled = true
                 uiSettings.isAttributionEnabled = true
                 uiSettings.isLogoEnabled = true
-                addOnMapClickListener(::setCorridorEndFromMap)
+                if (plannerMode == PlannerMode.DETOUR) addOnMapClickListener(::setCorridorEndFromMap)
             }
             readyMap.setStyle(Style.Builder().fromUri(MAP_STYLE_URL)) { style ->
                 MapStyleLocalizer.localize(style, AppLanguage.forContext(this))
@@ -173,7 +200,16 @@ class DetourPlannerActivity : AppCompatActivity() {
                 updateLineSource(ROUTE_SOURCE, route)
                 updatePointSource(POSITION_SOURCE, currentPosition)
                 updateCorridorSource()
-                frameCorridor()
+                if (plannerMode == PlannerMode.DETOUR) {
+                    frameCorridor()
+                } else {
+                    readyMap.animateCamera(
+                        CameraUpdateFactory.newLatLngZoom(
+                            LatLng(currentPosition.latitude, currentPosition.longitude),
+                            14.5,
+                        ),
+                    )
+                }
             }
         }
     }
@@ -231,6 +267,17 @@ class DetourPlannerActivity : AppCompatActivity() {
         updateCorridorSource()
     }
 
+    private fun prepareRejoinPlanner() {
+        corridor = null
+        candidates = emptyList()
+        selectedCandidateIndex = 0
+        binding.useDetourButton.isEnabled = false
+        binding.resultText.visibility = View.GONE
+        binding.detourAlternativeSelector.visibility = View.GONE
+        updateLineSource(PREVIEW_SOURCE, null)
+        updateCorridorSource()
+    }
+
     private fun setCorridorEndFromMap(position: LatLng): Boolean {
         if (routing) return true
         val existing = corridor ?: return true
@@ -280,6 +327,66 @@ class DetourPlannerActivity : AppCompatActivity() {
                 binding.instructionText.setText(R.string.detour_corridor_instruction)
                 updateLineSource(PREVIEW_SOURCE, null)
             }
+        }
+    }
+
+    private fun calculateRejoin() {
+        if (routing) return
+        if (!hasInternetConnection()) {
+            toast(getString(R.string.detour_needs_internet))
+            return
+        }
+        routing = true
+        candidates = emptyList()
+        selectedCandidateIndex = 0
+        binding.findDetourButton.isEnabled = false
+        binding.useDetourButton.isEnabled = false
+        binding.routingProgress.visibility = View.VISIBLE
+        binding.instructionText.setText(R.string.route_rejoin_calculating)
+        lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) { findRejoinCandidates() }
+            routing = false
+            binding.findDetourButton.isEnabled = true
+            binding.routingProgress.visibility = View.GONE
+            result.onSuccess { found ->
+                candidates = found
+                selectedCandidateIndex = 0
+                binding.instructionText.setText(R.string.route_rejoin_instruction)
+                renderSelectedCandidate(frame = true)
+            }.onFailure {
+                binding.resultText.visibility = View.VISIBLE
+                binding.resultText.setText(R.string.route_rejoin_no_route)
+                binding.instructionText.setText(R.string.route_rejoin_instruction)
+                updateLineSource(PREVIEW_SOURCE, null)
+            }
+        }
+    }
+
+    private fun findRejoinCandidates(): Result<List<DetourRouteCandidate>> = runCatching {
+        val activityType = route.activityType ?: ActivityType.HIKING
+        var lastError: Throwable? = null
+        val found = mutableListOf<DetourRouteCandidate>()
+        DetourPlanner.rejoinDistances(route, currentPosition, currentProgressMeters).forEach { rejoinDistance ->
+            val rejoinPoint = routePath.pointAt(rejoinDistance)
+            runCatching {
+                routingClient.calculate(
+                    waypoints = listOf(currentPosition, rejoinPoint),
+                    activityType = activityType,
+                    routeName = getString(R.string.route_rejoin_title),
+                )
+            }.onSuccess { connector ->
+                found += DetourPlanner.combineRejoin(
+                    route = route,
+                    currentProgressMeters = currentProgressMeters,
+                    connector = connector,
+                    rejoinDistanceMeters = rejoinDistance,
+                )
+            }.onFailure { lastError = it }
+        }
+        if (found.isEmpty()) throw lastError ?: IllegalStateException(getString(R.string.route_rejoin_no_route))
+        found.sortedBy { candidate ->
+            TrackAnalyzer.calculate(candidate.detourTrack).distanceMeters +
+                candidate.skippedRouteMeters * REJOIN_SKIP_PENALTY
         }
     }
 
@@ -342,7 +449,11 @@ class DetourPlannerActivity : AppCompatActivity() {
         binding.resultText.text = describe(found)
         binding.detourAlternativeSelector.visibility = if (candidates.size > 1) View.VISIBLE else View.GONE
         binding.detourAlternativeLabel.text = getString(
-            R.string.detour_alternative_label,
+            if (plannerMode == PlannerMode.REJOIN) {
+                R.string.route_rejoin_alternative_label
+            } else {
+                R.string.detour_alternative_label
+            },
             selectedCandidateIndex + 1,
             candidates.size,
         )
@@ -351,6 +462,18 @@ class DetourPlannerActivity : AppCompatActivity() {
     }
 
     private fun describe(found: DetourRouteCandidate): String {
+        if (plannerMode == PlannerMode.REJOIN) {
+            val connectorDistance = formatDistance(TrackAnalyzer.calculate(found.detourTrack).distanceMeters)
+            return if (found.directToDestination) {
+                getString(R.string.route_rejoin_direct_result, connectorDistance)
+            } else {
+                getString(
+                    R.string.route_rejoin_result,
+                    connectorDistance,
+                    String.format(displayLocale, "%.1f", found.rejoinDistanceMeters / 1_000.0),
+                )
+            }
+        }
         val change = formatDistance(found.extraDistanceMeters.absoluteValue)
         if (found.directToDestination) {
             return getString(R.string.detour_direct_result, signedDistance(found.extraDistanceMeters))
@@ -368,10 +491,28 @@ class DetourPlannerActivity : AppCompatActivity() {
     private fun confirmAndUse(found: DetourRouteCandidate) {
         if (found.requiresConfirmation) {
             MaterialAlertDialogBuilder(this)
-                .setTitle(R.string.detour_large_title)
-                .setMessage(R.string.detour_large_message)
+                .setTitle(
+                    if (plannerMode == PlannerMode.REJOIN) {
+                        R.string.route_rejoin_large_title
+                    } else {
+                        R.string.detour_large_title
+                    },
+                )
+                .setMessage(
+                    if (plannerMode == PlannerMode.REJOIN) {
+                        R.string.route_rejoin_large_message
+                    } else {
+                        R.string.detour_large_message
+                    },
+                )
                 .setNegativeButton(R.string.cancel, null)
-                .setPositiveButton(R.string.detour_use) { _, _ -> saveAndFinish(found) }
+                .setPositiveButton(
+                    if (plannerMode == PlannerMode.REJOIN) {
+                        R.string.route_rejoin_use
+                    } else {
+                        R.string.detour_use
+                    },
+                ) { _, _ -> saveAndFinish(found) }
                 .show()
         } else {
             saveAndFinish(found)
@@ -379,15 +520,21 @@ class DetourPlannerActivity : AppCompatActivity() {
     }
 
     private fun saveAndFinish(found: DetourRouteCandidate) {
-        val selectedCorridor = corridor ?: return
+        val corridorStart = corridor?.startDistanceMeters ?: currentProgressMeters
+        val corridorEnd = corridor?.endDistanceMeters ?: currentProgressMeters
         runCatching {
             detourStore.save(
                 sessionId = sessionId,
                 originalRouteReference = originalRouteReference,
                 restoresRecordingRoute = restoresRecordingRoute,
                 candidate = found,
-                corridorStartMeters = selectedCorridor.startDistanceMeters,
-                corridorEndMeters = selectedCorridor.endDistanceMeters,
+                corridorStartMeters = corridorStart,
+                corridorEndMeters = corridorEnd,
+                kind = if (plannerMode == PlannerMode.REJOIN) {
+                    RouteAdjustmentKind.REJOIN
+                } else {
+                    RouteAdjustmentKind.DETOUR
+                },
             )
         }.onSuccess {
             setResult(Activity.RESULT_OK, Intent().putExtra(EXTRA_SESSION_ID, sessionId))
@@ -486,6 +633,8 @@ class DetourPlannerActivity : AppCompatActivity() {
         const val EXTRA_LATITUDE = "de.wandern.app.extra.DETOUR_LATITUDE"
         const val EXTRA_LONGITUDE = "de.wandern.app.extra.DETOUR_LONGITUDE"
         const val EXTRA_PROGRESS_METERS = "de.wandern.app.extra.DETOUR_PROGRESS_METERS"
+        const val EXTRA_MODE = "de.wandern.app.extra.DETOUR_MODE"
+        const val MODE_REJOIN = "rejoin"
         private const val MAP_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty"
         private const val ROUTE_SOURCE = "detour-original-source"
         private const val ROUTE_LAYER = "detour-original-layer"
@@ -500,5 +649,11 @@ class DetourPlannerActivity : AppCompatActivity() {
         private const val CORRIDOR_END_LAYER = "detour-corridor-end-layer"
         private const val EMPTY_FEATURE_COLLECTION = "{\"type\":\"FeatureCollection\",\"features\":[]}"
         private const val MAX_DETOUR_CANDIDATES = 3
+        private const val REJOIN_SKIP_PENALTY = 0.35
+    }
+
+    private enum class PlannerMode {
+        DETOUR,
+        REJOIN,
     }
 }

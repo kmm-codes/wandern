@@ -77,6 +77,7 @@ import de.wandern.app.model.RecordingRetentionPolicy
 import de.wandern.app.model.RouteProgress
 import de.wandern.app.model.RouteProgressTracker
 import de.wandern.app.model.RouteRejoinAdvisor
+import de.wandern.app.model.RouteAdjustmentKind
 import de.wandern.app.model.RouteEntryMode
 import de.wandern.app.model.RouteStartAssessment
 import de.wandern.app.model.RouteStartAssessor
@@ -155,6 +156,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     private var offlineMapIdentityTrack: GpxTrack? = null
     private var importedTrackReference: String? = null
     private var activeDetour = false
+    private var activeRouteAdjustmentKind: RouteAdjustmentKind? = null
     private var latestSnapshot = TrackingSnapshot()
     private var pendingRecordingStart = false
     private var pendingCenterRequest = false
@@ -373,6 +375,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         debugSnapshotOverride = true
         recordingDrawerInitializedForSession = true
         activeDetour = scenario.contains("detour")
+        activeRouteAdjustmentKind = RouteAdjustmentKind.DETOUR.takeIf { activeDetour }
 
         val route = when {
             scenario.startsWith("free") -> null
@@ -701,6 +704,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         binding.recordingFinishButton.setOnClickListener { confirmStopRecording() }
         binding.recordingDiscardButton.setOnClickListener { confirmDiscardRecording() }
         binding.recordingRouteButton.setOnClickListener { openRecordingRouteEditor() }
+        binding.recordingRejoinButton.setOnClickListener { openRouteRejoinPlanner() }
+        binding.routeRejoinBanner.setOnClickListener { openRouteRejoinPlanner() }
         binding.recordingDetourButton.setOnClickListener { openDetourPlanner() }
         binding.recordingDetourFab.setOnClickListener { openDetourPlanner() }
         binding.recordingUndoDetourButton.setOnClickListener { undoActiveDetour() }
@@ -820,7 +825,9 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         if (recordingDrawerTargetHeight == 0) {
             val expandedContentHeight = binding.recordingScrollableContent.measuredHeight
             if (expandedContentHeight <= 0) return
-            val maximumHeight = (hostHeight - dp(56)).coerceAtLeast(collapsedContentHeight)
+            // Leave enough map space for the 48 dp location FAB above the fully expanded sheet,
+            // including its minimum top inset on compact displays.
+            val maximumHeight = (hostHeight - dp(60)).coerceAtLeast(collapsedContentHeight)
             // Freeze the expanded height for this recording session. Live banners and action
             // changes may adjust the collapsed peek or overflow, but never the animation target.
             recordingDrawerTargetHeight = (collapsedContentHeight + expandedContentHeight)
@@ -938,6 +945,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
                 val activeRouteReference = trackStore.activeSession()?.routeReference
                 if (activeRouteReference == reference) {
                     activeDetour = false
+                    activeRouteAdjustmentKind = null
                     displayTrack(
                         track = track,
                         reference = reference,
@@ -977,6 +985,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
                 detour.route
             }
             activeDetour = true
+            activeRouteAdjustmentKind = detour.kind
             displayTrack(
                 track = detour.route,
                 reference = detour.originalRouteReference,
@@ -991,7 +1000,17 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             sendTrackingAction(TrackingService.ACTION_UPDATE_NAVIGATION_ROUTE)
             renderRecordingPanelState(latestSnapshot)
             if (announce) {
-                showRouteStatus(getString(R.string.detour_saved), R.color.forest_900, SUCCESS_BADGE_MILLIS)
+                showRouteStatus(
+                    getString(
+                        if (detour.kind == RouteAdjustmentKind.REJOIN) {
+                            R.string.route_rejoin_saved
+                        } else {
+                            R.string.detour_saved
+                        },
+                    ),
+                    R.color.forest_900,
+                    SUCCESS_BADGE_MILLIS,
+                )
             }
         }
     }
@@ -1000,6 +1019,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         val activeSession = trackStore.activeSession() ?: return
         val activeRoute = recordingRouteStore.load(activeSession.id) ?: return
         activeDetour = false
+        activeRouteAdjustmentKind = null
         displayTrack(
             track = activeRoute.route,
             reference = activeSession.routeReference,
@@ -1067,11 +1087,37 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         )
     }
 
+    private fun openRouteRejoinPlanner() {
+        val session = trackStore.activeSession()
+        val point = latestSnapshot.latestPoint
+            ?: latestSnapshot.latestObservedPoint
+            ?: latestLocatedPoint
+        if (session == null || importedTrack == null) {
+            toast(getString(R.string.detour_needs_route))
+            return
+        }
+        if (point == null || (point.accuracyMeters != null && point.accuracyMeters > 80f)) {
+            toast(getString(R.string.detour_needs_position))
+            return
+        }
+        val progress = routeProgressTracker?.currentOrInitial()?.distanceAlongRouteMeters ?: 0.0
+        detourPlannerLauncher.launch(
+            Intent(this, DetourPlannerActivity::class.java)
+                .putExtra(DetourPlannerActivity.EXTRA_SESSION_ID, session.id)
+                .putExtra(DetourPlannerActivity.EXTRA_LATITUDE, point.latitude)
+                .putExtra(DetourPlannerActivity.EXTRA_LONGITUDE, point.longitude)
+                .putExtra(DetourPlannerActivity.EXTRA_PROGRESS_METERS, progress)
+                .putExtra(DetourPlannerActivity.EXTRA_MODE, DetourPlannerActivity.MODE_REJOIN),
+        )
+    }
+
     private fun undoActiveDetour() {
         val session = trackStore.activeSession() ?: return
         val detour = detourStore.load(session.id) ?: return
         detourStore.clear(session.id)
         activeDetour = false
+        val removedKind = activeRouteAdjustmentKind
+        activeRouteAdjustmentKind = null
         sendTrackingAction(TrackingService.ACTION_UPDATE_NAVIGATION_ROUTE)
         if (detour.restoresRecordingRoute && recordingRouteStore.load(session.id) != null) {
             applyPersistedRecordingRoute(announce = false)
@@ -1081,7 +1127,17 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             restoreActiveRoute(originalReference, RouteEntryMode.NEAREST_POINT)
         }
         binding.recordingUndoDetourButton.visibility = View.GONE
-        showRouteStatus(getString(R.string.detour_removed), R.color.forest_900, INFO_BADGE_MILLIS)
+        showRouteStatus(
+            getString(
+                if (removedKind == RouteAdjustmentKind.REJOIN) {
+                    R.string.route_rejoin_undo
+                } else {
+                    R.string.detour_removed
+                },
+            ),
+            R.color.forest_900,
+            INFO_BADGE_MILLIS,
+        )
     }
 
     private fun renderSnapshot(snapshot: TrackingSnapshot) {
@@ -1205,7 +1261,21 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         binding.recordingRouteButton.text = getString(
             if (importedTrack != null) R.string.edit_recording_route else R.string.set_recording_destination,
         )
+        binding.recordingRejoinButton.visibility = if (
+            detourAvailable && snapshot.confirmedOffRoute
+        ) {
+            View.VISIBLE
+        } else {
+            View.GONE
+        }
         binding.recordingDetourActions.visibility = if (detourAvailable) View.VISIBLE else View.GONE
+        binding.recordingUndoDetourButton.text = getString(
+            if (activeRouteAdjustmentKind == RouteAdjustmentKind.REJOIN) {
+                R.string.route_rejoin_undo
+            } else {
+                R.string.detour_undo
+            },
+        )
         binding.recordingUndoDetourButton.visibility = if (detourAvailable && activeDetour) {
             View.VISIBLE
         } else {
@@ -2147,6 +2217,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         offlineMapIdentityTrack = null
         importedTrackReference = null
         activeDetour = false
+        activeRouteAdjustmentKind = null
         routeProgressTracker = null
         routeRejoinAdvisor = null
         binding.recordingRouteProgressGroup.visibility = View.GONE

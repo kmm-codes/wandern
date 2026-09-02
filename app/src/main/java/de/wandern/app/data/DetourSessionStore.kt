@@ -4,6 +4,7 @@ import android.content.Context
 import de.wandern.app.localization.localizedSystemText
 import de.wandern.app.model.DetourRouteCandidate
 import de.wandern.app.model.GpxTrack
+import de.wandern.app.model.RouteAdjustmentKind
 import org.json.JSONObject
 import java.io.File
 
@@ -19,6 +20,7 @@ data class ActiveDetour(
     val rejoinDistanceMeters: Double,
     val extraDistanceMeters: Double,
     val directToDestination: Boolean,
+    val kind: RouteAdjustmentKind,
 )
 
 class DetourSessionStore(context: Context) {
@@ -34,6 +36,7 @@ class DetourSessionStore(context: Context) {
         corridorStartMeters: Double,
         corridorEndMeters: Double,
         restoresRecordingRoute: Boolean = false,
+        kind: RouteAdjustmentKind = RouteAdjustmentKind.DETOUR,
     ): ActiveDetour {
         require(originalRouteReference != null || restoresRecordingRoute) {
             localizedSystemText(
@@ -60,6 +63,7 @@ class DetourSessionStore(context: Context) {
                 put("rejoin_distance", candidate.rejoinDistanceMeters)
                 put("extra_distance", candidate.extraDistanceMeters)
                 put("direct_to_destination", candidate.directToDestination)
+                put("kind", kind.name)
             }.toString(),
         ).commit()
         return load(sessionId) ?: error(
@@ -102,6 +106,9 @@ class DetourSessionStore(context: Context) {
             rejoinDistanceMeters = metadata.optDouble("rejoin_distance", 0.0),
             extraDistanceMeters = metadata.optDouble("extra_distance", 0.0),
             directToDestination = metadata.optBoolean("direct_to_destination", false),
+            kind = metadata.optString("kind")
+                .let { stored -> runCatching { RouteAdjustmentKind.valueOf(stored) }.getOrNull() }
+                ?: RouteAdjustmentKind.DETOUR,
         )
     }
 

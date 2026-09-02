@@ -37,6 +37,7 @@
             android:padding="16dp">
 
             <TextView
+                android:id="@+id/plannerTitleText"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="@string/detour_corridor_title"

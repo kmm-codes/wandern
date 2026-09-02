@@ -5,6 +5,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import de.wandern.app.model.ActivityType
 import de.wandern.app.model.DetourRouteCandidate
 import de.wandern.app.model.GpxTrack
+import de.wandern.app.model.RouteAdjustmentKind
 import de.wandern.app.model.TrackPoint
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -43,7 +44,14 @@ class DetourSessionStoreTest {
             directToDestination = false,
         )
 
-        store.save(SESSION_ID, "planned:42", candidate, 400.0, 650.0)
+        store.save(
+            SESSION_ID,
+            "planned:42",
+            candidate,
+            400.0,
+            650.0,
+            kind = RouteAdjustmentKind.REJOIN,
+        )
         val restored = store.load(SESSION_ID)
 
         assertEquals("planned:42", restored?.originalRouteReference)
@@ -52,6 +60,7 @@ class DetourSessionStoreTest {
         assertEquals(2, restored?.detourTrack?.points?.size)
         assertEquals(120.0, restored?.departureDistanceMeters ?: 0.0, 0.0)
         assertEquals(650.0, restored?.corridorEndMeters ?: 0.0, 0.0)
+        assertEquals(RouteAdjustmentKind.REJOIN, restored?.kind)
         store.clear(SESSION_ID)
         assertNull(store.load(SESSION_ID))
     }

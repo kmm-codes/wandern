@@ -295,6 +295,36 @@ class DebugRecordingScenarioFlowTest {
         }
     }
 
+    @Test
+    fun offRouteScenarioOffersRoutedWayBackFromBannerAndDrawer() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val intent = Intent(context, MainActivity::class.java)
+            .setAction(MainActivity.ACTION_DEBUG_SCENARIO)
+            .putExtra(MainActivity.EXTRA_DEBUG_SCENARIO, "route-off-route-expanded")
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+        ActivityScenario.launch<MainActivity>(intent).use { scenario ->
+            waitUntil(scenario) { activity ->
+                activity.findViewById<View>(de.wandern.app.R.id.routeRejoinBanner).isShown &&
+                    activity.findViewById<View>(de.wandern.app.R.id.recordingRejoinButton).isShown
+            }
+            scenario.onActivity { activity ->
+                assertEquals(
+                    activity.getString(de.wandern.app.R.string.route_rejoin_plan_action),
+                    activity.findViewById<TextView>(
+                        de.wandern.app.R.id.routeRejoinPlanAction,
+                    ).text.toString(),
+                )
+                assertEquals(
+                    activity.getString(de.wandern.app.R.string.route_rejoin_plan_action),
+                    activity.findViewById<MaterialButton>(
+                        de.wandern.app.R.id.recordingRejoinButton,
+                    ).text.toString(),
+                )
+            }
+        }
+    }
+
     private fun assertMapFabAboveSheet(
         fab: View,
         sheet: View,

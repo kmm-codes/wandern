@@ -88,4 +88,36 @@ class DetourPlanningTest {
         assertTrue(rejoinDistances.all { it > corridor.endDistanceMeters })
         assertTrue(rejoinDistances.all { it <= path.totalDistanceMeters })
     }
+
+    @Test
+    fun routeAccessCandidatesStartNearRecommendedForwardRejoin() {
+        val progress = 500.0
+        val position = TrackPoint(48.002, 8.009)
+
+        val rejoinDistances = DetourPlanner.rejoinDistances(route, position, progress)
+
+        assertTrue(rejoinDistances.isNotEmpty())
+        assertTrue(rejoinDistances.size <= 3)
+        assertTrue(rejoinDistances.all { it >= progress - 25.0 })
+    }
+
+    @Test
+    fun combinesRoutedConnectorWithOriginalTail() {
+        val path = RoutePath(route)
+        val progress = 300.0
+        val rejoin = 1_100.0
+        val position = TrackPoint(48.002, 8.004)
+        val connector = GpxTrack(
+            "Zur Route",
+            listOf(listOf(position, TrackPoint(48.001, 8.010), path.pointAt(rejoin))),
+            activityType = ActivityType.HIKING,
+        )
+
+        val result = DetourPlanner.combineRejoin(route, progress, connector, rejoin)
+
+        assertEquals(connector.points, result.detourTrack.points)
+        assertEquals(route.points.last(), result.track.points.last())
+        assertEquals(rejoin - progress, result.skippedRouteMeters, 0.001)
+        assertEquals(2, result.track.segments.size)
+    }
 }
