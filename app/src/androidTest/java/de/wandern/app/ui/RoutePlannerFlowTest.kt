@@ -261,7 +261,7 @@ class RoutePlannerFlowTest {
 
                 assertEquals(View.VISIBLE, overlay.visibility)
                 assertTrue(overlay.isClickable)
-                assertTrue(behavior.isDraggable)
+                assertFalse(behavior.isDraggable)
                 assertEquals(android.view.ViewGroup.LayoutParams.MATCH_PARENT, overlay.layoutParams.width)
                 assertEquals(android.view.ViewGroup.LayoutParams.MATCH_PARENT, overlay.layoutParams.height)
                 val eventTime = SystemClock.uptimeMillis()
@@ -302,6 +302,49 @@ class RoutePlannerFlowTest {
                 instruction.visibility = View.VISIBLE
                 activity.invokePrivate("unlockPlannerDrawerAfterOperation")
                 assertEquals(View.INVISIBLE, overlay.visibility)
+                assertTrue(behavior.isDraggable)
+            }
+        }
+    }
+
+    @Test
+    fun waypointDragFreezesDrawerExtentUntilRecalculationFinishes() {
+        ActivityScenario.launch(RoutePlannerActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.privateField<MutableList<TrackPoint>>("waypoints") += listOf(
+                    TrackPoint(48.75, 8.23),
+                    TrackPoint(48.76, 8.24),
+                    TrackPoint(48.77, 8.25),
+                )
+                activity.invokePrivate("renderPlannerState")
+            }
+            waitForWaypointRow(scenario, itemCount = 3, position = 2)
+            SystemClock.sleep(300)
+
+            scenario.onActivity { activity ->
+                val drawer = activity.findViewById<MaterialCardView>(R.id.plannerCard)
+                val behavior = BottomSheetBehavior.from(drawer)
+                val instruction = activity.findViewById<View>(R.id.instructionRow)
+                val overlay = activity.findViewById<View>(R.id.plannerLoadingOverlay)
+                val initialHeight = drawer.height
+                val initialTop = drawer.top
+
+                activity.invokePrivate("freezePlannerDrawerForWaypointDrag")
+                assertFalse(behavior.isDraggable)
+                instruction.visibility = View.GONE
+                activity.invokePrivate("updatePlannerExtent")
+                assertEquals(initialHeight, drawer.height)
+                assertEquals(initialTop, drawer.top)
+
+                activity.invokePrivate("unfreezePlannerDrawerAfterWaypointDrag", true)
+                assertEquals(View.VISIBLE, overlay.visibility)
+                assertFalse(behavior.isDraggable)
+                activity.invokePrivate("updatePlannerExtent")
+                assertEquals(initialHeight, drawer.height)
+                assertEquals(initialTop, drawer.top)
+
+                instruction.visibility = View.VISIBLE
+                activity.invokePrivate("unlockPlannerDrawerAfterOperation")
                 assertTrue(behavior.isDraggable)
             }
         }
@@ -678,6 +721,12 @@ class RoutePlannerFlowTest {
         RoutePlannerActivity::class.java.getDeclaredMethod(name)
             .apply { isAccessible = true }
             .invoke(this)
+    }
+
+    private fun RoutePlannerActivity.invokePrivate(name: String, value: Boolean) {
+        RoutePlannerActivity::class.java.getDeclaredMethod(name, Boolean::class.javaPrimitiveType)
+            .apply { isAccessible = true }
+            .invoke(this, value)
     }
 
     private fun waitForWaypointRow(

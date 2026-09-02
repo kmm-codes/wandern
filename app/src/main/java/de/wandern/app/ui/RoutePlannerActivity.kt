@@ -159,6 +159,7 @@ class RoutePlannerActivity : AppCompatActivity() {
     private var pendingFramePoints: List<TrackPoint>? = null
     private var drawerExtentUpdatePosted = false
     private var plannerDrawerOperationLocked = false
+    private var waypointDrawerDragLocked = false
     private var drawerPullCandidate = false
     private var drawerOverPullActive = false
     private var drawerPullStartX = 0f
@@ -532,7 +533,7 @@ class RoutePlannerActivity : AppCompatActivity() {
     }
 
     private fun updatePlannerExtent() {
-        if (plannerDrawerOperationLocked) return
+        if (plannerDrawerOperationLocked || waypointDrawerDragLocked) return
         val parentHeight = binding.root.height
         val contentHeight = binding.drawerCompactHeader.height + naturalPlannerContentHeight()
         if (parentHeight <= 0 || contentHeight <= 0) return
@@ -571,7 +572,7 @@ class RoutePlannerActivity : AppCompatActivity() {
     }
 
     private fun updatePlannerScrollability() {
-        if (plannerDrawerOperationLocked) {
+        if (plannerDrawerOperationLocked || waypointDrawerDragLocked) {
             binding.plannerScroll.contentScrollingEnabled = false
             return
         }
@@ -832,6 +833,7 @@ class RoutePlannerActivity : AppCompatActivity() {
         drawerSpring?.cancel()
         binding.plannerCard.translationY = 0f
         plannerDrawerOperationLocked = true
+        plannerSheetBehavior.isDraggable = false
         binding.plannerScroll.contentScrollingEnabled = false
         binding.plannerLoadingOverlay.visibility = View.VISIBLE
         binding.toolbar.menu.findItem(R.id.action_save_route)?.isEnabled = false
@@ -852,6 +854,7 @@ class RoutePlannerActivity : AppCompatActivity() {
     private fun unlockPlannerDrawerAfterOperation() {
         if (!plannerDrawerOperationLocked) return
         plannerDrawerOperationLocked = false
+        plannerSheetBehavior.isDraggable = true
         binding.plannerLoadingOverlay.visibility = View.INVISIBLE
         schedulePlannerExtentUpdate()
         binding.root.post(::updateCenterButtonPosition)
@@ -900,6 +903,7 @@ class RoutePlannerActivity : AppCompatActivity() {
                 super.onSelectedChanged(viewHolder, actionState)
                 if (actionState == ItemTouchHelper.ACTION_STATE_DRAG && viewHolder != null) {
                     waypointDragStart = waypoints.toList()
+                    freezePlannerDrawerForWaypointDrag()
                     viewHolder.itemView.alpha = 0.82f
                     viewHolder.itemView.scaleX = 1.02f
                     viewHolder.itemView.scaleY = 1.02f
@@ -913,22 +917,50 @@ class RoutePlannerActivity : AppCompatActivity() {
                 viewHolder.itemView.scaleY = 1f
                 val original = waypointDragStart
                 waypointDragStart = null
+                val changed = original != null && original != waypoints
+                unfreezePlannerDrawerAfterWaypointDrag(changed)
                 recyclerView.post {
-                    if (original != null && original != waypoints) commitWaypointReorder(original)
+                    if (changed) commitWaypointReorder(checkNotNull(original))
                     else waypointAdapter.notifyDataSetChanged()
                 }
             }
         }).also { it.attachToRecyclerView(binding.waypointList) }
     }
 
+    private fun freezePlannerDrawerForWaypointDrag() {
+        if (waypointDrawerDragLocked) return
+        drawerSpring?.cancel()
+        binding.plannerCard.translationY = 0f
+        waypointDrawerDragLocked = true
+        plannerSheetBehavior.isDraggable = false
+        binding.plannerScroll.contentScrollingEnabled = false
+    }
+
+    private fun unfreezePlannerDrawerAfterWaypointDrag(changed: Boolean) {
+        if (!waypointDrawerDragLocked) return
+        waypointDrawerDragLocked = false
+        plannerSheetBehavior.isDraggable = true
+        if (changed) {
+            lockPlannerDrawerForOperation()
+        } else {
+            schedulePlannerExtentUpdate()
+            binding.root.post(::updatePlannerScrollability)
+        }
+    }
+
     private fun commitWaypointReorder(original: List<TrackPoint>) {
+        lockPlannerDrawerForOperation()
         pushUndoState(waypointsOverride = original)
         invalidateCalculatedRoute()
         redrawMap()
         renderPlannerState()
-        revealPlannerAfterStructureChange()
-        framePoints(waypoints)
-        scheduleAutomaticRouting()
+        if (waypoints.size >= 2) {
+            autoRoutingJob?.cancel()
+            autoRoutingJob = null
+            calculateRoute()
+        } else {
+            unlockPlannerDrawerAfterOperation()
+        }
     }
 
     private fun toggleWaypointEditor() {
@@ -1528,9 +1560,14 @@ class RoutePlannerActivity : AppCompatActivity() {
                 updateRouteSource()
                 enterRouteSelectionMode(routes)
                 renderPlannerState()
-                framePoints(routes.first().points)
+                if (plannerDrawerOperationLocked) {
+                    finishLockedPlannerOperationAfterMapUpdate(routes.first().points)
+                } else {
+                    framePoints(routes.first().points)
+                }
             }.onFailure { error ->
                 renderPlannerState()
+                unlockPlannerDrawerAfterOperation()
                 toast(
                     getString(
                         R.string.route_calculation_error,
