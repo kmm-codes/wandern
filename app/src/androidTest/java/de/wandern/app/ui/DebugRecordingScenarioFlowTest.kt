@@ -11,6 +11,7 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.espresso.Espresso.onView
 import androidx.test.espresso.assertion.ViewAssertions.matches
+import androidx.test.espresso.assertion.ViewAssertions.doesNotExist
 import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
 import androidx.test.espresso.matcher.ViewMatchers.withText
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -220,7 +221,27 @@ class DebugRecordingScenarioFlowTest {
     }
 
     @Test
-    fun finishDialogOffersDiscardNextToSave() {
+    fun shortRecordingFinishDialogOffersDiscardNextToSave() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val intent = Intent(context, MainActivity::class.java)
+            .setAction(MainActivity.ACTION_DEBUG_SCENARIO)
+            .putExtra(MainActivity.EXTRA_DEBUG_SCENARIO, "route-short-paused-expanded")
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+        ActivityScenario.launch<MainActivity>(intent).use { scenario ->
+            waitUntil(scenario) { activity ->
+                activity.findViewById<View>(de.wandern.app.R.id.recordingFinishButton).isShown
+            }
+            scenario.onActivity { activity ->
+                activity.findViewById<View>(de.wandern.app.R.id.recordingFinishButton).performClick()
+            }
+            onView(withText(de.wandern.app.R.string.discard_recording)).check(matches(isDisplayed()))
+            onView(withText(de.wandern.app.R.string.finish_and_save)).check(matches(isDisplayed()))
+        }
+    }
+
+    @Test
+    fun establishedRecordingFinishDialogDoesNotOfferDiscard() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val intent = Intent(context, MainActivity::class.java)
             .setAction(MainActivity.ACTION_DEBUG_SCENARIO)
@@ -234,7 +255,7 @@ class DebugRecordingScenarioFlowTest {
             scenario.onActivity { activity ->
                 activity.findViewById<View>(de.wandern.app.R.id.recordingFinishButton).performClick()
             }
-            onView(withText(de.wandern.app.R.string.discard_recording)).check(matches(isDisplayed()))
+            onView(withText(de.wandern.app.R.string.discard_recording)).check(doesNotExist())
             onView(withText(de.wandern.app.R.string.finish_and_save)).check(matches(isDisplayed()))
         }
     }

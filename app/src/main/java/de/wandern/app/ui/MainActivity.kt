@@ -461,7 +461,11 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             state = if (paused) RecordingState.PAUSED else RecordingState.RECORDING,
             track = recordedTrack,
             stats = TrackStats(
-                distanceMeters = if (route == null) 4_860.0 else 5_420.0,
+                distanceMeters = when {
+                    scenario.contains("short") -> 420.0
+                    route == null -> 4_860.0
+                    else -> 5_420.0
+                },
                 durationMillis = 4_218_000L,
                 movingDurationMillis = 3_774_000L,
                 pauseDurationMillis = 444_000L,
@@ -1291,20 +1295,25 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             ?: getString(stateLabelRes)
 
     private fun confirmStopRecording() {
-        val dialog = MaterialAlertDialogBuilder(this)
+        val canDiscard = RecordingRetentionPolicy.canDiscardInline(latestSnapshot.stats.distanceMeters)
+        val builder = MaterialAlertDialogBuilder(this)
             .setTitle(R.string.finish_recording_title)
             .setMessage(R.string.finish_recording_message)
             .setNegativeButton(R.string.cancel, null)
-            .setNeutralButton(R.string.discard_recording) { _, _ ->
-                discardRecordingAndClearRoute()
-            }
             .setPositiveButton(R.string.finish_and_save) { _, _ ->
                 sendTrackingAction(TrackingService.ACTION_STOP)
             }
-            .show()
-        dialog.getButton(android.content.DialogInterface.BUTTON_NEUTRAL).setTextColor(
-            ContextCompat.getColor(this, R.color.warning),
-        )
+        if (canDiscard) {
+            builder.setNeutralButton(R.string.discard_recording) { _, _ ->
+                discardRecordingAndClearRoute()
+            }
+        }
+        val dialog = builder.show()
+        if (canDiscard) {
+            dialog.getButton(android.content.DialogInterface.BUTTON_NEUTRAL).setTextColor(
+                ContextCompat.getColor(this, R.color.warning),
+            )
+        }
     }
 
     private fun confirmDiscardRecording() {
