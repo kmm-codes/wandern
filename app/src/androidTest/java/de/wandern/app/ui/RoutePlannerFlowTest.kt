@@ -118,7 +118,7 @@ class RoutePlannerFlowTest {
                 activity.findViewById<MaterialButton>(R.id.startPointButton).performClick()
 
                 assertEquals(View.VISIBLE, activity.findViewById<View>(R.id.pointSearchOverlay).visibility)
-                assertEquals(View.GONE, activity.findViewById<View>(R.id.plannerCard).visibility)
+                assertEquals(View.INVISIBLE, activity.findViewById<View>(R.id.plannerCard).visibility)
                 assertEquals(View.VISIBLE, activity.findViewById<View>(R.id.useCurrentPositionButton).visibility)
                 assertEquals(View.VISIBLE, activity.findViewById<View>(R.id.useHomeButton).visibility)
                 assertEquals(View.VISIBLE, activity.findViewById<View>(R.id.selectPointOnMapButton).visibility)
@@ -128,6 +128,32 @@ class RoutePlannerFlowTest {
                 activity.findViewById<View>(R.id.closePointSearchButton).performClick()
                 assertEquals(View.GONE, activity.findViewById<View>(R.id.pointSearchOverlay).visibility)
                 assertEquals(View.VISIBLE, activity.findViewById<View>(R.id.plannerCard).visibility)
+            }
+        }
+    }
+
+    @Test
+    fun returningFromPointSearchExpandsSimpleDraftByDefault() {
+        ActivityScenario.launch(RoutePlannerActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.findViewById<MaterialButton>(R.id.startPointButton).performClick()
+                activity.privateField<MutableList<TrackPoint>>("waypoints") += TrackPoint(48.76, 8.24)
+                activity.invokePrivate("renderPlannerState")
+                BottomSheetBehavior.from(
+                    activity.findViewById<MaterialCardView>(R.id.plannerCard),
+                ).state = BottomSheetBehavior.STATE_COLLAPSED
+                activity.findViewById<View>(R.id.closePointSearchButton).performClick()
+            }
+
+            SystemClock.sleep(500)
+
+            scenario.onActivity { activity ->
+                val drawer = activity.findViewById<MaterialCardView>(R.id.plannerCard)
+
+                assertEquals(
+                    BottomSheetBehavior.STATE_EXPANDED,
+                    BottomSheetBehavior.from(drawer).state,
+                )
             }
         }
     }

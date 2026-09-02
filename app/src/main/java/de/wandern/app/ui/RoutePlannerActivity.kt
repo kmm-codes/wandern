@@ -200,6 +200,7 @@ class RoutePlannerActivity : AppCompatActivity() {
             schedulePlannerExtentUpdate()
             insets
         }
+        binding.root.post { ViewCompat.requestApplyInsets(binding.root) }
         trackStore = TrackStore(this)
         detourStore = DetourSessionStore(this)
         recordingRouteStore = RecordingRouteStore(this)
@@ -1028,7 +1029,9 @@ class RoutePlannerActivity : AppCompatActivity() {
         val canDelete = pointIndex(role) != null ||
             (role == PointRole.DESTINATION && destinationDraft != null)
         binding.deletePointButton.visibility = if (canDelete) View.VISIBLE else View.GONE
-        binding.plannerCard.visibility = View.GONE
+        // Keep the hidden drawer measured while search is in front. Otherwise a changed simple
+        // draft can return with the old collapsed height even though the behavior says expanded.
+        binding.plannerCard.visibility = View.INVISIBLE
         binding.centerButton.visibility = View.GONE
         binding.pointSearchOverlay.visibility = View.VISIBLE
         binding.placeSearchInput.text?.clear()
@@ -1053,11 +1056,23 @@ class RoutePlannerActivity : AppCompatActivity() {
         binding.pointSearchOverlay.visibility = View.GONE
         binding.plannerCard.visibility = View.VISIBLE
         binding.centerButton.visibility = View.VISIBLE
-        binding.root.post(::updateCenterButtonPosition)
         (getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager)
             .hideSoftInputFromWindow(binding.placeSearchInput.windowToken, 0)
         renderPlannerState()
+        binding.plannerContent.requestLayout()
+        binding.plannerContent.doOnLayout {
+            if (definedPlanningPointCount() <= SIMPLE_DRAFT_MAX_POINT_COUNT) {
+                drawerSpring?.cancel()
+                binding.plannerCard.translationY = 0f
+                updatePlannerExtent()
+                plannerDrawerController.expand()
+            }
+            binding.plannerCard.doOnLayout { updateCenterButtonPosition() }
+        }
     }
+
+    private fun definedPlanningPointCount(): Int =
+        waypoints.size + if (destinationDraft != null) 1 else 0
 
     private fun scheduleLivePlaceSearch(rawQuery: String, immediate: Boolean = false) {
         val query = rawQuery.trim()
@@ -2459,6 +2474,7 @@ class RoutePlannerActivity : AppCompatActivity() {
         private const val MAX_NO_GO_POINTS = 60
         private const val WAYPOINT_ROW_HEIGHT_DP = 52
         private const val MIN_COLLAPSIBLE_WAYPOINT_COUNT = 3
+        private const val SIMPLE_DRAFT_MAX_POINT_COUNT = 2
         private const val COLLAPSED_WAYPOINT_ROW_COUNT = 3
         private const val COLLAPSED_WAYPOINT_SUMMARY_POSITION = 1
         private const val COLLAPSED_WAYPOINT_DESTINATION_POSITION = 2
