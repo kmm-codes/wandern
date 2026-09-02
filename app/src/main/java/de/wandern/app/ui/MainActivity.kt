@@ -62,6 +62,7 @@ import de.wandern.app.databinding.ActivityMainBinding
 import de.wandern.app.databinding.DialogRecordingStartCheckBinding
 import de.wandern.app.model.GeoMath
 import de.wandern.app.model.ActivityType
+import de.wandern.app.model.DetourPlanner
 import de.wandern.app.model.GpxTrack
 import de.wandern.app.model.GpsQuality
 import de.wandern.app.model.GpsQualityWarningMonitor
@@ -149,6 +150,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     private var map: MapLibreMap? = null
     private var mapStyle: Style? = null
     private var importedTrack: GpxTrack? = null
+    private var displayedRouteTrack: GpxTrack? = null
+    private var detourOverlayTrack: GpxTrack? = null
     private var offlineMapIdentityTrack: GpxTrack? = null
     private var importedTrackReference: String? = null
     private var activeDetour = false
@@ -371,7 +374,11 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         recordingDrawerInitializedForSession = true
         activeDetour = scenario.contains("detour")
 
-        val route = if (scenario.startsWith("free")) null else debugRoute()
+        val route = when {
+            scenario.startsWith("free") -> null
+            scenario.contains("detour-round") -> debugRoundRoute()
+            else -> debugRoute()
+        }
         val recordedTrack = debugRecordedTrack(route)
         val latest = recordedTrack.points.lastOrNull()
         val observed = if (scenario.contains("off-route") && latest != null) {
@@ -381,11 +388,62 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         }
         if (route == null) {
             importedTrack = null
+            displayedRouteTrack = null
+            detourOverlayTrack = null
             offlineMapIdentityTrack = null
             importedTrackReference = null
             routeProgressTracker = null
             routeRejoinAdvisor = null
             redrawTracks()
+        } else if (scenario.contains("detour")) {
+            val routePath = de.wandern.app.model.RoutePath(route)
+            val departureDistance = latest?.let(routePath::nearestDistanceAlongRoute)
+                ?: routePath.totalDistanceMeters * 0.4
+            val corridor = DetourPlanner.corridor(route, departureDistance, 420.0)
+            val rejoinDistance = DetourPlanner.rejoinDistances(route, corridor)
+                .getOrElse(1) { DetourPlanner.rejoinDistances(route, corridor).first() }
+            val departure = routePath.pointAt(departureDistance)
+            val rejoin = routePath.pointAt(rejoinDistance)
+            val detour = GpxTrack(
+                name = "Debug · Umleitung",
+                segments = listOf(
+                    listOf(
+                        departure,
+                        TrackPoint(
+                            latitude = departure.latitude + 0.006,
+                            longitude = departure.longitude - 0.004,
+                            elevationMeters = departure.elevationMeters,
+                        ),
+                        TrackPoint(
+                            latitude = rejoin.latitude + 0.005,
+                            longitude = rejoin.longitude - 0.003,
+                            elevationMeters = rejoin.elevationMeters,
+                        ),
+                        rejoin,
+                    ),
+                ),
+                activityType = route.activityType,
+            )
+            val candidate = DetourPlanner.combine(
+                route = route,
+                currentProgressMeters = departureDistance,
+                corridor = corridor,
+                detour = detour,
+                rejoinDistanceMeters = rejoinDistance,
+            )
+            displayTrack(
+                track = candidate.track,
+                reference = null,
+                askForOfflineDownload = false,
+                announce = false,
+                frameTrack = true,
+                displayedRoute = DetourPlanner.originalRouteOutsideDetour(
+                    route,
+                    departureDistance,
+                    rejoinDistance,
+                ),
+                detourOverlay = candidate.detourTrack,
+            )
         } else {
             displayTrack(
                 track = route,
@@ -470,6 +528,24 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         )
     }
 
+    private fun debugRoundRoute(): GpxTrack {
+        val centerLatitude = 48.765
+        val centerLongitude = 8.245
+        val points = (0..120).map { index ->
+            val angle = index / 120.0 * Math.PI * 2.0
+            TrackPoint(
+                latitude = centerLatitude + kotlin.math.sin(angle) * 0.035,
+                longitude = centerLongitude + kotlin.math.cos(angle) * 0.048,
+                elevationMeters = 320.0 + kotlin.math.sin(angle * 2.0) * 135.0,
+            )
+        }
+        return GpxTrack(
+            name = "Debug · Rundweg",
+            segments = listOf(points),
+            activityType = ActivityType.HIKING,
+        )
+    }
+
     private fun debugRecordedTrack(route: GpxTrack?): GpxTrack {
         val points = if (route != null) {
             route.points.take(52)
@@ -512,23 +588,6 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     }
 
     private fun installTrackLayers(style: Style) {
-        style.addSource(GeoJsonSource(ROUTE_SOURCE, EMPTY_FEATURE_COLLECTION))
-        style.addLayer(
-            LineLayer(ROUTE_LAYER, ROUTE_SOURCE).withProperties(
-                lineColor(Color.parseColor("#1677FF")),
-                lineWidth(6f),
-                lineOpacity(0.88f),
-                lineCap(LINE_CAP_ROUND),
-                lineJoin(LINE_JOIN_ROUND),
-            ),
-        )
-        RouteDirectionIndicator.addToStyle(
-            context = this,
-            style = style,
-            sourceId = ROUTE_SOURCE,
-            layerId = ROUTE_DIRECTION_LAYER,
-            iconId = ROUTE_DIRECTION_ICON,
-        )
         style.addSource(GeoJsonSource(LIVE_TRACK_SOURCE, EMPTY_FEATURE_COLLECTION))
         style.addLayer(
             LineLayer(LIVE_TRACK_LAYER, LIVE_TRACK_SOURCE).withProperties(
@@ -546,6 +605,33 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
                 lineWidth(5f),
                 lineOpacity(0.95f),
                 lineDasharray(arrayOf(1.4f, 1.4f)),
+                lineCap(LINE_CAP_ROUND),
+                lineJoin(LINE_JOIN_ROUND),
+            ),
+        )
+        style.addSource(GeoJsonSource(ROUTE_SOURCE, EMPTY_FEATURE_COLLECTION))
+        style.addLayer(
+            LineLayer(ROUTE_LAYER, ROUTE_SOURCE).withProperties(
+                lineColor(Color.parseColor("#1677FF")),
+                lineWidth(6f),
+                lineOpacity(0.88f),
+                lineCap(LINE_CAP_ROUND),
+                lineJoin(LINE_JOIN_ROUND),
+            ),
+        )
+        RouteDirectionIndicator.addToStyle(
+            context = this,
+            style = style,
+            sourceId = ROUTE_SOURCE,
+            layerId = ROUTE_DIRECTION_LAYER,
+            iconId = ROUTE_DIRECTION_ICON,
+        )
+        style.addSource(GeoJsonSource(DETOUR_SOURCE, EMPTY_FEATURE_COLLECTION))
+        style.addLayer(
+            LineLayer(DETOUR_LAYER, DETOUR_SOURCE).withProperties(
+                lineColor(Color.parseColor("#F28C28")),
+                lineWidth(7f),
+                lineOpacity(0.96f),
                 lineCap(LINE_CAP_ROUND),
                 lineJoin(LINE_JOIN_ROUND),
             ),
@@ -871,20 +957,42 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     private fun applyPersistedDetour(announce: Boolean) {
         val activeSession = trackStore.activeSession() ?: return
         val detour = detourStore.load(activeSession.id) ?: return
-        activeDetour = true
-        displayTrack(
-            track = detour.route,
-            reference = detour.originalRouteReference,
-            askForOfflineDownload = false,
-            announce = false,
-            frameTrack = false,
-        )
-        routeProgressTracker = RouteProgressTracker(detour.route, RouteEntryMode.NEAREST_POINT)
-        renderRouteProgress(latestSnapshot.latestPoint ?: latestLocatedPoint)
-        sendTrackingAction(TrackingService.ACTION_UPDATE_NAVIGATION_ROUTE)
-        renderRecordingPanelState(latestSnapshot)
-        if (announce) {
-            showRouteStatus(getString(R.string.detour_saved), R.color.forest_900, SUCCESS_BADGE_MILLIS)
+        lifecycleScope.launch {
+            val originalRoute = withContext(Dispatchers.IO) {
+                if (detour.restoresRecordingRoute) {
+                    recordingRouteStore.load(activeSession.id)?.route
+                } else {
+                    detour.originalRouteReference?.let { reference ->
+                        runCatching { trackStore.loadStoredTrack(reference) }.getOrNull()
+                    }
+                }
+            }
+            val preservedOriginal = if (originalRoute != null && detour.detourTrack != null) {
+                DetourPlanner.originalRouteOutsideDetour(
+                    route = originalRoute,
+                    departureDistanceMeters = detour.departureDistanceMeters,
+                    rejoinDistanceMeters = detour.rejoinDistanceMeters,
+                )
+            } else {
+                detour.route
+            }
+            activeDetour = true
+            displayTrack(
+                track = detour.route,
+                reference = detour.originalRouteReference,
+                askForOfflineDownload = false,
+                announce = false,
+                frameTrack = false,
+                displayedRoute = preservedOriginal,
+                detourOverlay = detour.detourTrack,
+            )
+            routeProgressTracker = RouteProgressTracker(detour.route, RouteEntryMode.NEAREST_POINT)
+            renderRouteProgress(latestSnapshot.latestPoint ?: latestLocatedPoint)
+            sendTrackingAction(TrackingService.ACTION_UPDATE_NAVIGATION_ROUTE)
+            renderRecordingPanelState(latestSnapshot)
+            if (announce) {
+                showRouteStatus(getString(R.string.detour_saved), R.color.forest_900, SUCCESS_BADGE_MILLIS)
+            }
         }
     }
 
@@ -1342,9 +1450,13 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         askForOfflineDownload: Boolean,
         announce: Boolean = true,
         frameTrack: Boolean = true,
+        displayedRoute: GpxTrack = track,
+        detourOverlay: GpxTrack? = null,
     ) {
         initialRegionFramingComplete = true
         importedTrack = track
+        displayedRouteTrack = displayedRoute
+        detourOverlayTrack = detourOverlay
         offlineMapIdentityTrack = track
         importedTrackReference = reference
         routeProgressTracker = RouteProgressTracker(track)
@@ -1451,8 +1563,9 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
 
     private fun redrawTracks() {
         val style = mapStyle ?: return
-        updateLineSource(style, ROUTE_SOURCE, importedTrack)
-        updateRouteEndpointMarkers(importedTrack)
+        updateLineSource(style, ROUTE_SOURCE, displayedRouteTrack ?: importedTrack)
+        updateLineSource(style, DETOUR_SOURCE, detourOverlayTrack)
+        updateRouteEndpointMarkers(displayedRouteTrack ?: importedTrack)
         updateLiveTrackSources(style, latestSnapshot.track)
         renderUserPosition(style)
     }
@@ -2045,6 +2158,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
                     }
                     MENU_CLEAR_ROUTE -> {
                         importedTrack = null
+                        displayedRouteTrack = null
+                        detourOverlayTrack = null
                         offlineMapIdentityTrack = null
                         importedTrackReference = null
                         routeProgressTracker = null
@@ -2063,6 +2178,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
                     }
                     MENU_REVERSE_ROUTE -> {
                         importedTrack = importedTrack?.reversed()
+                        displayedRouteTrack = importedTrack
+                        detourOverlayTrack = null
                         routeProgressTracker = importedTrack?.let(::RouteProgressTracker)
                         routeRejoinAdvisor = importedTrack?.let(::RouteRejoinAdvisor)
                         renderRouteProgress(latestSnapshot.latestPoint ?: latestLocatedPoint)
@@ -2623,6 +2740,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         private const val ROUTE_LAYER = "imported-route-layer"
         private const val ROUTE_DIRECTION_LAYER = "imported-route-direction-layer"
         private const val ROUTE_DIRECTION_ICON = "imported-route-direction-icon"
+        private const val DETOUR_SOURCE = "active-detour-source"
+        private const val DETOUR_LAYER = "active-detour-layer"
         private const val LIVE_TRACK_SOURCE = "live-track-source"
         private const val LIVE_TRACK_LAYER = "live-track-layer"
         private const val INTERPOLATED_TRACK_SOURCE = "interpolated-track-source"

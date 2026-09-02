@@ -436,9 +436,10 @@
     <string name="detour_corridor_length">Sperrbereich: %1$d m</string>
     <string name="detour_find">Umleitung suchen</string>
     <string name="detour_use">Verwenden</string>
-    <string name="detour_calculating">Frühester erreichbarer Wiedereinstieg wird gesucht…</string>
+    <string name="detour_calculating">Mögliche Wiedereinstiege werden gesucht…</string>
     <string name="detour_result">Zurück auf die Route nach %1$s · Umweg %2$s</string>
     <string name="detour_result_shorter">Zurück auf die Route nach %1$s · %2$s kürzer</string>
+    <string name="detour_alternative_label">Wiedereinstieg %1$d/%2$d</string>
     <string name="detour_direct_result">Kein sinnvoller Wiedereinstieg gefunden · neue Route direkt zum Ziel · Änderung %1$s</string>
     <string name="detour_large_title">Erhebliche Routenänderung</string>
     <string name="detour_large_message">Diese Umleitung führt erst deutlich später zurück oder verändert die restliche Route stark. Wirklich übernehmen?</string>

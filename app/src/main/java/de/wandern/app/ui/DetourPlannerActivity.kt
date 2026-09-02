@@ -77,8 +77,12 @@ class DetourPlannerActivity : AppCompatActivity() {
     private var currentProgressMeters = 0.0
     private var corridorLengthMeters = DetourPlanner.DEFAULT_CORRIDOR_LENGTH_METERS
     private var corridor: DetourCorridor? = null
-    private var candidate: DetourRouteCandidate? = null
+    private var candidates: List<DetourRouteCandidate> = emptyList()
+    private var selectedCandidateIndex = 0
     private var routing = false
+
+    private val selectedCandidate: DetourRouteCandidate?
+        get() = candidates.getOrNull(selectedCandidateIndex)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -130,7 +134,9 @@ class DetourPlannerActivity : AppCompatActivity() {
     private fun setupActions() {
         binding.toolbar.setNavigationOnClickListener { finish() }
         binding.findDetourButton.setOnClickListener { calculateDetour() }
-        binding.useDetourButton.setOnClickListener { candidate?.let(::confirmAndUse) }
+        binding.useDetourButton.setOnClickListener { selectedCandidate?.let(::confirmAndUse) }
+        binding.previousDetourButton.setOnClickListener { selectCandidate(-1) }
+        binding.nextDetourButton.setOnClickListener { selectCandidate(1) }
         binding.corridorLengthSlider.max = (
             DetourPlanner.MAX_CORRIDOR_LENGTH_METERS - DetourPlanner.MIN_CORRIDOR_LENGTH_METERS
             ).roundToInt()
@@ -211,9 +217,11 @@ class DetourPlannerActivity : AppCompatActivity() {
             binding.instructionText.text = it.localizedMessage
             null
         }
-        candidate = null
+        candidates = emptyList()
+        selectedCandidateIndex = 0
         binding.useDetourButton.isEnabled = false
         binding.resultText.visibility = View.GONE
+        binding.detourAlternativeSelector.visibility = View.GONE
         updateLineSource(PREVIEW_SOURCE, null)
         binding.corridorLengthText.text = getString(
             R.string.detour_corridor_length,
@@ -248,26 +256,24 @@ class DetourPlannerActivity : AppCompatActivity() {
             return
         }
         routing = true
-        candidate = null
+        candidates = emptyList()
+        selectedCandidateIndex = 0
         binding.findDetourButton.isEnabled = false
         binding.useDetourButton.isEnabled = false
         binding.corridorLengthSlider.isEnabled = false
         binding.routingProgress.visibility = View.VISIBLE
         binding.instructionText.setText(R.string.detour_calculating)
         lifecycleScope.launch {
-            val result = withContext(Dispatchers.IO) { findCandidate(selectedCorridor) }
+            val result = withContext(Dispatchers.IO) { findCandidates(selectedCorridor) }
             routing = false
             binding.findDetourButton.isEnabled = true
             binding.corridorLengthSlider.isEnabled = true
             binding.routingProgress.visibility = View.GONE
             result.onSuccess { found ->
-                candidate = found
-                binding.useDetourButton.isEnabled = true
-                binding.resultText.visibility = View.VISIBLE
-                binding.resultText.text = describe(found)
+                candidates = found
+                selectedCandidateIndex = 0
                 binding.instructionText.setText(R.string.detour_corridor_instruction)
-                updateLineSource(PREVIEW_SOURCE, found.track)
-                framePreview(found.track)
+                renderSelectedCandidate(frame = true)
             }.onFailure {
                 binding.resultText.visibility = View.VISIBLE
                 binding.resultText.setText(R.string.detour_no_route)
@@ -277,10 +283,12 @@ class DetourPlannerActivity : AppCompatActivity() {
         }
     }
 
-    private fun findCandidate(selectedCorridor: DetourCorridor): Result<DetourRouteCandidate> = runCatching {
+    private fun findCandidates(selectedCorridor: DetourCorridor): Result<List<DetourRouteCandidate>> = runCatching {
         val activityType = route.activityType ?: ActivityType.HIKING
         var lastError: Throwable? = null
-        DetourPlanner.rejoinDistances(route, selectedCorridor).forEach { rejoinDistance ->
+        val found = mutableListOf<DetourRouteCandidate>()
+        for (rejoinDistance in DetourPlanner.rejoinDistances(route, selectedCorridor)) {
+            if (found.size >= MAX_DETOUR_CANDIDATES) break
             val rejoinPoint = routePath.pointAt(rejoinDistance)
             runCatching {
                 routingClient.calculate(
@@ -290,7 +298,7 @@ class DetourPlannerActivity : AppCompatActivity() {
                     noGoPoints = selectedCorridor.noGoPoints,
                 )
             }.onSuccess { detour ->
-                return@runCatching DetourPlanner.combine(
+                found += DetourPlanner.combine(
                     route = route,
                     currentProgressMeters = currentProgressMeters,
                     corridor = selectedCorridor,
@@ -299,6 +307,7 @@ class DetourPlannerActivity : AppCompatActivity() {
                 )
             }.onFailure { lastError = it }
         }
+        if (found.isNotEmpty()) return@runCatching found
         val destination = route.points.last()
         val direct = runCatching {
             routingClient.calculate(
@@ -308,14 +317,37 @@ class DetourPlannerActivity : AppCompatActivity() {
                 noGoPoints = selectedCorridor.noGoPoints,
             )
         }.getOrElse { throw lastError ?: it }
-        DetourPlanner.combine(
-            route = route,
-            currentProgressMeters = currentProgressMeters,
-            corridor = selectedCorridor,
-            detour = direct,
-            rejoinDistanceMeters = routePath.totalDistanceMeters,
-            directToDestination = true,
+        listOf(
+            DetourPlanner.combine(
+                route = route,
+                currentProgressMeters = currentProgressMeters,
+                corridor = selectedCorridor,
+                detour = direct,
+                rejoinDistanceMeters = routePath.totalDistanceMeters,
+                directToDestination = true,
+            ),
         )
+    }
+
+    private fun selectCandidate(delta: Int) {
+        if (candidates.size < 2) return
+        selectedCandidateIndex = (selectedCandidateIndex + delta + candidates.size) % candidates.size
+        renderSelectedCandidate(frame = false)
+    }
+
+    private fun renderSelectedCandidate(frame: Boolean) {
+        val found = selectedCandidate ?: return
+        binding.useDetourButton.isEnabled = true
+        binding.resultText.visibility = View.VISIBLE
+        binding.resultText.text = describe(found)
+        binding.detourAlternativeSelector.visibility = if (candidates.size > 1) View.VISIBLE else View.GONE
+        binding.detourAlternativeLabel.text = getString(
+            R.string.detour_alternative_label,
+            selectedCandidateIndex + 1,
+            candidates.size,
+        )
+        updateLineSource(PREVIEW_SOURCE, found.detourTrack)
+        if (frame) framePreview(found.detourTrack)
     }
 
     private fun describe(found: DetourRouteCandidate): String {
@@ -467,5 +499,6 @@ class DetourPlannerActivity : AppCompatActivity() {
         private const val CORRIDOR_END_SOURCE = "detour-corridor-end-source"
         private const val CORRIDOR_END_LAYER = "detour-corridor-end-layer"
         private const val EMPTY_FEATURE_COLLECTION = "{\"type\":\"FeatureCollection\",\"features\":[]}"
+        private const val MAX_DETOUR_CANDIDATES = 3
     }
 }

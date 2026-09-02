@@ -16,6 +16,8 @@ data class DetourCorridor(
 
 data class DetourRouteCandidate(
     val track: GpxTrack,
+    val detourTrack: GpxTrack,
+    val departureDistanceMeters: Double,
     val rejoinDistanceMeters: Double,
     val skippedRouteMeters: Double,
     val extraDistanceMeters: Double,
@@ -186,23 +188,44 @@ object DetourPlanner {
     ): DetourRouteCandidate {
         val path = RoutePath(route)
         val tail = if (directToDestination) emptyList() else path.slice(rejoinDistanceMeters, path.totalDistanceMeters)
-        val combined = (detour.points + tail.dropWhile { tailPoint ->
-            detour.points.lastOrNull()?.let { GeoMath.distanceMeters(it, tailPoint) < 3.0 } == true
-        }).distinctAdjacent()
+        val detourSegments = detour.segments
+            .map { it.distinctAdjacent() }
+            .filter { it.size >= 2 }
+        val combinedSegments = buildList {
+            addAll(detourSegments)
+            if (tail.size >= 2) add(tail.distinctAdjacent())
+        }
         val track = GpxTrack(
             name = route.name,
-            segments = listOf(combined),
+            segments = combinedSegments,
             activityType = route.activityType,
         )
         val originalRemaining = (path.totalDistanceMeters - currentProgressMeters).coerceAtLeast(0.0)
         val combinedDistance = TrackAnalyzer.calculate(track).distanceMeters
         return DetourRouteCandidate(
             track = track,
+            detourTrack = detour.copy(segments = detourSegments),
+            departureDistanceMeters = currentProgressMeters,
             rejoinDistanceMeters = rejoinDistanceMeters,
             skippedRouteMeters = (rejoinDistanceMeters - corridor.endDistanceMeters).coerceAtLeast(0.0),
             extraDistanceMeters = combinedDistance - originalRemaining,
             directToDestination = directToDestination,
         )
+    }
+
+    fun originalRouteOutsideDetour(
+        route: GpxTrack,
+        departureDistanceMeters: Double,
+        rejoinDistanceMeters: Double,
+    ): GpxTrack {
+        val path = RoutePath(route)
+        val departure = departureDistanceMeters.coerceIn(0.0, path.totalDistanceMeters)
+        val rejoin = rejoinDistanceMeters.coerceIn(departure, path.totalDistanceMeters)
+        val segments = buildList {
+            path.slice(0.0, departure).takeIf { it.size >= 2 }?.let(::add)
+            path.slice(rejoin, path.totalDistanceMeters).takeIf { it.size >= 2 }?.let(::add)
+        }
+        return route.copy(segments = segments)
     }
 
     private fun List<TrackPoint>.distinctAdjacent(): List<TrackPoint> = buildList {

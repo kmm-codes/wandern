@@ -12,6 +12,8 @@ data class ActiveDetour(
     val originalRouteReference: String?,
     val restoresRecordingRoute: Boolean,
     val route: GpxTrack,
+    val detourTrack: GpxTrack?,
+    val departureDistanceMeters: Double,
     val corridorStartMeters: Double,
     val corridorEndMeters: Double,
     val rejoinDistanceMeters: Double,
@@ -41,19 +43,18 @@ class DetourSessionStore(context: Context) {
         }
         val target = routeFile(sessionId)
         val temporary = File(directory, "${target.name}.tmp")
+        val detourTarget = detourFile(sessionId)
+        val detourTemporary = File(directory, "${detourTarget.name}.tmp")
         temporary.writeText(GpxCodec.encode(candidate.track), Charsets.UTF_8)
-        if (target.exists()) target.delete()
-        check(temporary.renameTo(target)) {
-            localizedSystemText(
-                "Could not save detour route.",
-                "Umleitungsroute konnte nicht gespeichert werden.",
-            )
-        }
+        detourTemporary.writeText(GpxCodec.encode(candidate.detourTrack), Charsets.UTF_8)
+        replace(temporary, target)
+        replace(detourTemporary, detourTarget)
         preferences.edit().putString(
             key(sessionId),
             JSONObject().apply {
                 originalRouteReference?.let { put("original_route_reference", it) }
                 put("restores_recording_route", restoresRecordingRoute)
+                put("departure_distance", candidate.departureDistanceMeters)
                 put("corridor_start", corridorStartMeters)
                 put("corridor_end", corridorEndMeters)
                 put("rejoin_distance", candidate.rejoinDistanceMeters)
@@ -79,6 +80,13 @@ class DetourSessionStore(context: Context) {
             }
         }
             .getOrNull() ?: return null
+        val detourTrack = detourFile(sessionId).takeIf(File::isFile)?.let { target ->
+            runCatching {
+                target.inputStream().use {
+                    GpxCodec.parse(it, localizedSystemText("Detour segment", "Umleitungsstück"))
+                }
+            }.getOrNull()
+        }
         val original = metadata.optString("original_route_reference").takeIf(String::isNotBlank)
         val restoresRecordingRoute = metadata.optBoolean("restores_recording_route", false)
         if (original == null && !restoresRecordingRoute) return null
@@ -87,6 +95,8 @@ class DetourSessionStore(context: Context) {
             originalRouteReference = original,
             restoresRecordingRoute = restoresRecordingRoute,
             route = route,
+            detourTrack = detourTrack,
+            departureDistanceMeters = metadata.optDouble("departure_distance", 0.0),
             corridorStartMeters = metadata.optDouble("corridor_start", 0.0),
             corridorEndMeters = metadata.optDouble("corridor_end", 0.0),
             rejoinDistanceMeters = metadata.optDouble("rejoin_distance", 0.0),
@@ -98,11 +108,24 @@ class DetourSessionStore(context: Context) {
     @Synchronized
     fun clear(sessionId: Long) {
         preferences.edit().remove(key(sessionId)).commit()
-        routeFile(sessionId).delete()
-        File(directory, "${routeFile(sessionId).name}.tmp").delete()
+        listOf(routeFile(sessionId), detourFile(sessionId)).forEach { target ->
+            target.delete()
+            File(directory, "${target.name}.tmp").delete()
+        }
+    }
+
+    private fun replace(temporary: File, target: File) {
+        if (target.exists()) target.delete()
+        check(temporary.renameTo(target)) {
+            localizedSystemText(
+                "Could not save detour route.",
+                "Umleitungsroute konnte nicht gespeichert werden.",
+            )
+        }
     }
 
     private fun routeFile(sessionId: Long) = File(directory, "detour-$sessionId.gpx")
+    private fun detourFile(sessionId: Long) = File(directory, "detour-segment-$sessionId.gpx")
     private fun key(sessionId: Long) = "session_$sessionId"
 
     private companion object {

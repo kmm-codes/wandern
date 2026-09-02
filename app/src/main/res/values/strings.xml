@@ -435,9 +435,10 @@
     <string name="detour_corridor_length">Blocked section: %1$d m</string>
     <string name="detour_find">Find detour</string>
     <string name="detour_use">Use</string>
-    <string name="detour_calculating">Finding the earliest reachable re-entry…</string>
+    <string name="detour_calculating">Finding possible re-entry routes…</string>
     <string name="detour_result">Back on route after %1$s · detour %2$s</string>
     <string name="detour_result_shorter">Back on route after %1$s · %2$s shorter</string>
+    <string name="detour_alternative_label">Re-entry %1$d/%2$d</string>
     <string name="detour_direct_result">No sensible re-entry found · new route directly to destination · change %1$s</string>
     <string name="detour_large_title">Major route change</string>
     <string name="detour_large_message">This detour rejoins much later or changes the remaining route substantially. Use it anyway?</string>

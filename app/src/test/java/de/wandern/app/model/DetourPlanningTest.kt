@@ -44,5 +44,48 @@ class DetourPlanningTest {
 
         assertEquals(route.points.last().longitude, result.track.points.last().longitude, 0.000001)
         assertTrue(result.track.points.size > detour.points.size)
+        assertEquals(detour.points, result.detourTrack.points)
+        assertEquals(200.0, result.departureDistanceMeters, 0.0)
+        assertEquals(2, result.track.segments.size)
+    }
+
+    @Test
+    fun displayRouteKeepsWalkedPrefixAndTailButOmitsReplacedSection() {
+        val path = RoutePath(route)
+        val departure = 300.0
+        val rejoin = 1_400.0
+
+        val displayed = DetourPlanner.originalRouteOutsideDetour(route, departure, rejoin)
+
+        assertEquals(2, displayed.segments.size)
+        assertEquals(route.points.first(), displayed.segments.first().first())
+        assertEquals(path.pointAt(departure), displayed.segments.first().last())
+        assertEquals(path.pointAt(rejoin), displayed.segments.last().first())
+        assertEquals(route.points.last(), displayed.segments.last().last())
+        assertTrue(displayed.points.none { point ->
+            point.longitude > path.pointAt(departure).longitude &&
+                point.longitude < path.pointAt(rejoin).longitude
+        })
+    }
+
+    @Test
+    fun roundTripRejoinCandidatesStayAheadInRouteOrder() {
+        val points = (0..72).map { index ->
+            val angle = index / 72.0 * Math.PI * 2.0
+            TrackPoint(
+                latitude = 48.0 + kotlin.math.sin(angle) * 0.012,
+                longitude = 8.0 + kotlin.math.cos(angle) * 0.018,
+            )
+        }
+        val roundTrip = GpxTrack("Rundweg", listOf(points), activityType = ActivityType.HIKING)
+        val path = RoutePath(roundTrip)
+        val corridor = DetourPlanner.corridor(roundTrip, path.totalDistanceMeters * 0.35, 300.0)
+
+        val rejoinDistances = DetourPlanner.rejoinDistances(roundTrip, corridor)
+
+        assertTrue(rejoinDistances.isNotEmpty())
+        assertEquals(rejoinDistances.sorted(), rejoinDistances)
+        assertTrue(rejoinDistances.all { it > corridor.endDistanceMeters })
+        assertTrue(rejoinDistances.all { it <= path.totalDistanceMeters })
     }
 }

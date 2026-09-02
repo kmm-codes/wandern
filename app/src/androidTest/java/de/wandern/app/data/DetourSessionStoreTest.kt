@@ -35,6 +35,8 @@ class DetourSessionStoreTest {
         )
         val candidate = DetourRouteCandidate(
             track = track,
+            detourTrack = track.copy(segments = listOf(track.points.take(2))),
+            departureDistanceMeters = 120.0,
             rejoinDistanceMeters = 900.0,
             skippedRouteMeters = 200.0,
             extraDistanceMeters = 350.0,
@@ -47,6 +49,8 @@ class DetourSessionStoreTest {
         assertEquals("planned:42", restored?.originalRouteReference)
         assertEquals(false, restored?.restoresRecordingRoute)
         assertEquals(track.points.size, restored?.route?.points?.size)
+        assertEquals(2, restored?.detourTrack?.points?.size)
+        assertEquals(120.0, restored?.departureDistanceMeters ?: 0.0, 0.0)
         assertEquals(650.0, restored?.corridorEndMeters ?: 0.0, 0.0)
         store.clear(SESSION_ID)
         assertNull(store.load(SESSION_ID))
@@ -66,6 +70,8 @@ class DetourSessionStoreTest {
         )
         val candidate = DetourRouteCandidate(
             track = track,
+            detourTrack = track,
+            departureDistanceMeters = 80.0,
             rejoinDistanceMeters = 500.0,
             skippedRouteMeters = 150.0,
             extraDistanceMeters = 100.0,
