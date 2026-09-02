@@ -136,7 +136,19 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Der lokale Android-Gate ist fehlgeschlagen.' }
     }
     if ($CaptureDebugScenes -or $DebugScenesOnly) {
-        $debugScenes = @('route-collapsed', 'route-expanded', 'route-elevation-expanded', 'route-paused-expanded')
+        & (Join-Path $repository 'scripts\mock-gps.ps1') `
+            -DeviceSerial $serial `
+            -Point @('48.7650,8.2450,320', '48.7652,8.2453,322') `
+            -IntervalMilliseconds 0
+        if ($LASTEXITCODE -ne 0) { throw 'Mock-GPS-Test fehlgeschlagen.' }
+        $debugScenes = @(
+            'route-collapsed',
+            'route-expanded',
+            'route-elevation-expanded',
+            'route-paused-expanded',
+            'route-detour-collapsed',
+            'route-detour-round-collapsed'
+        )
         for ($sceneIndex = 0; $sceneIndex -lt $debugScenes.Count; $sceneIndex++) {
             $scene = $debugScenes[$sceneIndex]
             & (Join-Path $repository 'scripts\debug-scene.ps1') `

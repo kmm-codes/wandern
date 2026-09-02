@@ -7,6 +7,9 @@ param(
         "route-paused-expanded",
         "route-off-route-expanded",
         "route-detour-expanded",
+        "route-detour-collapsed",
+        "route-detour-round-expanded",
+        "route-detour-round-collapsed",
         "route-navigation-collapsed",
         "route-navigation-expanded",
         "free-expanded"
