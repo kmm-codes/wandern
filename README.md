@@ -116,6 +116,54 @@ Die Mock-Schnittstelle wird durch `BuildConfig.DEBUG` abgeschirmt und verändert
 weder gespeicherte Touren noch laufende Aufzeichnungssitzungen. Release-Builds
 ignorieren den Debug-Intent.
 
+### Navigation semantisch simulieren
+
+`nav-sim.ps1` führt eine echte Aufzeichnung durch den produktiven Standortfilter,
+die Persistenz, Statistik, Navigation und Abweichungserkennung. Aufrufer geben
+keine Koordinatenlisten vor, sondern Bewegungsabsichten wie Distanz,
+Geschwindigkeit und Abweichungsrichtung:
+
+```powershell
+# Reproduzierbare lokale Route vorbereiten und Aufzeichnung starten
+.\scripts\nav-sim.ps1 fixture -Install
+
+# Einen Kilometer mit 5 km/h entlang der Route gehen
+.\scripts\nav-sim.ps1 follow -DistanceMeters 1000 -SpeedKmh 5 `
+  -Screenshot .\captures\follow.png
+
+# An der nächsten nahen Abzweigung 500 m nach rechts abweichen
+.\scripts\nav-sim.ps1 deviate -Direction right -DistanceMeters 500 `
+  -Screenshot .\captures\off-route.png
+
+# Zum empfohlenen vorwärtsliegenden Routenpunkt zurückkehren
+.\scripts\nav-sim.ps1 rejoin -Screenshot .\captures\rejoined.png
+```
+
+Für einen Test mit echten Such- und Routingantworten erzeugt `plan` über Photon
+und BRouter eine Wanderroute:
+
+```powershell
+.\scripts\nav-sim.ps1 plan `
+  -Start "Sandweier, Baden-Baden" `
+  -Destination "Iffezheim"
+```
+
+`status`, `pause`, `resume`, `finish` und `discard` ergänzen den Ablauf. Bei
+mehreren Geräten wählt `-DeviceSerial` den Emulator. Die CLI kommuniziert über
+einen nur im Debug-Manifest exportierten Receiver und startet die sichtbare
+Activity über ADB; sie benötigt keine langsame oder fragile Klicksteuerung.
+Release-Builds enthalten diesen Einstiegspunkt nicht.
+
+Der vollständige Ablauf ist als selbstprüfender Smoke-Test zusammengefasst. Er
+erzeugt drei Screenshots, prüft Status und Messwerte und verwirft die
+Testaufzeichnung anschließend im `finally`:
+
+```powershell
+.\scripts\test-navigation-simulation.ps1 -Install
+# Optional mit echter Online-Suche und BRouter statt lokaler Fixture:
+.\scripts\test-navigation-simulation.ps1 -LiveRoute
+```
+
 Für einen autonomen Lauf reserviert der Emulator-Runner zuerst Wanderns feste
 AVD-Lane `Pixel_Tablet_2`, startet sie headless innerhalb des hostweiten
 Vier-Emulator-Budgets und gibt Emulator sowie Lease im `finally` wieder frei:
