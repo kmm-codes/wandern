@@ -83,6 +83,16 @@ Der normale lokale CI-Lauf umfasst JVM-Tests, Android Lint und den Debug-Build:
 .\scripts\check.ps1
 ```
 
+Aus einer grafischen Entwicklungsumgebung sollte derselbe Lauf über den
+Headless-Wrapper gestartet werden. Er verwendet `CreateNoWindow`, bewahrt aber
+Ausgabe und Exitcode des Tests:
+
+```powershell
+.\scripts\test-hidden.ps1 check
+.\scripts\test-hidden.ps1 emulator -DebugScenesOnly
+.\scripts\test-hidden.ps1 navigation -LiveRoute -DeviceSerial emulator-5556
+```
+
 Mit angeschlossenem Testgerät können zusätzlich instrumentierte Android-Tests
 ausgeführt werden:
 

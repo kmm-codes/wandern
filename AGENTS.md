@@ -6,6 +6,10 @@
 - Use judgment when grouping tightly coupled changes; keep each commit coherent and verified in proportion to its risk.
 - Before committing, exclude local artifacts, device captures, secrets, generated files, and unrelated user changes.
 - Keep the working tree clean after finishing a task whenever it is safe to do so.
+- On Windows, run local test suites through `scripts/test-hidden.ps1` so Gradle,
+  ADB, and PowerShell child processes cannot flash console windows in front of
+  the user. Select `check`, `emulator`, or `navigation` and pass suite arguments
+  through unchanged.
 
 # GitHub issues
 
