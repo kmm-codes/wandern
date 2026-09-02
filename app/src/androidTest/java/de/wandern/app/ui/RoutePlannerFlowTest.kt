@@ -148,12 +148,23 @@ class RoutePlannerFlowTest {
             SystemClock.sleep(500)
 
             scenario.onActivity { activity ->
+                val root = activity.findViewById<View>(R.id.root)
                 val drawer = activity.findViewById<MaterialCardView>(R.id.plannerCard)
+                val settings = activity.findViewById<View>(R.id.activityTypeButton)
+                val rootBounds = android.graphics.Rect()
+                val settingsBounds = android.graphics.Rect()
+                val safeBottom = ViewCompat.getRootWindowInsets(root)
+                    ?.getInsets(WindowInsetsCompat.Type.navigationBars())
+                    ?.bottom
+                    ?: 0
 
                 assertEquals(
                     BottomSheetBehavior.STATE_EXPANDED,
                     BottomSheetBehavior.from(drawer).state,
                 )
+                assertTrue(root.getGlobalVisibleRect(rootBounds))
+                assertTrue(settings.getGlobalVisibleRect(settingsBounds))
+                assertTrue(settingsBounds.bottom <= rootBounds.bottom - safeBottom)
             }
         }
     }

@@ -491,6 +491,11 @@ class RoutePlannerActivity : AppCompatActivity() {
             basePeekHeightPx = dp(PLANNER_DRAWER_PEEK_HEIGHT_DP),
             onSlide = { updateCenterButtonPosition() },
             onStableStateChanged = {
+                // Material can settle an already-expanded sheet before applying a changed dynamic
+                // height. Force one normal parent measure after the animation has finished.
+                binding.plannerCard.requestLayout()
+                binding.root.requestLayout()
+                schedulePlannerExtentUpdate()
                 updatePlannerScrollability()
                 updateCenterButtonPosition()
                 pendingFramePoints?.let { points ->
