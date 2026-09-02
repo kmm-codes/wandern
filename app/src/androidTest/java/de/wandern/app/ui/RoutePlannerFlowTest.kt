@@ -328,7 +328,7 @@ class RoutePlannerFlowTest {
                     assertEquals(activity.getString(R.string.edit_tour), activity.titleOrToolbarTitle())
                     assertEquals(View.VISIBLE, activity.findViewById<View>(R.id.waypointList).visibility)
                     assertEquals(View.GONE, activity.findViewById<View>(R.id.routeChoiceCard).visibility)
-                    assertEquals(View.GONE, activity.findViewById<View>(R.id.instructionText).visibility)
+                    assertEquals(View.GONE, activity.findViewById<View>(R.id.instructionRow).visibility)
                     assertFalse(activity.saveRouteMenuItem().isVisible)
                     val pointEditor = activity.findViewById<View>(R.id.pointEditor)
                     val waypointList = activity.findViewById<androidx.recyclerview.widget.RecyclerView>(
@@ -341,13 +341,31 @@ class RoutePlannerFlowTest {
                     waypointExpand.performClick()
                     assertEquals(View.VISIBLE, pointEditor.visibility)
                     assertEquals(3, waypointList.adapter?.itemCount)
+                }
+                waitForWaypointRow(scenario, itemCount = 3, position = 1)
+                scenario.onActivity { activity ->
+                    val pointEditor = activity.findViewById<View>(R.id.pointEditor)
+                    val waypointList = activity.findViewById<androidx.recyclerview.widget.RecyclerView>(
+                        R.id.waypointList,
+                    )
                     val summaryRow = checkNotNull(waypointList.findViewHolderForAdapterPosition(1))
                     assertEquals(
-                        "2 Zwischenziele",
+                        activity.resources.getQuantityString(
+                            R.plurals.intermediate_waypoint_count,
+                            2,
+                            2,
+                        ),
                         summaryRow.itemView.findViewById<MaterialButton>(R.id.waypointButton).text.toString(),
                     )
                     summaryRow.itemView.findViewById<View>(R.id.waypointExpandButton).performClick()
                     assertEquals(4, waypointList.adapter?.itemCount)
+                }
+                waitForWaypointRow(scenario, itemCount = 4, position = 1)
+                scenario.onActivity { activity ->
+                    val pointEditor = activity.findViewById<View>(R.id.pointEditor)
+                    val waypointList = activity.findViewById<androidx.recyclerview.widget.RecyclerView>(
+                        R.id.waypointList,
+                    )
                     val viaRow = checkNotNull(waypointList.findViewHolderForAdapterPosition(1))
                     val deleteVia = viaRow.itemView.findViewById<View>(R.id.deleteWaypointButton)
                     assertEquals(View.VISIBLE, deleteVia.visibility)
@@ -543,7 +561,7 @@ class RoutePlannerFlowTest {
             false,
         )
         val previewMonitor = instrumentation.addMonitor(
-            MainActivity::class.java.name,
+            TourDetailActivity::class.java.name,
             null,
             false,
         )
@@ -560,7 +578,7 @@ class RoutePlannerFlowTest {
 
                 val preview = checkNotNull(
                     instrumentation.waitForMonitorWithTimeout(previewMonitor, 5_000),
-                ) as MainActivity
+                ) as TourDetailActivity
                 instrumentation.runOnMainSync {
                     preview.onBackPressedDispatcher.onBackPressed()
                 }
@@ -620,5 +638,23 @@ class RoutePlannerFlowTest {
         RoutePlannerActivity::class.java.getDeclaredMethod(name)
             .apply { isAccessible = true }
             .invoke(this)
+    }
+
+    private fun waitForWaypointRow(
+        scenario: ActivityScenario<RoutePlannerActivity>,
+        itemCount: Int,
+        position: Int,
+    ) {
+        var ready = false
+        for (attempt in 0 until 60) {
+            scenario.onActivity { activity ->
+                val list = activity.findViewById<androidx.recyclerview.widget.RecyclerView>(R.id.waypointList)
+                ready = list.adapter?.itemCount == itemCount &&
+                    list.findViewHolderForAdapterPosition(position) != null
+            }
+            if (ready) return
+            SystemClock.sleep(50)
+        }
+        assertTrue("Waypoint row $position was not laid out for $itemCount items", ready)
     }
 }

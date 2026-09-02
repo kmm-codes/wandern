@@ -88,7 +88,8 @@ class RecordingRecoveryFlowTest {
                 }
                 scenario.onActivity { activity ->
                     assertEquals(
-                        "Aufzeichnung pausiert · E-Bike",
+                        "${activity.getString(R.string.recording_paused)} · " +
+                            activity.getString(ActivityType.E_BIKE.labelRes()),
                         activity.findViewById<TextView>(R.id.recordingStatusText).text.toString(),
                     )
                 }
