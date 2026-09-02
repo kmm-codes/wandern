@@ -49,10 +49,8 @@ class ProfileChartView @JvmOverloads constructor(
     }
     private val progressPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.parseColor("#F26B38")
-        style = Paint.Style.STROKE
-        strokeWidth = 3.5f * density
-        strokeJoin = Paint.Join.ROUND
-        strokeCap = Paint.Cap.ROUND
+        style = Paint.Style.FILL
+        strokeWidth = 2f * density
     }
     private val cursorCenterPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
@@ -212,8 +210,6 @@ class ProfileChartView @JvmOverloads constructor(
         }
         canvas.drawPath(fillPath, fillPaint)
         if (colorBySlope) {
-            // Keep the travelled-distance highlight behind the shared slope colors.
-            drawProgress(canvas, ::x, ::y)
             samples.zipWithNext().forEach { (start, end) ->
                 linePaint.color = slopeColor(
                     listOfNotNull(start.secondaryValue, end.secondaryValue).average().takeIf { !it.isNaN() },
@@ -222,7 +218,6 @@ class ProfileChartView @JvmOverloads constructor(
             }
         } else {
             canvas.drawPath(path, linePaint)
-            drawProgress(canvas, ::x, ::y)
         }
 
         labelPaint.textAlign = Paint.Align.RIGHT
@@ -237,38 +232,43 @@ class ProfileChartView @JvmOverloads constructor(
             height - 7f * density - safeBottom,
             labelPaint,
         )
+        drawProgress(canvas, left, top, right, bottom, maxDistance, minValue, valueRange)
         drawSelection(canvas, left, top, right, bottom, maxDistance, minValue, valueRange)
     }
 
     private fun drawProgress(
         canvas: Canvas,
-        x: (ProfileSample) -> Float,
-        y: (ProfileSample) -> Float,
+        left: Float,
+        top: Float,
+        right: Float,
+        bottom: Float,
+        maxDistance: Double,
+        minValue: Double,
+        valueRange: Double,
     ) {
         val progressDistance = progressDistanceMeters ?: return
-        if (samples.size < 2 || progressDistance <= samples.first().distanceMeters) return
-        val clampedDistance = progressDistance.coerceAtMost(samples.last().distanceMeters)
-        val progressPath = Path()
-        var started = false
-        samples.zipWithNext().forEach { (start, end) ->
-            if (start.distanceMeters > clampedDistance) return@forEach
-            if (!started) {
-                progressPath.moveTo(x(start), y(start))
-                started = true
-            }
-            if (end.distanceMeters <= clampedDistance) {
-                progressPath.lineTo(x(end), y(end))
-            } else if (end.distanceMeters > start.distanceMeters) {
-                val fraction = ((clampedDistance - start.distanceMeters) /
-                    (end.distanceMeters - start.distanceMeters)).coerceIn(0.0, 1.0)
-                val interpolated = ProfileSample(
-                    distanceMeters = clampedDistance,
-                    value = start.value + (end.value - start.value) * fraction,
-                )
-                progressPath.lineTo(x(interpolated), y(interpolated))
-            }
+        if (samples.size < 2) return
+        val clampedDistance = progressDistance.coerceIn(
+            samples.first().distanceMeters,
+            samples.last().distanceMeters,
+        )
+        val segment = samples.zipWithNext().firstOrNull { (_, end) ->
+            clampedDistance <= end.distanceMeters
         }
-        if (started) canvas.drawPath(progressPath, progressPaint)
+        val value = segment?.let { (start, end) ->
+            val fraction = if (end.distanceMeters > start.distanceMeters) {
+                ((clampedDistance - start.distanceMeters) /
+                    (end.distanceMeters - start.distanceMeters)).coerceIn(0.0, 1.0)
+            } else {
+                0.0
+            }
+            start.value + (end.value - start.value) * fraction
+        } ?: samples.last().value
+        val x = left + (clampedDistance / maxDistance * (right - left)).toFloat()
+        val y = bottom - ((value - minValue) / valueRange * (bottom - top)).toFloat()
+        canvas.drawLine(x, top, x, bottom, progressPaint)
+        canvas.drawCircle(x, y, 7f * density, cursorCenterPaint)
+        canvas.drawCircle(x, y, 4.5f * density, progressPaint)
     }
 
     private fun drawSelection(

@@ -2313,8 +2313,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         if (route == null) {
             renderRecordingElevationProfile(
                 source = latestSnapshot.track,
-                completedDistanceMeters = null,
-                markerDistanceMeters = null,
+                progressDistanceMeters = null,
                 plannedRoute = false,
             )
             binding.recordingRouteProgressGroup.visibility = View.GONE
@@ -2323,8 +2322,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         if (tracker == null) {
             renderRecordingElevationProfile(
                 source = route,
-                completedDistanceMeters = null,
-                markerDistanceMeters = null,
+                progressDistanceMeters = null,
                 plannedRoute = true,
             )
             binding.recordingRouteProgressGroup.visibility = View.GONE
@@ -2338,8 +2336,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         val progress = observedProgress ?: tracker.currentOrInitial() ?: run {
             renderRecordingElevationProfile(
                 source = route,
-                completedDistanceMeters = null,
-                markerDistanceMeters = null,
+                progressDistanceMeters = null,
                 plannedRoute = true,
             )
             binding.recordingRouteProgressGroup.visibility = View.GONE
@@ -2347,10 +2344,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         }
         renderRecordingElevationProfile(
             source = route,
-            completedDistanceMeters = progress.distanceAlongRouteMeters,
-            markerDistanceMeters = observedProgress
-                ?.takeIf { it.distanceFromRouteMeters != null && !latestSnapshot.confirmedOffRoute }
-                ?.distanceAlongRouteMeters,
+            progressDistanceMeters = progress.distanceAlongRouteMeters,
             plannedRoute = true,
         )
         binding.recordingRouteProgressGroup.visibility = View.VISIBLE
@@ -2364,8 +2358,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
 
     private fun renderRecordingElevationProfile(
         source: GpxTrack,
-        completedDistanceMeters: Double?,
-        markerDistanceMeters: Double?,
+        progressDistanceMeters: Double?,
         plannedRoute: Boolean,
     ) {
         if (source !== recordingElevationSource || plannedRoute != recordingElevationUsesPlannedRoute) {
@@ -2378,11 +2371,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             )
         }
         binding.recordingElevationChart.setProgressDistance(
-            completedDistanceMeters.takeIf { plannedRoute },
+            progressDistanceMeters.takeIf { plannedRoute },
             Color.parseColor("#F26B38"),
-        )
-        binding.recordingElevationChart.setSelectedDistance(
-            markerDistanceMeters.takeIf { plannedRoute },
         )
     }
 
