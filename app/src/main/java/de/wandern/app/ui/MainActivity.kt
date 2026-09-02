@@ -1226,7 +1226,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             .setMessage(R.string.finish_recording_message)
             .setNegativeButton(R.string.cancel, null)
             .setNeutralButton(R.string.discard_recording) { _, _ ->
-                sendTrackingAction(TrackingService.ACTION_DISCARD)
+                discardRecordingAndClearRoute()
             }
             .setPositiveButton(R.string.finish_and_save) { _, _ ->
                 sendTrackingAction(TrackingService.ACTION_STOP)
@@ -1244,7 +1244,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             .setMessage(R.string.discard_recording_message)
             .setNegativeButton(R.string.cancel, null)
             .setNeutralButton(R.string.discard_recording) { _, _ ->
-                sendTrackingAction(TrackingService.ACTION_DISCARD)
+                discardRecordingAndClearRoute()
             }
             .setPositiveButton(R.string.finish_and_save) { _, _ ->
                 sendTrackingAction(TrackingService.ACTION_STOP)
@@ -2135,6 +2135,27 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         if (startForeground) ContextCompat.startForegroundService(this, intent) else startService(intent)
     }
 
+    private fun discardRecordingAndClearRoute() {
+        clearLoadedRoute()
+        sendTrackingAction(TrackingService.ACTION_DISCARD)
+    }
+
+    private fun clearLoadedRoute() {
+        importedTrack = null
+        displayedRouteTrack = null
+        detourOverlayTrack = null
+        offlineMapIdentityTrack = null
+        importedTrackReference = null
+        activeDetour = false
+        routeProgressTracker = null
+        routeRejoinAdvisor = null
+        binding.recordingRouteProgressGroup.visibility = View.GONE
+        binding.routeRejoinBanner.visibility = View.GONE
+        renderMoreButtonVisibility()
+        hideRouteStatus()
+        redrawTracks()
+    }
+
     private fun showMoreMenu() {
         PopupMenu(this, binding.moreButton).apply {
             if (importedTrack != null) {
@@ -2157,18 +2178,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
                         true
                     }
                     MENU_CLEAR_ROUTE -> {
-                        importedTrack = null
-                        displayedRouteTrack = null
-                        detourOverlayTrack = null
-                        offlineMapIdentityTrack = null
-                        importedTrackReference = null
-                        routeProgressTracker = null
-                        routeRejoinAdvisor = null
-                        binding.recordingRouteProgressGroup.visibility = View.GONE
-                        binding.routeRejoinBanner.visibility = View.GONE
-                        renderMoreButtonVisibility()
-                        hideRouteStatus()
-                        redrawTracks()
+                        clearLoadedRoute()
                         true
                     }
                     MENU_FIT_ROUTE -> {

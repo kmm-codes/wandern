@@ -9,6 +9,13 @@ import android.view.View
 import android.widget.TextView
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
+import androidx.test.espresso.Espresso.onView
+import androidx.test.espresso.action.ViewActions.click
+import androidx.test.espresso.assertion.ViewAssertions.matches
+import androidx.test.espresso.matcher.ViewMatchers.Visibility.GONE
+import androidx.test.espresso.matcher.ViewMatchers.withEffectiveVisibility
+import androidx.test.espresso.matcher.ViewMatchers.withId
+import androidx.test.espresso.matcher.ViewMatchers.withText
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import de.wandern.app.R
@@ -20,6 +27,8 @@ import de.wandern.app.model.RecordingState
 import de.wandern.app.model.TrackPoint
 import de.wandern.app.service.TrackingService
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.hamcrest.Matchers.containsString
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -132,6 +141,58 @@ class RecordingRecoveryFlowTest {
             SystemClock.sleep(250)
             recordingRoutes.clear(sessionId)
             store.discardSession(sessionId)
+            discardActiveSessions(store)
+        }
+    }
+
+    @Test
+    fun discardingRoutedRecordingClearsRouteFromNextStartCheck() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        grantNotificationPermission(context)
+        val store = TrackStore(context)
+        discardActiveSessions(store)
+        val storedRoute = store.saveImportedTrack(testRoute())
+        val sessionId = store.createSession(
+            routeName = storedRoute.name,
+            routeReference = storedRoute.reference,
+            activityType = ActivityType.HIKING,
+        )
+        store.updateState(sessionId, RecordingState.PAUSED)
+
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                waitUntil(scenario) { activity ->
+                    activity.findViewById<View>(R.id.recordingRouteProgressGroup).visibility == View.VISIBLE
+                }
+                scenario.onActivity { activity ->
+                    activity.findViewById<View>(R.id.recordingFinishButton).performClick()
+                }
+                onView(withText(R.string.discard_recording)).perform(click())
+                waitUntil(scenario) { activity ->
+                    store.activeSession() == null &&
+                        activity.findViewById<View>(R.id.actionsCard).visibility == View.VISIBLE
+                }
+                scenario.onActivity { activity ->
+                    val importedTrackField = MainActivity::class.java.getDeclaredField("importedTrack")
+                        .apply { isAccessible = true }
+                    assertNull(importedTrackField.get(activity))
+                    MainActivity::class.java.getDeclaredMethod("showCombinedStartCheck")
+                        .apply { isAccessible = true }
+                        .invoke(activity)
+                }
+                onView(withId(R.id.startCheckText)).check(
+                    matches(withText(containsString(context.getString(R.string.start_check_no_route)))),
+                )
+                onView(withId(R.id.routeEntryContainer)).check(matches(withEffectiveVisibility(GONE)))
+            }
+        } finally {
+            context.startService(
+                Intent(context, TrackingService::class.java)
+                    .setAction(TrackingService.ACTION_DISCARD),
+            )
+            SystemClock.sleep(250)
+            store.discardSession(sessionId)
+            store.deleteStoredTour(storedRoute.reference)
             discardActiveSessions(store)
         }
     }
