@@ -38,6 +38,7 @@ import de.wandern.app.model.LocationSample
 import de.wandern.app.model.LocationSampleDecision
 import de.wandern.app.model.LocationSamplePipeline
 import de.wandern.app.model.LocationSampleSource
+import de.wandern.app.model.LiveTrackUpdate
 import de.wandern.app.model.NavigationAnnouncementStage
 import de.wandern.app.model.NavigationGuidance
 import de.wandern.app.model.NavigationGuidanceTracker
@@ -228,11 +229,17 @@ class TrackingService : Service(), LocationListener {
                     emptyList()
                 }
             }.orEmpty()
-            trackStore.appendPoints(activeSessionId, segmentIndex, interpolated + point)
+            val appendedPoints = interpolated + point
+            trackStore.appendPoints(activeSessionId, segmentIndex, appendedPoints)
+            val liveTrack = LiveTrackUpdate.append(
+                track = _snapshots.value.track,
+                segmentIndex = segmentIndex,
+                points = appendedPoints,
+            )
             lastAcceptedPoint = point
             lastAcceptedElapsedRealtimeMillis = sample.elapsedRealtimeMillis
             gpsGapActive = false
-            publishRecordingUpdate(point)
+            publishRecordingUpdate(point, liveTrack)
             updateNotificationIfDue()
         }.onFailure {
             publishError(getString(R.string.point_save_error, it.localizedMessage ?: getString(R.string.unknown_error)))
@@ -483,12 +490,12 @@ class TrackingService : Service(), LocationListener {
         lastFullSnapshotElapsedRealtime = capturedAt
     }
 
-    private fun publishRecordingUpdate(point: TrackPoint) {
+    private fun publishRecordingUpdate(point: TrackPoint, liveTrack: GpxTrack) {
         val now = SystemClock.elapsedRealtime()
         if (now - lastFullSnapshotElapsedRealtime >= FULL_SNAPSHOT_INTERVAL_MILLIS) {
             publishSnapshot(RecordingState.RECORDING)
         } else {
-            publishTrustedLocation(point)
+            publishTrustedLocation(point, liveTrack)
         }
     }
 
@@ -508,9 +515,13 @@ class TrackingService : Service(), LocationListener {
         )
     }
 
-    private fun publishTrustedLocation(point: TrackPoint) {
+    private fun publishTrustedLocation(
+        point: TrackPoint,
+        track: GpxTrack = _snapshots.value.track,
+    ) {
         val capturedAt = SystemClock.elapsedRealtime()
         _snapshots.value = _snapshots.value.copy(
+            track = track,
             stats = withRecordingTimes(_snapshots.value.stats, capturedAt),
             latestPoint = point,
             latestObservedPoint = lastObservedPoint ?: point,
