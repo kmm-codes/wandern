@@ -574,7 +574,9 @@ class RoutePlannerFlowTest {
 
                 selectReturn.performClick()
 
-                assertEquals(View.GONE, selectReturn.visibility)
+                assertEquals(View.VISIBLE, selectReturn.visibility)
+                assertTrue(selectReturn.isEnabled)
+                assertEquals(activity.getString(R.string.save_route), selectReturn.text.toString())
                 assertTrue(save.isVisible)
                 assertEquals(
                     activity.getString(R.string.planner_round_trip_ready),
@@ -584,6 +586,7 @@ class RoutePlannerFlowTest {
                 activity.findViewById<View>(R.id.nextAlternativeButton).performClick()
 
                 assertEquals(View.VISIBLE, selectReturn.visibility)
+                assertEquals(activity.getString(R.string.select_return_route), selectReturn.text.toString())
                 assertFalse(save.isVisible)
             }
         }

@@ -1941,20 +1941,23 @@ class RoutePlannerActivity : AppCompatActivity() {
         binding.calculateButton.visibility = if (
             calculatedRoute != null &&
             !routingInProgress &&
-            (roundTripPhase == RoundTripPhase.OUTBOUND || roundTripPhase == RoundTripPhase.RETURN)
+            roundTripPhase != RoundTripPhase.NONE
         ) {
             View.VISIBLE
         } else {
             View.GONE
         }
         binding.calculateButton.isEnabled = calculatedRoute != null && !busy &&
-            (roundTripPhase == RoundTripPhase.OUTBOUND || roundTripPhase == RoundTripPhase.RETURN)
+            roundTripPhase != RoundTripPhase.NONE
         binding.calculateButton.setText(
-            if (roundTripPhase == RoundTripPhase.RETURN) {
-                R.string.select_return_route
-            } else {
-                R.string.use_outbound_route
+            when (roundTripPhase) {
+                RoundTripPhase.RETURN -> R.string.select_return_route
+                RoundTripPhase.COMPLETE -> R.string.save_route
+                else -> R.string.use_outbound_route
             },
+        )
+        binding.calculateButton.setIconResource(
+            if (roundTripPhase == RoundTripPhase.COMPLETE) R.drawable.ic_save else R.drawable.ic_route,
         )
         val canSave = canSaveCurrentRoute()
         binding.toolbar.menu.findItem(R.id.action_save_route)?.apply {
