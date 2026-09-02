@@ -2372,12 +2372,9 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             recordingElevationSource = source
             recordingElevationUsesPlannedRoute = plannedRoute
             val elevationProfile = TourInsightsAnalyzer.analyze(source).elevationProfile
-            binding.recordingElevationChart.setSeries(
+            binding.recordingElevationChart.setElevationSeries(
                 samples = elevationProfile,
-                unit = "m",
-                color = Color.parseColor(if (plannedRoute) "#1677FF" else "#F26B38"),
                 emptyMessage = getString(R.string.recording_no_elevation_data),
-                minimumValueRange = 40.0,
             )
         }
         binding.recordingElevationChart.setProgressDistance(

@@ -139,6 +139,22 @@ class ProfileChartView @JvmOverloads constructor(
         invalidate()
     }
 
+    fun setElevationSeries(
+        samples: List<ProfileSample>,
+        emptyMessage: String,
+        selectionFormatter: ((ProfileSample) -> String)? = null,
+    ) {
+        setSeries(
+            samples = samples,
+            unit = "m",
+            color = ELEVATION_LINE_COLOR,
+            emptyMessage = emptyMessage,
+            minimumValueRange = ELEVATION_MINIMUM_VALUE_RANGE_METERS,
+            colorBySlope = true,
+            selectionFormatter = selectionFormatter,
+        )
+    }
+
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         if (samples.size < 2) {
@@ -196,6 +212,8 @@ class ProfileChartView @JvmOverloads constructor(
         }
         canvas.drawPath(fillPath, fillPaint)
         if (colorBySlope) {
+            // Keep the travelled-distance highlight behind the shared slope colors.
+            drawProgress(canvas, ::x, ::y)
             samples.zipWithNext().forEach { (start, end) ->
                 linePaint.color = slopeColor(
                     listOfNotNull(start.secondaryValue, end.secondaryValue).average().takeIf { !it.isNaN() },
@@ -204,8 +222,8 @@ class ProfileChartView @JvmOverloads constructor(
             }
         } else {
             canvas.drawPath(path, linePaint)
+            drawProgress(canvas, ::x, ::y)
         }
-        drawProgress(canvas, ::x, ::y)
 
         labelPaint.textAlign = Paint.Align.RIGHT
         canvas.drawText(maxValueLabel, left - 7f * density, top + 4f * density, labelPaint)
@@ -382,5 +400,10 @@ class ProfileChartView @JvmOverloads constructor(
             steepness < 22.0 -> Color.parseColor("#B83A2F")
             else -> Color.parseColor("#7A1628")
         }
+    }
+
+    private companion object {
+        val ELEVATION_LINE_COLOR: Int = Color.parseColor("#1E4D3C")
+        const val ELEVATION_MINIMUM_VALUE_RANGE_METERS = 100.0
     }
 }

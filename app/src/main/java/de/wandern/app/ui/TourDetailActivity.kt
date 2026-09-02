@@ -438,13 +438,9 @@ class TourDetailActivity : AppCompatActivity() {
     }
 
     private fun renderElevation(insights: TourInsights) {
-        binding.elevationChart.setSeries(
+        binding.elevationChart.setElevationSeries(
             samples = insights.elevationProfile,
-            unit = "m",
-            color = Color.parseColor("#1E4D3C"),
             emptyMessage = getString(R.string.no_elevation_data),
-            minimumValueRange = 100.0,
-            colorBySlope = true,
             selectionFormatter = ::formatElevationSelection,
         )
     }

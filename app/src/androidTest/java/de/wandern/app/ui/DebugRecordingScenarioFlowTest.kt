@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Rect
 import android.os.SystemClock
+import android.view.MotionEvent
 import android.view.View
 import android.widget.TextView
 import androidx.test.core.app.ActivityScenario
@@ -101,6 +102,37 @@ class DebugRecordingScenarioFlowTest {
                     card,
                     "recordingDetourFab",
                 )
+            }
+        }
+    }
+
+    @Test
+    fun recordingCarouselUsesSameShortSwipeThresholdInBothDirections() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val intent = Intent(context, MainActivity::class.java)
+            .setAction(MainActivity.ACTION_DEBUG_SCENARIO)
+            .putExtra(MainActivity.EXTRA_DEBUG_SCENARIO, "route-expanded")
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+        ActivityScenario.launch<MainActivity>(intent).use { scenario ->
+            waitUntil(scenario) { activity ->
+                activity.findViewById<RecordingCarouselView>(
+                    de.wandern.app.R.id.recordingInfoCarousel,
+                ).run { isShown && width > 0 && currentPage == 0 }
+            }
+
+            scenario.onActivity { activity ->
+                val carousel = activity.findViewById<RecordingCarouselView>(
+                    de.wandern.app.R.id.recordingInfoCarousel,
+                )
+                performChildStartedSwipe(carousel, startFraction = 0.62f, endFraction = 0.47f)
+                assertEquals(1, carousel.currentPage)
+                carousel.showPage(1, animate = false)
+
+                // The chart consumes the initial touch itself. The carousel must still retain this
+                // gesture's start point rather than the start point from the preceding left swipe.
+                performChildStartedSwipe(carousel, startFraction = 0.38f, endFraction = 0.53f)
+                assertEquals(0, carousel.currentPage)
             }
         }
     }
@@ -288,6 +320,29 @@ class DebugRecordingScenarioFlowTest {
                 "$label is detached from the sheet: fab=$bounds sheetTop=$sheetTop",
                 sheetTop - bounds.bottom <= maxGapPx,
             )
+        }
+    }
+
+    private fun performChildStartedSwipe(
+        carousel: RecordingCarouselView,
+        startFraction: Float,
+        endFraction: Float,
+    ) {
+        val now = SystemClock.uptimeMillis()
+        val startX = carousel.width * startFraction
+        val endX = carousel.width * endFraction
+        val y = carousel.height * 0.5f
+        val down = MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, startX, y, 0)
+        val move = MotionEvent.obtain(now, now + 16L, MotionEvent.ACTION_MOVE, endX, y, 0)
+        val up = MotionEvent.obtain(now, now + 32L, MotionEvent.ACTION_UP, endX, y, 0)
+        try {
+            carousel.onInterceptTouchEvent(down)
+            carousel.onTouchEvent(move)
+            carousel.onTouchEvent(up)
+        } finally {
+            down.recycle()
+            move.recycle()
+            up.recycle()
         }
     }
 

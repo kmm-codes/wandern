@@ -18,6 +18,15 @@ class RecordingCarouselView @JvmOverloads constructor(
         private set
 
     private var downX = 0f
+    private var gestureStartPage = 0
+
+    override fun onInterceptTouchEvent(event: MotionEvent): Boolean {
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+            downX = event.x
+            gestureStartPage = currentPage
+        }
+        return super.onInterceptTouchEvent(event)
+    }
 
     override fun onSizeChanged(width: Int, height: Int, oldWidth: Int, oldHeight: Int) {
         super.onSizeChanged(width, height, oldWidth, oldHeight)
@@ -33,14 +42,25 @@ class RecordingCarouselView @JvmOverloads constructor(
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
         when (event.actionMasked) {
-            MotionEvent.ACTION_DOWN -> downX = event.x
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                val pageDelta = if (kotlin.math.abs(event.x - downX) > width * 0.12f) {
-                    if (event.x < downX) 1 else -1
+            MotionEvent.ACTION_DOWN -> {
+                downX = event.x
+                gestureStartPage = currentPage
+            }
+            MotionEvent.ACTION_UP -> {
+                val distance = event.x - downX
+                val targetPage = if (kotlin.math.abs(distance) > width * PAGE_CHANGE_THRESHOLD) {
+                    gestureStartPage + if (distance < 0f) 1 else -1
                 } else {
-                    (scrollX.toFloat() / width.coerceAtLeast(1)).roundToInt() - currentPage
+                    (scrollX.toFloat() / width.coerceAtLeast(1)).roundToInt()
                 }
-                showPage((currentPage + pageDelta).coerceIn(0, pageCount() - 1), animate = true)
+                showPage(targetPage.coerceIn(0, pageCount() - 1), animate = true)
+                return true
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                showPage(
+                    (scrollX.toFloat() / width.coerceAtLeast(1)).roundToInt(),
+                    animate = true,
+                )
                 return true
             }
         }
@@ -55,4 +75,8 @@ class RecordingCarouselView @JvmOverloads constructor(
     }
 
     private fun pageCount(): Int = (getChildAt(0) as? LinearLayout)?.childCount?.coerceAtLeast(1) ?: 1
+
+    private companion object {
+        const val PAGE_CHANGE_THRESHOLD = 0.12f
+    }
 }

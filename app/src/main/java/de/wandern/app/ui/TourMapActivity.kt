@@ -272,13 +272,9 @@ class TourMapActivity : AppCompatActivity() {
         binding.profileChart.visibility = View.VISIBLE
         binding.forecastDetailsText.visibility = View.GONE
         binding.routeAttributesView.visibility = View.GONE
-        binding.profileChart.setSeries(
+        binding.profileChart.setElevationSeries(
             samples = insights.elevationProfile,
-            unit = "m",
-            color = Color.parseColor("#1E4D3C"),
             emptyMessage = getString(R.string.no_elevation_data),
-            minimumValueRange = 100.0,
-            colorBySlope = true,
             selectionFormatter = ::formatElevationSelection,
         )
     }
