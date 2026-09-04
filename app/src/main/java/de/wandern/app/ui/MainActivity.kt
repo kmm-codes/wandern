@@ -9,6 +9,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.Rect
 import android.graphics.Typeface
 import android.hardware.GeomagneticField
 import android.hardware.Sensor
@@ -44,6 +45,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.bottomsheet.BottomSheetBehavior
+import com.google.android.material.floatingactionbutton.FloatingActionButton
 import de.wandern.app.BuildConfig
 import de.wandern.app.R
 import de.wandern.app.data.GpxCodec
@@ -1635,6 +1637,13 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             val naturalCenterTop = overlayTop - binding.centerButton.height - dp(16)
             val centerTop = (naturalCenterTop + compassClearanceShift(naturalCenterTop))
                 .coerceAtLeast(minimumTop)
+            // The stack keeps its place either way - it has nowhere better to go, and the corner
+            // it is squeezed into needs every pixel of the move. Only the compass gives way.
+            binding.compassFab.visibility = if (stackClearsCompass(centerTop, minimumTop)) {
+                View.VISIBLE
+            } else {
+                View.INVISIBLE
+            }
             binding.centerButton.y = centerTop.toFloat()
             var stackTop = centerTop
             if (binding.mapSettingsFab.height > 0) {
@@ -1671,16 +1680,56 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
      * The whole stack therefore moves as one block, and the gap it keeps to the drawer is the
      * entire budget for that move - the stack gives that gap up before it ever touches the
      * drawer. A corner too short for both gaps spends the whole budget and stays as far from the
-     * compass as it can get.
+     * compass as it can get - and if that is still not far enough, [stackClearsCompass] takes the
+     * compass out of the way.
      */
     private fun compassClearanceShift(naturalCenterTop: Int): Int {
         if (binding.compassFab.height <= 0) return 0
-        val aboveCenter = listOf(binding.mapSettingsFab, binding.recordingDetourFab)
-            .filter { it.height > 0 }
-            .sumOf { it.height + dp(8) }
-        val stackTop = naturalCenterTop - aboveCenter
+        val stackTop = naturalCenterTop - stackHeightAboveCenterButton()
         return (binding.compassFab.bottom + dp(16) - stackTop).coerceIn(0, dp(16))
     }
+
+    /**
+     * Whether a stack placed at [centerTop] leaves the compass unburied.
+     *
+     * Asked once the shift is already spent, so a no means the corner is out of room for good: a
+     * loaded route puts a third button into the stack and the expanded drawer takes the rest, and
+     * no 16 dp move buys that back. Drawing the buttons over the compass would put the needle
+     * behind them and leave a tap target that belongs to neither, so the compass goes invisible
+     * instead and keeps its slot for the moment the corner grows back.
+     *
+     * The circles decide it, not the view bounds. A mini FAB is laid out at the minimum touch
+     * target size, so its button is drawn a few pixels inside its own box, and two boxes that
+     * merely touch still show a clear gap between the buttons.
+     */
+    private fun stackClearsCompass(centerTop: Int, minimumTop: Int): Boolean {
+        val compass = binding.compassFab
+        if (compass.height <= 0) return true
+        val topButton = stackButtonsAboveCenterButton().firstOrNull() ?: binding.centerButton
+        val stackTop = (centerTop - stackHeightAboveCenterButton()).coerceAtLeast(minimumTop)
+        return stackTop + drawnInset(topButton) >= compass.bottom - drawnInset(compass)
+    }
+
+    /** How far inside its own bounds a floating action button draws its circle. */
+    private fun drawnInset(fab: FloatingActionButton): Int {
+        val circle = Rect()
+        return if (fab.getContentRect(circle)) circle.top else 0
+    }
+
+    /**
+     * The buttons stacked on top of the center button, topmost first.
+     *
+     * A gone button keeps the bounds of its last layout pass, so its own height is no answer to
+     * whether it is still in the stack - a cleared route would otherwise go on reserving the
+     * detour button's slot, and with it the corner the compass needs.
+     */
+    private fun stackButtonsAboveCenterButton(): List<FloatingActionButton> =
+        listOf(binding.recordingDetourFab, binding.mapSettingsFab)
+            .filter { it.visibility != View.GONE && it.height > 0 }
+
+    /** Height those buttons occupy above the center button, their gaps included. */
+    private fun stackHeightAboveCenterButton(): Int =
+        stackButtonsAboveCenterButton().sumOf { it.height + dp(8) }
 
     private fun recordingSheetTopInRoot(): Int =
         (binding.recordingSheetHost.y + binding.recordingCard.y).roundToInt()
@@ -2654,7 +2703,13 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         renderCompassFab()
     }
 
-    /** Keeps the needle pointing at true north and shows whether heading-up is steering. */
+    /**
+     * Keeps the needle pointing at true north and shows whether heading-up is steering.
+     *
+     * Camera moves call this constantly, so it deliberately leaves the visibility alone:
+     * [syncOverlayPositions] owns it, and a repaint here would flash the compass back over the
+     * FAB stack between two layout passes.
+     */
     private fun renderCompassFab() {
         if (!::binding.isInitialized) return
         binding.compassFab.rotation = -(map?.cameraPosition?.bearing ?: 0.0).toFloat()
