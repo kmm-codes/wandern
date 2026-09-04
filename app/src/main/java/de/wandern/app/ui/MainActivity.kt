@@ -1631,15 +1631,9 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             binding.actionsCard.y.roundToInt()
         }
         if (binding.root.height > 0 && overlayTop > 0 && binding.centerButton.height > 0) {
-            // The stack grows upwards into the compass FAB's corner, so it may not start higher
-            // than a full gap below the compass. Before the compass is laid out its bounds say
-            // nothing, and the window's top padding is the only bound left.
-            val minimumTop = if (binding.compassFab.height > 0) {
-                maxOf(binding.root.paddingTop + dp(12), binding.compassFab.bottom + dp(16))
-            } else {
-                binding.root.paddingTop + dp(12)
-            }
-            val centerTop = (overlayTop - binding.centerButton.height - dp(16))
+            val minimumTop = binding.root.paddingTop + dp(12)
+            val naturalCenterTop = overlayTop - binding.centerButton.height - dp(16)
+            val centerTop = (naturalCenterTop + compassClearanceShift(naturalCenterTop))
                 .coerceAtLeast(minimumTop)
             binding.centerButton.y = centerTop.toFloat()
             var stackTop = centerTop
@@ -1666,6 +1660,26 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             layoutParams.topMargin = topMargin
             binding.routeStatusText.layoutParams = layoutParams
         }
+    }
+
+    /**
+     * How far the bottom right FAB stack has to move down to keep a full gap below the compass.
+     *
+     * The stack shares the right hand column with the compass FAB, and with the drawer expanded
+     * its top button ends up right underneath it. Coercing that single button down is not an
+     * option: the buttons below it stay where they are, so the stack would collapse into itself.
+     * The whole stack therefore moves as one block, and only by an amount that still leaves the
+     * drawer untouched - the drawer gap is the entire budget. A corner too short for both gaps
+     * keeps the stack where it is instead of spending the budget on a move that would not clear
+     * the compass anyway.
+     */
+    private fun compassClearanceShift(naturalCenterTop: Int): Int {
+        if (binding.compassFab.height <= 0) return 0
+        val aboveCenter = listOf(binding.mapSettingsFab, binding.recordingDetourFab)
+            .filter { it.height > 0 }
+            .sumOf { it.height + dp(8) }
+        val required = binding.compassFab.bottom + dp(16) - (naturalCenterTop - aboveCenter)
+        return if (required in 1..dp(16)) required else 0
     }
 
     private fun recordingSheetTopInRoot(): Int =
