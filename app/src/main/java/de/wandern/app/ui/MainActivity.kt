@@ -3138,7 +3138,9 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             startVisibleLocationUpdates()
             locateUser(centerAfterFix = false)
         }
-        offerFinishAtDestination(latestSnapshot)
+        // The lifecycle only reports RESUMED after onResume returns, so the arrival check has to
+        // wait for the next frame. Called directly it would always hit its own resume guard.
+        binding.root.post { offerFinishAtDestination(latestSnapshot) }
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
