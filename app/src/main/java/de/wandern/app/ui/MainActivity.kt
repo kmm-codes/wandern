@@ -1668,18 +1668,18 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
      * The stack shares the right hand column with the compass FAB, and with the drawer expanded
      * its top button ends up right underneath it. Coercing that single button down is not an
      * option: the buttons below it stay where they are, so the stack would collapse into itself.
-     * The whole stack therefore moves as one block, and only by an amount that still leaves the
-     * drawer untouched - the drawer gap is the entire budget. A corner too short for both gaps
-     * keeps the stack where it is instead of spending the budget on a move that would not clear
-     * the compass anyway.
+     * The whole stack therefore moves as one block, and the gap it keeps to the drawer is the
+     * entire budget for that move - the stack gives that gap up before it ever touches the
+     * drawer. A corner too short for both gaps spends the whole budget and stays as far from the
+     * compass as it can get.
      */
     private fun compassClearanceShift(naturalCenterTop: Int): Int {
         if (binding.compassFab.height <= 0) return 0
         val aboveCenter = listOf(binding.mapSettingsFab, binding.recordingDetourFab)
             .filter { it.height > 0 }
             .sumOf { it.height + dp(8) }
-        val required = binding.compassFab.bottom + dp(16) - (naturalCenterTop - aboveCenter)
-        return if (required in 1..dp(16)) required else 0
+        val stackTop = naturalCenterTop - aboveCenter
+        return (binding.compassFab.bottom + dp(16) - stackTop).coerceIn(0, dp(16))
     }
 
     private fun recordingSheetTopInRoot(): Int =
