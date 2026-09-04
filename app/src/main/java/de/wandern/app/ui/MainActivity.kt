@@ -439,6 +439,13 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         readyMap.addOnRotateListener(object : MapLibreMap.OnRotateListener {
             override fun onRotateBegin(detector: RotateGestureDetector) {
                 initialRegionFramingComplete = true
+                // Steering would turn the hand-picked bearing back on the next fix, so the
+                // rotation ends heading-up. Following and centering stay untouched, and the
+                // next compass tap straightens the map before heading-up starts again.
+                if (mapOrientationMode == MapOrientationMode.HEADING_UP) {
+                    mapOrientationMode = MapOrientationMode.NORTH_UP
+                    renderCompassFab()
+                }
             }
 
             override fun onRotate(detector: RotateGestureDetector) = Unit
