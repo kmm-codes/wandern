@@ -136,6 +136,45 @@ class DetourSessionStoreTest {
     }
 
     @Test
+    fun aRouteChangeDropsTheDetourAndKeepsTheClosures() {
+        val track = GpxTrack(
+            name = "Umleitung",
+            segments = listOf(listOf(TrackPoint(48.0, 8.0), TrackPoint(48.002, 8.003))),
+            activityType = ActivityType.HIKING,
+        )
+        val closure = RouteClosure(
+            id = 3L,
+            createdAtMillis = 1_700_000_000_000L,
+            widthMeters = 30,
+            points = listOf(TrackPoint(48.0, 8.0), TrackPoint(48.0, 8.002)),
+        )
+        store.save(
+            sessionId = SESSION_ID,
+            originalRouteReference = "planned:42",
+            candidate = DetourRouteCandidate(
+                track = track,
+                detourTrack = track,
+                departureDistanceMeters = 80.0,
+                rejoinDistanceMeters = 500.0,
+                skippedRouteMeters = 150.0,
+                extraDistanceMeters = 100.0,
+                directToDestination = false,
+            ),
+            corridorStartMeters = 100.0,
+            corridorEndMeters = 300.0,
+        )
+        store.addClosure(SESSION_ID, closure)
+
+        store.clearDetour(SESSION_ID)
+
+        assertNull(store.load(SESSION_ID))
+        assertEquals(listOf(3L), store.closures(SESSION_ID).map { it.id })
+
+        store.clear(SESSION_ID)
+        assertTrue(store.closures(SESSION_ID).isEmpty())
+    }
+
+    @Test
     fun replacesAClosureThatIsAddedTwice() {
         val closure = RouteClosure(
             id = 7L,

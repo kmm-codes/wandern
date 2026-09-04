@@ -1079,6 +1079,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     private fun applyPersistedRecordingRoute(announce: Boolean) {
         val activeSession = trackStore.activeSession() ?: return
         val activeRoute = recordingRouteStore.load(activeSession.id) ?: return
+        refreshSessionClosures()
         activeDetour = false
         activeRouteAdjustmentKind = null
         displayTrack(

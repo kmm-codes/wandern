@@ -1853,7 +1853,8 @@ class RoutePlannerActivity : AppCompatActivity() {
                             getString(R.string.recording_no_longer_active)
                         }
                         recordingRouteStore.save(activeRecordingSessionId, route, controlPoints)
-                        detourStore.clear(activeRecordingSessionId)
+                        // Reported closures survive the new route: they describe the terrain.
+                        detourStore.clearDetour(activeRecordingSessionId)
                         null
                     } else editTourReference?.let { reference ->
                         trackStore.updateImportedTrack(reference, route, controlPoints)

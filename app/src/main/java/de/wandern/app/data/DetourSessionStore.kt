@@ -135,13 +135,34 @@ class DetourSessionStore(context: Context) {
         return updated
     }
 
+    /**
+     * Drops everything this recording session stored: the active detour and the reported closures.
+     *
+     * Used when the recording itself ends, is discarded or when the hiker removes the detour, which
+     * is deliberately all-or-nothing. A route change during the recording must call [clearDetour]
+     * instead, because the closures describe the terrain and not the planned route.
+     */
     @Synchronized
     fun clear(sessionId: Long) {
+        clearDetour(sessionId)
+        delete(closureFile(sessionId))
+    }
+
+    /**
+     * Drops only the active detour and keeps the reported closures of this recording session.
+     *
+     * A hiker who plans a new route mid-recording leaves the detour behind, but the sections they
+     * reported as blocked stay blocked for every later routing request of the same recording.
+     */
+    @Synchronized
+    fun clearDetour(sessionId: Long) {
         preferences.edit().remove(key(sessionId)).commit()
-        listOf(routeFile(sessionId), detourFile(sessionId), closureFile(sessionId)).forEach { target ->
-            target.delete()
-            File(directory, "${target.name}.tmp").delete()
-        }
+        listOf(routeFile(sessionId), detourFile(sessionId)).forEach(::delete)
+    }
+
+    private fun delete(target: File) {
+        target.delete()
+        File(directory, "${target.name}.tmp").delete()
     }
 
     private fun encodeClosures(closures: List<RouteClosure>): String = JSONObject().apply {
