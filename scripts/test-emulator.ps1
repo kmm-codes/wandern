@@ -154,8 +154,11 @@ try {
         )
         for ($sceneIndex = 0; $sceneIndex -lt $debugScenes.Count; $sceneIndex++) {
             $scene = $debugScenes[$sceneIndex]
+            # The first scene starts the freshly installed app, so its map still has to fetch and
+            # render every tile. With the same short wait as the others it lands on an empty map.
+            $waitMilliseconds = if ($sceneIndex -eq 0) { 6000 } else { 1200 }
             & (Join-Path $repository 'scripts\debug-scene.ps1') `
-                -Scene $scene -DeviceSerial $serial -WaitMilliseconds 1200 `
+                -Scene $scene -DeviceSerial $serial -WaitMilliseconds $waitMilliseconds `
                 -DismissSystemEducation:($DebugScenesOnly -and $sceneIndex -eq 0)
             if ($LASTEXITCODE -ne 0) { throw "Debug-Screenshot fehlgeschlagen: $scene" }
         }
