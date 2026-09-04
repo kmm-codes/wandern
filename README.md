@@ -174,6 +174,13 @@ Testaufzeichnung anschließend im `finally`:
 .\scripts\test-navigation-simulation.ps1 -LiveRoute
 ```
 
+Der Lauf endet bewusst vor dem Ziel. Sobald eine Aufzeichnung am Ziel steht,
+fragt die App, ob die Tour beendet werden soll; dieser Dialog würde die
+Screenshots verdecken. Der Smoke-Test prüft das nach den Bewegungsschritten und
+bricht mit einer klaren Meldung ab, falls die Simulation doch am Ziel ankommt.
+Die Szene `route-arrived-collapsed` von `debug-scene.ps1` zeigt den Dialog
+gezielt ohne Simulation.
+
 Für einen autonomen Lauf reserviert der Emulator-Runner zuerst Wanderns feste
 AVD-Lane `Pixel_Tablet_2`, startet sie headless innerhalb des hostweiten
 Vier-Emulator-Budgets und gibt Emulator sowie Lease im `finally` wieder frei:

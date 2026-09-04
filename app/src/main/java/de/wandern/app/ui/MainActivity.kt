@@ -70,6 +70,7 @@ import de.wandern.app.model.GpsQualityWarningMonitor
 import de.wandern.app.model.HeadingSmoother
 import de.wandern.app.model.HikingFitnessLevel
 import de.wandern.app.model.NavigationGuidance
+import de.wandern.app.model.NavigationGuidanceTracker
 import de.wandern.app.model.NavigationManeuver
 import de.wandern.app.model.NavigationManeuverType
 import de.wandern.app.model.OfflineMapPlanner
@@ -182,6 +183,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     private var pendingRecordingDrawerState: Int? = null
     private var pendingRecordingPeekHeight: Int? = null
     private var debugSnapshotOverride = false
+    private var arrivalPromptShownForSessionId: Long? = null
+    private var arrivalPromptDialog: androidx.appcompat.app.AlertDialog? = null
     private var lastRenderedRecordingState = RecordingState.IDLE
     private var lastRenderedLiveTrack: GpxTrack? = null
     private var recordingElevationSource: GpxTrack? = null
@@ -266,6 +269,9 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         initialRegionFramingComplete = savedInstanceState != null
+        arrivalPromptShownForSessionId = savedInstanceState
+            ?.takeIf { it.containsKey(KEY_ARRIVAL_PROMPT_SESSION) }
+            ?.getLong(KEY_ARRIVAL_PROMPT_SESSION)
         MapLibre.getInstance(this)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
@@ -509,8 +515,17 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             activityType = ActivityType.HIKING,
             capturedAtElapsedRealtimeMillis = SystemClock.elapsedRealtime(),
             movementTimeRunning = !paused,
-            navigationGuidance = if (scenario.contains("navigation") && route != null) {
-                NavigationGuidance(
+            navigationGuidance = when {
+                route == null -> null
+                scenario.contains("arrived") -> NavigationGuidance(
+                    maneuver = NavigationManeuver(
+                        type = NavigationManeuverType.ARRIVE,
+                        point = route.points.last(),
+                        distanceAlongRouteMeters = 0.0,
+                    ),
+                    distanceMeters = 6.0,
+                )
+                scenario.contains("navigation") -> NavigationGuidance(
                     maneuver = NavigationManeuver(
                         type = NavigationManeuverType.RIGHT,
                         point = route.points[60],
@@ -519,8 +534,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
                     ),
                     distanceMeters = 85.0,
                 )
-            } else {
-                null
+                else -> null
             },
         )
         latestSnapshot = snapshot
@@ -1244,6 +1258,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         renderRouteProgress(snapshot.latestPoint ?: latestLocatedPoint)
         renderNavigationGuidance(snapshot.navigationGuidance)
         renderRouteRejoinGuidance(snapshot.latestPoint ?: latestLocatedPoint)
+        offerFinishAtDestination(snapshot)
         if (snapshot.track !== lastRenderedLiveTrack) {
             lastRenderedLiveTrack = snapshot.track
             redrawTracks()
@@ -2738,8 +2753,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         }
         binding.navigationManeuverArrow.rotation = navigationArrowRotation(guidance.maneuver.type)
         binding.navigationManeuverText.text = when {
-            guidance.maneuver.type == NavigationManeuverType.ARRIVE && guidance.distanceMeters <= 18.0 ->
-                getString(R.string.navigation_arrived)
+            atDestination(guidance) -> getString(R.string.navigation_arrived)
             guidance.maneuver.type == NavigationManeuverType.ARRIVE -> getString(
                 R.string.navigation_destination_in_distance,
                 formatRemainingDistance(guidance.distanceMeters),
@@ -2757,6 +2771,39 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         binding.navigationManeuverBanner.visibility = View.VISIBLE
         binding.routeStatusText.translationY = dp(68).toFloat()
     }
+
+    private fun atDestination(guidance: NavigationGuidance): Boolean =
+        guidance.maneuver.type == NavigationManeuverType.ARRIVE &&
+            guidance.distanceMeters <= NavigationGuidanceTracker.ARRIVAL_ANNOUNCEMENT_METERS
+
+    /**
+     * Offers to finish the tour once the hiker stands at the destination. The prompt appears at
+     * most once per recording session and never on top of another dialog.
+     */
+    private fun offerFinishAtDestination(snapshot: TrackingSnapshot) {
+        val recordingActive = snapshot.state == RecordingState.RECORDING ||
+            snapshot.state == RecordingState.PAUSED
+        if (!recordingActive || snapshot.confirmedOffRoute) return
+        val guidance = snapshot.navigationGuidance?.takeIf(::atDestination) ?: return
+        if (!lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) return
+        if (arrivalPromptDialog?.isShowing == true || !hasWindowFocus()) return
+        val sessionId = arrivalPromptSessionId() ?: return
+        if (arrivalPromptShownForSessionId == sessionId) return
+        arrivalPromptShownForSessionId = sessionId
+        arrivalPromptDialog = MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.arrival_finish_title)
+            .setMessage(R.string.arrival_finish_message)
+            .setNegativeButton(R.string.arrival_keep_recording, null)
+            .setPositiveButton(R.string.arrival_finish_tour) { _, _ ->
+                sendTrackingAction(TrackingService.ACTION_STOP)
+            }
+            .setOnDismissListener { arrivalPromptDialog = null }
+            .show()
+    }
+
+    /** Debug scenes render a snapshot without a stored session, so they share one fixed id. */
+    private fun arrivalPromptSessionId(): Long? = trackStore.activeSession()?.id
+        ?: DEBUG_SNAPSHOT_SESSION_ID.takeIf { debugSnapshotOverride }
 
     private fun navigationManeuverLabel(type: NavigationManeuverType): Int = when (type) {
         NavigationManeuverType.STRAIGHT -> R.string.navigation_straight
@@ -2897,6 +2944,14 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             startVisibleLocationUpdates()
             locateUser(centerAfterFix = false)
         }
+        offerFinishAtDestination(latestSnapshot)
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        // Snapshots stop arriving while the window is covered, so re-check the arrival state once
+        // the activity is in front again.
+        if (hasFocus) offerFinishAtDestination(latestSnapshot)
     }
     override fun onPause() {
         stopCompassUpdates()
@@ -2913,13 +2968,19 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     }
     override fun onLowMemory() { super.onLowMemory(); binding.mapView.onLowMemory() }
     override fun onDestroy() {
+        arrivalPromptDialog?.dismiss()
+        arrivalPromptDialog = null
         binding.routeStatusText.removeCallbacks(restoreRouteStatusRunnable)
         locationRequestSignals.forEach(CancellationSignal::cancel)
         locationRequestSignals.clear()
         binding.mapView.onDestroy()
         super.onDestroy()
     }
-    override fun onSaveInstanceState(outState: Bundle) { super.onSaveInstanceState(outState); binding.mapView.onSaveInstanceState(outState) }
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        binding.mapView.onSaveInstanceState(outState)
+        arrivalPromptShownForSessionId?.let { outState.putLong(KEY_ARRIVAL_PROMPT_SESSION, it) }
+    }
 
     companion object {
         const val EXTRA_TOUR_REFERENCE = "de.wandern.app.MAIN_TOUR_REFERENCE"
@@ -2932,6 +2993,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         private const val MAP_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty"
         private const val LOG_TAG = "WandernImport"
         private const val RECORDING_TIME_TICK_MILLIS = 1_000L
+        private const val KEY_ARRIVAL_PROMPT_SESSION = "arrival_prompt_session"
+        private const val DEBUG_SNAPSHOT_SESSION_ID = -1L
         private const val COMPLETION_PRESENTATION_PREFERENCES = "completion_presentation"
         private const val KEY_LAST_PRESENTED_RECORDING = "last_presented_recording"
         private const val LEGACY_COMPASS_PREFERENCES = "compass_preferences"

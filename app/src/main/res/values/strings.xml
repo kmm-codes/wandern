@@ -75,6 +75,10 @@
     <string name="navigation_now">Now %1$s</string>
     <string name="navigation_destination_in_distance">Destination in %1$s</string>
     <string name="navigation_arrived">You have reached your destination</string>
+    <string name="arrival_finish_title">You have arrived</string>
+    <string name="arrival_finish_message">Do you want to finish and save the tour now?</string>
+    <string name="arrival_finish_tour">Finish tour</string>
+    <string name="arrival_keep_recording">Keep recording</string>
     <string name="navigation_straight">continue straight</string>
     <string name="navigation_slight_left">bear slightly left</string>
     <string name="navigation_left">turn left</string>

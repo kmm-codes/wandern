@@ -195,9 +195,11 @@ class NavigationGuidanceTracker(track: GpxTrack) {
     }
 
     companion object {
+        /** Distance below which the hiker counts as standing at the destination. */
+        const val ARRIVAL_ANNOUNCEMENT_METERS = 18.0
+
         private const val APPROACH_ANNOUNCEMENT_METERS = 110.0
         private const val NOW_ANNOUNCEMENT_METERS = 22.0
-        private const val ARRIVAL_ANNOUNCEMENT_METERS = 18.0
         private const val PASSED_TOLERANCE_METERS = 18.0
     }
 }

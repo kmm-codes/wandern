@@ -823,7 +823,8 @@ class TrackingService : Service(), LocationListener {
     }
 
     private fun formatNavigationGuidance(guidance: NavigationGuidance): String = when {
-        guidance.maneuver.type == NavigationManeuverType.ARRIVE && guidance.distanceMeters <= 18.0 ->
+        guidance.maneuver.type == NavigationManeuverType.ARRIVE &&
+            guidance.distanceMeters <= NavigationGuidanceTracker.ARRIVAL_ANNOUNCEMENT_METERS ->
             getString(R.string.navigation_arrived)
         guidance.maneuver.type == NavigationManeuverType.ARRIVE -> getString(
             R.string.navigation_destination_in_distance,

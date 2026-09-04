@@ -12,6 +12,8 @@ param(
         "route-detour-round-collapsed",
         "route-navigation-collapsed",
         "route-navigation-expanded",
+        "route-arrived-collapsed",
+        "route-arrived-expanded",
         "free-expanded"
     )]
     [string]$Scene = "route-expanded",

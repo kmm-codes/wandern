@@ -46,6 +46,13 @@ function Assert-Condition {
     if (-not $Condition) { throw "Navigations-Smoke-Test: $Message" }
 }
 
+function Test-AtDestination {
+    param([Parameter(Mandatory)]$Status)
+    if ($Status.navigationManeuver -ne 'ARRIVE') { return $false }
+    if ($null -eq $Status.navigationDistanceMeters) { return $false }
+    return [double]$Status.navigationDistanceMeters -le 18
+}
+
 $prepared = $false
 try {
     $prepareParameters = @{ Install = $Install }
@@ -67,6 +74,8 @@ try {
     Assert-Condition ($follow.pointCount -ge 90) 'Zu wenige Standortpunkte wurden verarbeitet.'
     Assert-Condition ($follow.distanceMeters -ge 900 -and $follow.distanceMeters -le 1100) `
         "Erwartete etwa 1 km, erhalten: $($follow.distanceMeters) m."
+    Assert-Condition (-not (Test-AtDestination $follow)) `
+        'Die Simulation steht schon am Ziel; der Ankunftsdialog würde die weiteren Schritte verdecken.'
 
     $deviated = Invoke-Simulation -Command deviate -Parameters @{
         Direction = 'right'
@@ -82,6 +91,8 @@ try {
         SpeedKmh = 5
         Screenshot = (Join-Path $output '03-rejoined.png')
     }
+    Assert-Condition (-not (Test-AtDestination $rejoined)) `
+        'Der Wiedereinstieg endete am Ziel; der Ankunftsdialog würde die Screenshots verdecken.'
     Assert-Condition (-not [bool]$rejoined.confirmedOffRoute) 'Off-Route-Zustand blieb nach Wiedereinstieg aktiv.'
     Assert-Condition ($rejoined.routeDeviationMeters -le 2) `
         "Wiedereinstieg endete nicht auf der Route: $($rejoined.routeDeviationMeters) m."

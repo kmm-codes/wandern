@@ -76,6 +76,10 @@
     <string name="navigation_now">Jetzt %1$s</string>
     <string name="navigation_destination_in_distance">Ziel in %1$s</string>
     <string name="navigation_arrived">Du hast dein Ziel erreicht</string>
+    <string name="arrival_finish_title">Am Ziel angekommen</string>
+    <string name="arrival_finish_message">Möchtest du die Tour jetzt beenden und speichern?</string>
+    <string name="arrival_finish_tour">Tour beenden</string>
+    <string name="arrival_keep_recording">Weiter aufzeichnen</string>
     <string name="navigation_straight">geradeaus</string>
     <string name="navigation_slight_left">leicht links</string>
     <string name="navigation_left">links abbiegen</string>
