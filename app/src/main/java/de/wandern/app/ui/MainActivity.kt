@@ -469,6 +469,14 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         recordingDrawerInitializedForSession = true
         activeDetour = scenario.contains("detour")
         activeRouteAdjustmentKind = RouteAdjustmentKind.DETOUR.takeIf { activeDetour }
+        // Scenes share one activity instance, so a scene without a detour must not inherit the
+        // blocked sections of the one captured before it.
+        closureSegments = emptyList()
+        // The same goes for the arrival prompt: it would otherwise cover every following scene,
+        // and the arrival scene itself would stay silent the second time it is opened.
+        arrivalPromptDialog?.dismiss()
+        arrivalPromptDialog = null
+        arrivalPromptShownForSessionId = null
 
         val route = when {
             scenario.startsWith("free") -> null
@@ -486,7 +494,6 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             importedTrack = null
             displayedRouteTrack = null
             detourOverlayTrack = null
-            closureSegments = emptyList()
             offlineMapIdentityTrack = null
             importedTrackReference = null
             routeProgressTracker = null
