@@ -33,6 +33,16 @@ class BottomDrawerController<V : View>(
     var safeBottomInsetPx: Int = 0
         private set
 
+    /**
+     * The stable state the last programmatic request is heading for, or [NO_PENDING_STATE]
+     * once the sheet has reached a stable state or the user grabbed it.
+     *
+     * A request is not visible in [BottomSheetBehavior.getState] right away: the behavior
+     * defers `startSettling` until after a pending layout pass, so the sheet still reports its
+     * previous state for a frame.
+     */
+    private var pendingTargetState = NO_PENDING_STATE
+
     init {
         // Keep gestures on non-interactive gaps inside the visible sheet from
         // falling through to map views underneath. BottomSheetBehavior still
@@ -44,11 +54,15 @@ class BottomDrawerController<V : View>(
             }
 
             override fun onStateChanged(bottomSheet: View, newState: Int) {
-                if (
-                    newState != BottomSheetBehavior.STATE_DRAGGING &&
-                    newState != BottomSheetBehavior.STATE_SETTLING
-                ) {
-                    onStableStateChanged(newState)
+                when (newState) {
+                    BottomSheetBehavior.STATE_SETTLING -> Unit
+                    // A drag settles wherever the user lets go, so a request made before the
+                    // drag no longer describes where the sheet is heading.
+                    BottomSheetBehavior.STATE_DRAGGING -> pendingTargetState = NO_PENDING_STATE
+                    else -> {
+                        pendingTargetState = NO_PENDING_STATE
+                        onStableStateChanged(newState)
+                    }
                 }
             }
         })
@@ -72,19 +86,44 @@ class BottomDrawerController<V : View>(
     }
 
     fun toggle() {
-        behavior.state = if (behavior.state == BottomSheetBehavior.STATE_COLLAPSED) {
-            BottomSheetBehavior.STATE_EXPANDED
+        if (isSettledOrMovingTo(BottomSheetBehavior.STATE_COLLAPSED)) {
+            expand()
         } else {
-            BottomSheetBehavior.STATE_COLLAPSED
+            moveTo(BottomSheetBehavior.STATE_COLLAPSED)
         }
     }
 
     fun expand() {
-        behavior.state = BottomSheetBehavior.STATE_EXPANDED
+        moveTo(BottomSheetBehavior.STATE_EXPANDED)
+    }
+
+    /** True while the sheet rests in [state] or is already on its way there. */
+    fun isSettledOrMovingTo(state: Int): Boolean =
+        if (pendingTargetState == NO_PENDING_STATE) behavior.state == state
+        else pendingTargetState == state
+
+    /**
+     * Requests [state] unless the sheet is already there or on its way there.
+     *
+     * BottomSheetBehavior no longer ignores a redundant `state` assignment: every call runs
+     * `startSettling`, which hands the sheet to `ViewDragHelper.smoothSlideViewTo`. That
+     * captures the view, drops the active pointer and — whenever the sheet is not exactly at
+     * the target top — restarts the settle animation with a fresh duration from the current
+     * position. Asking an expanded or still settling drawer to expand therefore restarts an
+     * animation that should not be running at all, which is visible as a flicker.
+     */
+    private fun moveTo(state: Int) {
+        if (isSettledOrMovingTo(state)) return
+        pendingTargetState = state
+        behavior.state = state
     }
 
     private fun navigationBarHeightFallback(): Int {
         val resourceId = sheet.resources.getIdentifier("navigation_bar_height", "dimen", "android")
         return if (resourceId != 0) sheet.resources.getDimensionPixelSize(resourceId) else 0
+    }
+
+    private companion object {
+        const val NO_PENDING_STATE = -1
     }
 }

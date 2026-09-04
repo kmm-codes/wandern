@@ -103,6 +103,7 @@ import org.maplibre.geojson.Point
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.exp
+import kotlin.math.min
 
 class RoutePlannerActivity : AppCompatActivity() {
     private lateinit var binding: ActivityRoutePlannerBinding
@@ -164,6 +165,7 @@ class RoutePlannerActivity : AppCompatActivity() {
     private var drawerOverPullActive = false
     private var drawerPullStartX = 0f
     private var drawerPullStartY = 0f
+    private var drawerPullStartTranslation = 0f
     private var drawerSpring: SpringAnimation? = null
 
     private val locationPermissionLauncher = registerForActivityResult(
@@ -233,11 +235,7 @@ class RoutePlannerActivity : AppCompatActivity() {
         binding.previousAlternativeButton.setOnClickListener { selectAlternative(-1) }
         binding.nextAlternativeButton.setOnClickListener { selectAlternative(1) }
         binding.centerButton.setOnClickListener { requestCenterOnUser() }
-        binding.drawerCompactHeader.setOnClickListener {
-            if (plannerSheetBehavior.state == BottomSheetBehavior.STATE_COLLAPSED) {
-                plannerDrawerController.expand()
-            }
-        }
+        binding.drawerCompactHeader.setOnClickListener { plannerDrawerController.expand() }
         binding.calculateButton.setOnClickListener {
             when {
                 routeMode == RouteMode.ROUND_TRIP && roundTripPhase == RoundTripPhase.OUTBOUND ->
@@ -269,19 +267,33 @@ class RoutePlannerActivity : AppCompatActivity() {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 drawerSpring?.cancel()
-                if (binding.plannerCard.translationY != 0f) {
-                    binding.plannerCard.translationY = 0f
-                    updateCenterButtonPosition()
-                }
+                // Keep whatever the interrupted spring-back had already reached: slamming the
+                // translation to zero makes a pull that starts during the spring jump.
+                drawerPullStartTranslation = binding.plannerCard.translationY
                 drawerPullCandidate = binding.plannerCard.visibility == View.VISIBLE &&
                     !plannerDrawerOperationLocked &&
+                    !waypointDrawerDragLocked &&
                     plannerSheetBehavior.state == BottomSheetBehavior.STATE_EXPANDED &&
                     isInsidePlannerDrawer(event.rawX.toInt(), event.rawY.toInt())
                 drawerOverPullActive = false
                 drawerPullStartX = event.rawX
                 drawerPullStartY = event.rawY
+                if (!drawerPullCandidate && drawerPullStartTranslation != 0f) springDrawerBack()
             }
             MotionEvent.ACTION_MOVE -> {
+                if (
+                    (drawerPullCandidate || drawerOverPullActive) &&
+                    plannerSheetBehavior.state != BottomSheetBehavior.STATE_EXPANDED
+                ) {
+                    // The sheet behavior took the gesture over. Translating the card now would
+                    // fight its drag or settle, so hand the drawer back to it.
+                    drawerPullCandidate = false
+                    if (drawerOverPullActive) {
+                        drawerOverPullActive = false
+                        springDrawerBack()
+                    }
+                    return super.dispatchTouchEvent(event)
+                }
                 val deltaX = event.rawX - drawerPullStartX
                 val upwardDistance = drawerPullStartY - event.rawY
                 if (
@@ -303,10 +315,14 @@ class RoutePlannerActivity : AppCompatActivity() {
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 drawerPullCandidate = false
-                if (drawerOverPullActive) {
-                    drawerOverPullActive = false
+                val wasOverPulling = drawerOverPullActive
+                drawerOverPullActive = false
+                if (wasOverPulling) {
                     springDrawerBack()
                     return true
+                }
+                if (binding.plannerCard.translationY != 0f && drawerSpring?.isRunning != true) {
+                    springDrawerBack()
                 }
             }
         }
@@ -327,7 +343,9 @@ class RoutePlannerActivity : AppCompatActivity() {
         val maximumPull = dp(DRAWER_OVERPULL_MAX_DP).toFloat()
         val resistanceLength = dp(DRAWER_OVERPULL_RESISTANCE_DP).toFloat()
         val resistedDistance = maximumPull * (1f - exp((-distance / resistanceLength).toDouble()).toFloat())
-        binding.plannerCard.translationY = -resistedDistance
+        // A pull that starts while an earlier spring-back is still running must never push the
+        // card back down; it stays where it is until the new pull overtakes the leftover lift.
+        binding.plannerCard.translationY = min(-resistedDistance, drawerPullStartTranslation)
         updateCenterButtonPosition()
     }
 
@@ -345,6 +363,18 @@ class RoutePlannerActivity : AppCompatActivity() {
             addUpdateListener { _, _, _ -> updateCenterButtonPosition() }
             start()
         }
+    }
+
+    /**
+     * Drops an over-pull in progress and puts the card back onto the position the sheet
+     * behavior owns, so no leftover translation survives into the next drawer operation.
+     */
+    private fun resetDrawerOverPull() {
+        drawerSpring?.cancel()
+        drawerPullCandidate = false
+        drawerOverPullActive = false
+        drawerPullStartTranslation = 0f
+        binding.plannerCard.translationY = 0f
     }
 
     private fun loadTourForEditing(reference: String) {
@@ -390,7 +420,7 @@ class RoutePlannerActivity : AppCompatActivity() {
                 updateRouteSource()
                 redrawMap()
                 renderPlannerState()
-                plannerSheetBehavior.state = BottomSheetBehavior.STATE_EXPANDED
+                plannerDrawerController.expand()
                 framePoints(editable.track.points)
             }.onFailure { error ->
                 toast(
@@ -455,7 +485,7 @@ class RoutePlannerActivity : AppCompatActivity() {
                     updateRouteSource()
                     redrawMap()
                     renderPlannerState()
-                    plannerSheetBehavior.state = BottomSheetBehavior.STATE_EXPANDED
+                    plannerDrawerController.expand()
                     framePoints(editable.route.points)
                 } else {
                     initializeRecordingRouteStart()
@@ -477,7 +507,7 @@ class RoutePlannerActivity : AppCompatActivity() {
             editBaseline = editBaseline?.copy(waypoints = waypoints.toList())
             redrawMap()
             renderPlannerState()
-            plannerSheetBehavior.state = BottomSheetBehavior.STATE_EXPANDED
+            plannerDrawerController.expand()
             binding.root.post { openPointSearch(PointRole.DESTINATION) }
         } else {
             renderPlannerState()
@@ -534,6 +564,16 @@ class RoutePlannerActivity : AppCompatActivity() {
 
     private fun updatePlannerExtent() {
         if (plannerDrawerOperationLocked || waypointDrawerDragLocked) return
+        if (
+            plannerSheetBehavior.state == BottomSheetBehavior.STATE_DRAGGING ||
+            plannerSheetBehavior.state == BottomSheetBehavior.STATE_SETTLING
+        ) {
+            // The behavior's drag helper animates towards the top offset it derived from the
+            // card height at the start of the settle. Resizing the card now makes the sheet
+            // land on that stale offset and the following layout snaps it into place, which
+            // reads as a flicker. The stable-state callback re-runs this once the sheet rests.
+            return
+        }
         val parentHeight = binding.root.height
         val contentHeight = binding.drawerCompactHeader.height + naturalPlannerContentHeight()
         if (parentHeight <= 0 || contentHeight <= 0) return
@@ -830,8 +870,7 @@ class RoutePlannerActivity : AppCompatActivity() {
 
     private fun lockPlannerDrawerForOperation() {
         if (plannerDrawerOperationLocked) return
-        drawerSpring?.cancel()
-        binding.plannerCard.translationY = 0f
+        resetDrawerOverPull()
         plannerDrawerOperationLocked = true
         plannerSheetBehavior.isDraggable = false
         binding.plannerScroll.contentScrollingEnabled = false
@@ -929,8 +968,7 @@ class RoutePlannerActivity : AppCompatActivity() {
 
     private fun freezePlannerDrawerForWaypointDrag() {
         if (waypointDrawerDragLocked) return
-        drawerSpring?.cancel()
-        binding.plannerCard.translationY = 0f
+        resetDrawerOverPull()
         waypointDrawerDragLocked = true
         plannerSheetBehavior.isDraggable = false
         binding.plannerScroll.contentScrollingEnabled = false
@@ -1099,8 +1137,7 @@ class RoutePlannerActivity : AppCompatActivity() {
         binding.plannerContent.requestLayout()
         binding.plannerContent.doOnLayout {
             if (definedPlanningPointCount() <= SIMPLE_DRAFT_MAX_POINT_COUNT) {
-                drawerSpring?.cancel()
-                binding.plannerCard.translationY = 0f
+                resetDrawerOverPull()
                 updatePlannerExtent()
                 plannerDrawerController.expand()
             }
@@ -1741,7 +1778,7 @@ class RoutePlannerActivity : AppCompatActivity() {
         preserveExpandedWaypointEditorAfterRouting = false
         if (routes.size < 2) return
         if (preserveExpandedEditor) waypointEditorExpanded = true
-        plannerSheetBehavior.state = BottomSheetBehavior.STATE_EXPANDED
+        plannerDrawerController.expand()
         binding.plannerScroll.post {
             binding.plannerScroll.smoothScrollTo(0, 0)
             updateCenterButtonPosition()
@@ -2163,8 +2200,7 @@ class RoutePlannerActivity : AppCompatActivity() {
     }
 
     private fun revealPlannerAfterStructureChange() {
-        drawerSpring?.cancel()
-        binding.plannerCard.translationY = 0f
+        resetDrawerOverPull()
         plannerDrawerController.expand()
         schedulePlannerExtentUpdate()
     }

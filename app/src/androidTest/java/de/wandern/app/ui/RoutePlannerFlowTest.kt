@@ -351,6 +351,106 @@ class RoutePlannerFlowTest {
     }
 
     @Test
+    fun expandingAnAlreadyExpandedPlannerDrawerKeepsItExactlyWhereItIs() {
+        ActivityScenario.launch(RoutePlannerActivity::class.java).use { scenario ->
+            SystemClock.sleep(500)
+            var expandedTop = 0
+            var expandedHeight = 0
+            scenario.onActivity { activity ->
+                val drawer = activity.findViewById<MaterialCardView>(R.id.plannerCard)
+                val behavior = BottomSheetBehavior.from(drawer)
+                assertEquals(BottomSheetBehavior.STATE_EXPANDED, behavior.state)
+                expandedTop = drawer.top
+                expandedHeight = drawer.height
+
+                // Header tap, programmatic reveal and a direct controller expand all request an
+                // expand for a drawer that is already expanded. None of them may hand the sheet
+                // back to the drag helper, which would restart the settle animation.
+                activity.findViewById<View>(R.id.drawerCompactHeader).performClick()
+                repeat(3) { activity.invokePrivate("revealPlannerAfterStructureChange") }
+
+                assertEquals(BottomSheetBehavior.STATE_EXPANDED, behavior.state)
+                assertEquals(expandedTop, drawer.top)
+                assertEquals(expandedHeight, drawer.height)
+                assertEquals(0f, drawer.translationY, 0f)
+            }
+
+            SystemClock.sleep(400)
+
+            scenario.onActivity { activity ->
+                val drawer = activity.findViewById<MaterialCardView>(R.id.plannerCard)
+                val behavior = BottomSheetBehavior.from(drawer)
+                assertEquals(BottomSheetBehavior.STATE_EXPANDED, behavior.state)
+                assertEquals(expandedTop, drawer.top)
+                assertEquals(expandedHeight, drawer.height)
+                assertEquals(0f, drawer.translationY, 0f)
+            }
+        }
+    }
+
+    @Test
+    fun plannerDrawerHeightChangesWaitForTheSheetToStopMoving() {
+        ActivityScenario.launch(RoutePlannerActivity::class.java).use { scenario ->
+            SystemClock.sleep(500)
+            scenario.onActivity { activity ->
+                val drawer = activity.findViewById<MaterialCardView>(R.id.plannerCard)
+                val behavior = BottomSheetBehavior.from(drawer)
+                assertEquals(BottomSheetBehavior.STATE_EXPANDED, behavior.state)
+                behavior.state = BottomSheetBehavior.STATE_COLLAPSED
+            }
+
+            var heightWhileSettling = 0
+            var sawSettling = false
+            for (attempt in 0 until 40) {
+                scenario.onActivity { activity ->
+                    val drawer = activity.findViewById<MaterialCardView>(R.id.plannerCard)
+                    val behavior = BottomSheetBehavior.from(drawer)
+                    if (sawSettling || behavior.state != BottomSheetBehavior.STATE_SETTLING) {
+                        return@onActivity
+                    }
+                    sawSettling = true
+                    heightWhileSettling = drawer.layoutParams.height
+                    // Shrinking the content mid-settle must not resize the card: the drag helper
+                    // is animating towards the top offset derived from the current height.
+                    activity.findViewById<View>(R.id.instructionRow).visibility = View.GONE
+                    activity.invokePrivate("updatePlannerExtent")
+                    assertEquals(heightWhileSettling, drawer.layoutParams.height)
+                }
+                if (sawSettling) break
+                SystemClock.sleep(5)
+            }
+            assertTrue("planner drawer never reported STATE_SETTLING", sawSettling)
+
+            var collapsed = false
+            var height = heightWhileSettling
+            for (attempt in 0 until 60) {
+                scenario.onActivity { activity ->
+                    val drawer = activity.findViewById<MaterialCardView>(R.id.plannerCard)
+                    collapsed = BottomSheetBehavior.from(drawer).state ==
+                        BottomSheetBehavior.STATE_COLLAPSED
+                    height = drawer.layoutParams.height
+                }
+                if (collapsed && height < heightWhileSettling) break
+                SystemClock.sleep(25)
+            }
+            assertTrue(collapsed)
+            // The deferred measurement is re-applied through the stable state callback.
+            assertTrue(
+                "deferred extent update was never re-applied: $height >= $heightWhileSettling",
+                height < heightWhileSettling,
+            )
+
+            scenario.onActivity { activity ->
+                val root = activity.findViewById<View>(R.id.root)
+                val drawer = activity.findViewById<MaterialCardView>(R.id.plannerCard)
+                val behavior = BottomSheetBehavior.from(drawer)
+                assertEquals(root.height - behavior.peekHeight, drawer.top)
+                activity.findViewById<View>(R.id.instructionRow).visibility = View.VISIBLE
+            }
+        }
+    }
+
+    @Test
     fun plannerDrawerKeepsItsContentAboveTheSystemNavigationArea() {
         ActivityScenario.launch(RoutePlannerActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
