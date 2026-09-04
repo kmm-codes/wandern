@@ -315,6 +315,43 @@ class DebugRecordingScenarioFlowTest {
     }
 
     @Test
+    fun navigationBannerCarriesTheRouteStatusInsteadOfASecondPill() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val intent = Intent(context, MainActivity::class.java)
+            .setAction(MainActivity.ACTION_DEBUG_SCENARIO)
+            .putExtra(MainActivity.EXTRA_DEBUG_SCENARIO, "route-navigation-collapsed")
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+        ActivityScenario.launch<MainActivity>(intent).use { scenario ->
+            waitUntil(scenario) { activity ->
+                activity.findViewById<View>(de.wandern.app.R.id.navigationManeuverBanner).isShown &&
+                    activity.findViewById<View>(de.wandern.app.R.id.navigationStatusText).isShown
+            }
+            scenario.onActivity { activity ->
+                val banner = activity.findViewById<View>(
+                    de.wandern.app.R.id.navigationManeuverBanner,
+                )
+                val status = activity.findViewById<TextView>(
+                    de.wandern.app.R.id.navigationStatusText,
+                )
+                val pill = activity.findViewById<TextView>(de.wandern.app.R.id.routeStatusText)
+                assertEquals(View.VISIBLE, status.visibility)
+                assertTrue("route status is empty: '${status.text}'", status.text.isNotBlank())
+                assertEquals(View.GONE, pill.visibility)
+                val bannerBounds = Rect()
+                val statusBounds = Rect()
+                assertTrue(banner.getGlobalVisibleRect(bannerBounds))
+                assertTrue(status.getGlobalVisibleRect(statusBounds))
+                assertTrue(
+                    "route status must render inside the navigation banner: " +
+                        "status=$statusBounds banner=$bannerBounds",
+                    bannerBounds.contains(statusBounds),
+                )
+            }
+        }
+    }
+
+    @Test
     fun offRouteScenarioOffersRoutedWayBackFromBannerAndDrawer() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val intent = Intent(context, MainActivity::class.java)

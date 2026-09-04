@@ -177,6 +177,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     private var initialRegionFramingComplete = false
     private var offlineDownloadInProgress = false
     private var latestLocatedPoint: TrackPoint? = null
+    private var currentRouteStatusMessage: CharSequence? = null
+    private var currentRouteStatusColorRes = R.color.forest_900
     private var routeProgressTracker: RouteProgressTracker? = null
     private var routeRejoinAdvisor: RouteRejoinAdvisor? = null
     private val headingSmoother = HeadingSmoother()
@@ -1562,15 +1564,42 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
 
     private fun showRouteStatus(message: CharSequence, colorRes: Int, autoHideMillis: Long? = null) {
         binding.routeStatusText.removeCallbacks(restoreRouteStatusRunnable)
-        binding.routeStatusText.text = message
-        binding.routeStatusText.setTextColor(ContextCompat.getColor(this, colorRes))
-        binding.routeStatusText.visibility = View.VISIBLE
+        currentRouteStatusMessage = message
+        currentRouteStatusColorRes = colorRes
+        renderRouteStatusPresentation()
         autoHideMillis?.let { binding.routeStatusText.postDelayed(restoreRouteStatusRunnable, it) }
     }
 
     private fun hideRouteStatus() {
         binding.routeStatusText.removeCallbacks(restoreRouteStatusRunnable)
-        binding.routeStatusText.visibility = View.GONE
+        currentRouteStatusMessage = null
+        renderRouteStatusPresentation()
+    }
+
+    /**
+     * While the navigation banner is up the status belongs inside it; two stacked banners would
+     * otherwise cover the map. Without the banner the status keeps its own pill.
+     */
+    private fun renderRouteStatusPresentation() {
+        val insideBanner = binding.navigationManeuverBanner.visibility == View.VISIBLE
+        val carrier = if (insideBanner) binding.navigationStatusText else binding.routeStatusText
+        val unused = if (insideBanner) binding.routeStatusText else binding.navigationStatusText
+        unused.visibility = View.GONE
+        val message = currentRouteStatusMessage
+        if (message == null) {
+            carrier.visibility = View.GONE
+            return
+        }
+        carrier.text = message
+        carrier.setTextColor(ContextCompat.getColor(this, routeStatusColorRes(insideBanner)))
+        carrier.visibility = View.VISIBLE
+    }
+
+    /** The dark banner needs a lighter palette than the sand coloured pill. */
+    private fun routeStatusColorRes(insideBanner: Boolean): Int = when {
+        !insideBanner -> currentRouteStatusColorRes
+        currentRouteStatusColorRes == R.color.warning -> R.color.navigation_status_warning
+        else -> R.color.navigation_status
     }
 
     private fun syncOverlayPositions() {
@@ -2903,7 +2932,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             latestSnapshot.state == RecordingState.PAUSED
         if (!recordingActive || latestSnapshot.confirmedOffRoute || guidance == null) {
             binding.navigationManeuverBanner.visibility = View.GONE
-            binding.routeStatusText.translationY = 0f
+            renderRouteStatusPresentation()
             return
         }
         binding.navigationManeuverArrow.rotation = navigationArrowRotation(guidance.maneuver.type)
@@ -2924,7 +2953,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             )
         }
         binding.navigationManeuverBanner.visibility = View.VISIBLE
-        binding.routeStatusText.translationY = dp(68).toFloat()
+        renderRouteStatusPresentation()
     }
 
     private fun atDestination(guidance: NavigationGuidance): Boolean =
