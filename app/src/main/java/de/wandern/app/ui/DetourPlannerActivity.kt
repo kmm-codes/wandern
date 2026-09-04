@@ -383,12 +383,15 @@ class DetourPlannerActivity : AppCompatActivity() {
                     noGoPoints = routingNoGoPoints(null),
                 )
             }.onSuccess { connector ->
-                found += DetourPlanner.combineRejoin(
+                val candidate = DetourPlanner.combineRejoin(
                     route = route,
                     currentProgressMeters = currentProgressMeters,
                     connector = connector,
                     rejoinDistanceMeters = rejoinDistance,
                 )
+                if (DetourPlanner.isDistinctProposal(candidate.detourTrack, found.map { it.detourTrack })) {
+                    found += candidate
+                }
             }.onFailure { lastError = it }
         }
         if (found.isEmpty()) throw lastError ?: IllegalStateException(getString(R.string.route_rejoin_no_route))
@@ -400,36 +403,41 @@ class DetourPlannerActivity : AppCompatActivity() {
 
     private fun findCandidates(selectedCorridor: DetourCorridor): Result<List<DetourRouteCandidate>> = runCatching {
         val activityType = route.activityType ?: ActivityType.HIKING
+        val noGoPoints = routingNoGoPoints(selectedCorridor)
         var lastError: Throwable? = null
         val found = mutableListOf<DetourRouteCandidate>()
-        for (rejoinDistance in DetourPlanner.rejoinDistances(route, selectedCorridor)) {
+        for (attempt in routingAttempts(DetourPlanner.rejoinDistances(route, selectedCorridor))) {
             if (found.size >= MAX_DETOUR_CANDIDATES) break
-            val rejoinPoint = routePath.pointAt(rejoinDistance)
+            val rejoinPoint = routePath.pointAt(attempt.rejoinDistanceMeters)
             runCatching {
                 routingClient.calculate(
                     waypoints = listOf(currentPosition, rejoinPoint),
                     activityType = activityType,
                     routeName = getString(R.string.detour_route_short_name),
-                    noGoPoints = routingNoGoPoints(selectedCorridor),
+                    alternativeIndex = attempt.alternativeIndex,
+                    noGoPoints = noGoPoints,
                 )
             }.onSuccess { detour ->
-                found += DetourPlanner.combine(
+                val candidate = DetourPlanner.combine(
                     route = route,
                     currentProgressMeters = currentProgressMeters,
                     corridor = selectedCorridor,
                     detour = detour,
-                    rejoinDistanceMeters = rejoinDistance,
+                    rejoinDistanceMeters = attempt.rejoinDistanceMeters,
                 )
+                if (DetourPlanner.isDistinctProposal(candidate.detourTrack, found.map { it.detourTrack })) {
+                    found += candidate
+                }
             }.onFailure { lastError = it }
         }
-        if (found.isNotEmpty()) return@runCatching found
+        if (found.isNotEmpty()) return@runCatching found.sortedBy { it.extraDistanceMeters }
         val destination = route.points.last()
         val direct = runCatching {
             routingClient.calculate(
                 waypoints = listOf(currentPosition, destination),
                 activityType = activityType,
                 routeName = getString(R.string.detour_route_name),
-                noGoPoints = routingNoGoPoints(selectedCorridor),
+                noGoPoints = noGoPoints,
             )
         }.getOrElse { throw lastError ?: it }
         listOf(
@@ -443,6 +451,20 @@ class DetourPlannerActivity : AppCompatActivity() {
             ),
         )
     }
+
+    /**
+     * Routing plan for the detour proposals: first every rejoin distance on the router's preferred
+     * line, then its alternatives for the nearest rejoin distances. Capped so the planner stays
+     * responsive on mobile data.
+     */
+    private fun routingAttempts(rejoinDistances: List<Double>): List<RoutingAttempt> = buildList {
+        rejoinDistances.forEach { add(RoutingAttempt(it, 0)) }
+        for (alternativeIndex in 1..MAX_ALTERNATIVE_INDEX) {
+            rejoinDistances.take(ALTERNATIVE_REJOIN_DISTANCES).forEach {
+                add(RoutingAttempt(it, alternativeIndex))
+            }
+        }
+    }.take(MAX_ROUTING_REQUESTS)
 
     private fun selectCandidate(delta: Int) {
         if (candidates.size < 2) return
@@ -703,9 +725,14 @@ class DetourPlannerActivity : AppCompatActivity() {
         private const val CORRIDOR_END_LAYER = "detour-corridor-end-layer"
         private const val EMPTY_FEATURE_COLLECTION = "{\"type\":\"FeatureCollection\",\"features\":[]}"
         private const val MAX_DETOUR_CANDIDATES = 3
+        private const val MAX_ROUTING_REQUESTS = 6
+        private const val MAX_ALTERNATIVE_INDEX = 2
+        private const val ALTERNATIVE_REJOIN_DISTANCES = 2
         private const val MAX_ROUTING_NO_GO_POINTS = 150
         private const val REJOIN_SKIP_PENALTY = 0.35
     }
+
+    private data class RoutingAttempt(val rejoinDistanceMeters: Double, val alternativeIndex: Int)
 
     private enum class PlannerMode {
         DETOUR,

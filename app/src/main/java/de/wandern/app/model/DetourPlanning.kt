@@ -2,6 +2,7 @@ package de.wandern.app.model
 
 import de.wandern.app.localization.localizedSystemText
 import de.wandern.app.data.RoutingNoGoPoint
+import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.sqrt
@@ -306,6 +307,55 @@ object DetourPlanner {
         )
     }
 
+    /**
+     * True when [track] shows a genuinely different way than every track in [existing].
+     *
+     * The router happily answers neighbouring rejoin points with the same line, so proposals are
+     * only offered to the hiker when they really differ.
+     */
+    fun isDistinctProposal(track: GpxTrack, existing: List<GpxTrack>): Boolean =
+        existing.none { tracksOverlap(it, track) }
+
+    /**
+     * Two tracks overlap when they stay within [maxDeviationMeters] of each other over their whole
+     * length and their lengths differ by less than [lengthToleranceFraction].
+     */
+    fun tracksOverlap(
+        first: GpxTrack,
+        second: GpxTrack,
+        sampleSpacingMeters: Double = TRACK_SAMPLE_SPACING_METERS,
+        maxDeviationMeters: Double = TRACK_MAX_DEVIATION_METERS,
+        lengthToleranceFraction: Double = TRACK_LENGTH_TOLERANCE_FRACTION,
+    ): Boolean {
+        val firstLength = RoutePath(first).totalDistanceMeters
+        val secondLength = RoutePath(second).totalDistanceMeters
+        val longer = max(firstLength, secondLength)
+        if (longer <= 0.0) return true
+        if (abs(firstLength - secondLength) / longer > lengthToleranceFraction) return false
+        return maxDistanceToTrackMeters(first, second, sampleSpacingMeters) < maxDeviationMeters &&
+            maxDistanceToTrackMeters(second, first, sampleSpacingMeters) < maxDeviationMeters
+    }
+
+    private fun maxDistanceToTrackMeters(
+        source: GpxTrack,
+        target: GpxTrack,
+        sampleSpacingMeters: Double,
+    ): Double {
+        val path = RoutePath(source)
+        if (path.points.isEmpty() || target.points.isEmpty()) return Double.MAX_VALUE
+        val spacing = sampleSpacingMeters.coerceAtLeast(1.0)
+        var distance = 0.0
+        var worst = 0.0
+        while (distance < path.totalDistanceMeters) {
+            worst = max(worst, GeoMath.distanceToTrackMeters(path.pointAt(distance), target) ?: return Double.MAX_VALUE)
+            distance += spacing
+        }
+        return max(
+            worst,
+            GeoMath.distanceToTrackMeters(path.pointAt(path.totalDistanceMeters), target) ?: Double.MAX_VALUE,
+        )
+    }
+
     fun originalRouteOutsideDetour(
         route: GpxTrack,
         departureDistanceMeters: Double,
@@ -333,6 +383,9 @@ object DetourPlanner {
     const val DEFAULT_WIDTH_METERS = 30
     private const val START_AHEAD_METERS = 60.0
     private const val MIN_ROUTE_REMAINDER_METERS = 80.0
+    private const val TRACK_SAMPLE_SPACING_METERS = 25.0
+    private const val TRACK_MAX_DEVIATION_METERS = 30.0
+    private const val TRACK_LENGTH_TOLERANCE_FRACTION = 0.10
     private const val NO_GO_TRACK_NAME = "no-go"
     private const val NO_GO_SAMPLE_SPACING_METERS = 35.0
     private const val MAX_NO_GO_POINTS = 60

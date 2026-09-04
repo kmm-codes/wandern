@@ -1,6 +1,7 @@
 package de.wandern.app.model
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -129,6 +130,53 @@ class DetourPlanningTest {
         assertTrue(rejoinDistances.size <= 3)
         assertTrue(rejoinDistances.all { it >= progress - 25.0 })
     }
+
+    @Test
+    fun proposalsAlongTheSameStreetCountAsOneSuggestion() {
+        val first = straightTrack("A", latitude = 48.0, points = 21, longitudeStep = 0.0005)
+        val nearlyTheSame = straightTrack("B", latitude = 48.0001, points = 11, longitudeStep = 0.001)
+
+        assertTrue(DetourPlanner.tracksOverlap(first, nearlyTheSame))
+        assertFalse(DetourPlanner.isDistinctProposal(nearlyTheSame, listOf(first)))
+    }
+
+    @Test
+    fun proposalsOnParallelStreetsStayDistinct() {
+        val first = straightTrack("A", latitude = 48.0, points = 21, longitudeStep = 0.0005)
+        val parallel = straightTrack("B", latitude = 48.0009, points = 21, longitudeStep = 0.0005)
+
+        assertFalse(DetourPlanner.tracksOverlap(first, parallel))
+        assertTrue(DetourPlanner.isDistinctProposal(parallel, listOf(first)))
+    }
+
+    @Test
+    fun clearlyLongerProposalsStayDistinctEvenOnTheSameLine() {
+        val first = straightTrack("A", latitude = 48.0, points = 21, longitudeStep = 0.0005)
+        val longer = straightTrack("B", latitude = 48.0, points = 31, longitudeStep = 0.0005)
+
+        assertFalse(DetourPlanner.tracksOverlap(first, longer))
+        assertTrue(DetourPlanner.isDistinctProposal(longer, listOf(first)))
+    }
+
+    @Test
+    fun distinctnessComparesAgainstEveryProposalFoundSoFar() {
+        val first = straightTrack("A", latitude = 48.0, points = 21, longitudeStep = 0.0005)
+        val parallel = straightTrack("B", latitude = 48.0009, points = 21, longitudeStep = 0.0005)
+        val nearlyTheSecond = straightTrack("C", latitude = 48.001, points = 21, longitudeStep = 0.0005)
+
+        assertFalse(DetourPlanner.isDistinctProposal(nearlyTheSecond, listOf(first, parallel)))
+    }
+
+    private fun straightTrack(
+        name: String,
+        latitude: Double,
+        points: Int,
+        longitudeStep: Double,
+    ) = GpxTrack(
+        name = name,
+        segments = listOf((0 until points).map { index -> TrackPoint(latitude, 8.0 + index * longitudeStep) }),
+        activityType = ActivityType.HIKING,
+    )
 
     @Test
     fun combinesRoutedConnectorWithOriginalTail() {
