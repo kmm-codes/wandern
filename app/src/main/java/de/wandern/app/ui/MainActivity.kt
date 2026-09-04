@@ -615,8 +615,12 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     }
 
     private fun installTrackLayers(style: Style) {
+        // Lines go below the map labels so street names stay readable; markers, position circles
+        // and the direction arrows are added afterwards and stay on top.
+        val labelLayerId = MapLayerOrder.firstLabelLayerId(style)
+        fun addLineLayer(layer: LineLayer) = MapLayerOrder.addLayerBelowLabels(style, layer, labelLayerId)
         style.addSource(GeoJsonSource(LIVE_TRACK_SOURCE, EMPTY_FEATURE_COLLECTION))
-        style.addLayer(
+        addLineLayer(
             LineLayer(LIVE_TRACK_LAYER, LIVE_TRACK_SOURCE).withProperties(
                 lineColor(Color.parseColor("#F26B38")),
                 lineWidth(5f),
@@ -626,7 +630,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             ),
         )
         style.addSource(GeoJsonSource(INTERPOLATED_TRACK_SOURCE, EMPTY_FEATURE_COLLECTION))
-        style.addLayer(
+        addLineLayer(
             LineLayer(INTERPOLATED_TRACK_LAYER, INTERPOLATED_TRACK_SOURCE).withProperties(
                 lineColor(Color.parseColor("#F2A65A")),
                 lineWidth(5f),
@@ -637,17 +641,17 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             ),
         )
         style.addSource(GeoJsonSource(ROUTE_SOURCE, EMPTY_FEATURE_COLLECTION))
-        style.addLayer(
+        addLineLayer(
             LineLayer(ROUTE_LAYER, ROUTE_SOURCE).withProperties(
                 lineColor(Color.parseColor("#1677FF")),
                 lineWidth(6f),
-                lineOpacity(0.88f),
+                lineOpacity(0.7f),
                 lineCap(LINE_CAP_ROUND),
                 lineJoin(LINE_JOIN_ROUND),
             ),
         )
         style.addSource(GeoJsonSource(CLOSURE_SOURCE, EMPTY_FEATURE_COLLECTION))
-        style.addLayer(
+        addLineLayer(
             LineLayer(CLOSURE_HALO_LAYER, CLOSURE_SOURCE).withProperties(
                 lineColor(Color.WHITE),
                 lineWidth(12f),
@@ -656,7 +660,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
                 lineJoin(LINE_JOIN_ROUND),
             ),
         )
-        style.addLayer(
+        addLineLayer(
             LineLayer(CLOSURE_LAYER, CLOSURE_SOURCE).withProperties(
                 lineColor(Color.parseColor("#C44431")),
                 lineWidth(7f),
@@ -673,11 +677,11 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             iconId = ROUTE_DIRECTION_ICON,
         )
         style.addSource(GeoJsonSource(DETOUR_SOURCE, EMPTY_FEATURE_COLLECTION))
-        style.addLayer(
+        addLineLayer(
             LineLayer(DETOUR_LAYER, DETOUR_SOURCE).withProperties(
                 lineColor(Color.parseColor("#F28C28")),
                 lineWidth(7f),
-                lineOpacity(0.96f),
+                lineOpacity(0.85f),
                 lineCap(LINE_CAP_ROUND),
                 lineJoin(LINE_JOIN_ROUND),
             ),

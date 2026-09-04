@@ -195,12 +195,14 @@ class DetourPlannerActivity : AppCompatActivity() {
             readyMap.setStyle(Style.Builder().fromUri(MAP_STYLE_URL)) { style ->
                 MapStyleLocalizer.localize(style, AppLanguage.forContext(this))
                 mapStyle = style
-                addLineLayer(style, ROUTE_SOURCE, ROUTE_LAYER, "#1677FF", 6f, 0.72f)
-                addLineLayer(style, PREVIEW_SOURCE, PREVIEW_LAYER, "#F28C28", 7f, 0.95f)
-                addLineLayer(style, CLOSURE_SOURCE, CLOSURE_HALO_LAYER, "#FFFFFF", 11f, 0.7f)
-                addLineLayer(style, CLOSURE_SOURCE, CLOSURE_LAYER, "#C44431", 6f, 0.75f)
-                addLineLayer(style, CORRIDOR_SOURCE, CORRIDOR_HALO_LAYER, "#FFFFFF", 14f, 0.9f)
-                addLineLayer(style, CORRIDOR_SOURCE, CORRIDOR_LAYER, "#C44431", 9f, 0.98f)
+                // Below the labels, so the blocked street can still be read while it is marked.
+                val labelLayerId = MapLayerOrder.firstLabelLayerId(style)
+                addLineLayer(style, ROUTE_SOURCE, ROUTE_LAYER, "#1677FF", 6f, 0.7f, labelLayerId)
+                addLineLayer(style, PREVIEW_SOURCE, PREVIEW_LAYER, "#F28C28", 7f, 0.9f, labelLayerId)
+                addLineLayer(style, CLOSURE_SOURCE, CLOSURE_HALO_LAYER, "#FFFFFF", 11f, 0.65f, labelLayerId)
+                addLineLayer(style, CLOSURE_SOURCE, CLOSURE_LAYER, "#C44431", 6f, 0.7f, labelLayerId)
+                addLineLayer(style, CORRIDOR_SOURCE, CORRIDOR_HALO_LAYER, "#FFFFFF", 14f, 0.75f, labelLayerId)
+                addLineLayer(style, CORRIDOR_SOURCE, CORRIDOR_LAYER, "#C44431", 9f, 0.85f, labelLayerId)
                 addPointLayer(style, POSITION_SOURCE, POSITION_LAYER, "#1677FF")
                 addPointLayer(style, CORRIDOR_END_SOURCE, CORRIDOR_END_LAYER, "#C44431")
                 updateLineSource(ROUTE_SOURCE, route)
@@ -228,9 +230,11 @@ class DetourPlannerActivity : AppCompatActivity() {
         color: String,
         width: Float,
         opacity: Float,
+        belowLayerId: String?,
     ) {
         if (style.getSource(sourceId) == null) style.addSource(GeoJsonSource(sourceId, EMPTY_FEATURE_COLLECTION))
-        style.addLayer(
+        MapLayerOrder.addLayerBelowLabels(
+            style,
             LineLayer(layerId, sourceId).withProperties(
                 lineColor(Color.parseColor(color)),
                 lineWidth(width),
@@ -238,6 +242,7 @@ class DetourPlannerActivity : AppCompatActivity() {
                 lineCap(LINE_CAP_ROUND),
                 lineJoin(LINE_JOIN_ROUND),
             ),
+            belowLayerId,
         )
     }
 
