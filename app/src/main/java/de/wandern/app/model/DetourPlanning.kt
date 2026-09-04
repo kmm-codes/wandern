@@ -2,7 +2,6 @@ package de.wandern.app.model
 
 import de.wandern.app.localization.localizedSystemText
 import de.wandern.app.data.RoutingNoGoPoint
-import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.sqrt
@@ -308,33 +307,43 @@ object DetourPlanner {
     }
 
     /**
-     * True when [track] shows a genuinely different way than every track in [existing].
+     * True when [candidate] takes a genuinely different way than every proposal in [existing].
      *
      * The router happily answers neighbouring rejoin points with the same line, so proposals are
      * only offered to the hiker when they really differ.
      */
-    fun isDistinctProposal(track: GpxTrack, existing: List<GpxTrack>): Boolean =
-        existing.none { tracksOverlap(it, track) }
+    fun isDistinctProposal(
+        candidate: DetourRouteCandidate,
+        existing: List<DetourRouteCandidate>,
+    ): Boolean = existing.none { takesSameWay(candidate, it) }
 
     /**
-     * Two tracks overlap when they stay within [maxDeviationMeters] of each other over their whole
-     * length and their lengths differ by less than [lengthToleranceFraction].
+     * Two proposals take the same way when each detour stays within [maxDeviationMeters] of the
+     * other proposal's complete line.
+     *
+     * Comparing a detour against the other candidate's combined track (detour plus the remaining
+     * original route) is what catches the frequent case of a later rejoin point: the router answers
+     * it with the same streets plus a stretch along the original route, which makes the detour
+     * longer but not different. Lengths are therefore not compared at all.
      */
-    fun tracksOverlap(
-        first: GpxTrack,
-        second: GpxTrack,
+    fun takesSameWay(
+        first: DetourRouteCandidate,
+        second: DetourRouteCandidate,
         sampleSpacingMeters: Double = TRACK_SAMPLE_SPACING_METERS,
         maxDeviationMeters: Double = TRACK_MAX_DEVIATION_METERS,
-        lengthToleranceFraction: Double = TRACK_LENGTH_TOLERANCE_FRACTION,
-    ): Boolean {
-        val firstLength = RoutePath(first).totalDistanceMeters
-        val secondLength = RoutePath(second).totalDistanceMeters
-        val longer = max(firstLength, secondLength)
-        if (longer <= 0.0) return true
-        if (abs(firstLength - secondLength) / longer > lengthToleranceFraction) return false
-        return maxDistanceToTrackMeters(first, second, sampleSpacingMeters) < maxDeviationMeters &&
-            maxDistanceToTrackMeters(second, first, sampleSpacingMeters) < maxDeviationMeters
-    }
+    ): Boolean = trackFollows(first.detourTrack, second.track, sampleSpacingMeters, maxDeviationMeters) &&
+        trackFollows(second.detourTrack, first.track, sampleSpacingMeters, maxDeviationMeters)
+
+    /**
+     * True when every sample of [track], taken every [sampleSpacingMeters], lies closer than
+     * [maxDeviationMeters] to [reference]. [reference] may be the longer line of the two.
+     */
+    fun trackFollows(
+        track: GpxTrack,
+        reference: GpxTrack,
+        sampleSpacingMeters: Double = TRACK_SAMPLE_SPACING_METERS,
+        maxDeviationMeters: Double = TRACK_MAX_DEVIATION_METERS,
+    ): Boolean = maxDistanceToTrackMeters(track, reference, sampleSpacingMeters) < maxDeviationMeters
 
     private fun maxDistanceToTrackMeters(
         source: GpxTrack,
@@ -385,7 +394,6 @@ object DetourPlanner {
     private const val MIN_ROUTE_REMAINDER_METERS = 80.0
     private const val TRACK_SAMPLE_SPACING_METERS = 25.0
     private const val TRACK_MAX_DEVIATION_METERS = 30.0
-    private const val TRACK_LENGTH_TOLERANCE_FRACTION = 0.10
     private const val NO_GO_TRACK_NAME = "no-go"
     private const val NO_GO_SAMPLE_SPACING_METERS = 35.0
     private const val MAX_NO_GO_POINTS = 60

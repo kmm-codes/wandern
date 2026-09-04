@@ -394,7 +394,7 @@ class DetourPlannerActivity : AppCompatActivity() {
                     connector = connector,
                     rejoinDistanceMeters = rejoinDistance,
                 )
-                if (DetourPlanner.isDistinctProposal(candidate.detourTrack, found.map { it.detourTrack })) {
+                if (DetourPlanner.isDistinctProposal(candidate, found)) {
                     found += candidate
                 }
             }.onFailure { lastError = it }
@@ -430,7 +430,7 @@ class DetourPlannerActivity : AppCompatActivity() {
                     detour = detour,
                     rejoinDistanceMeters = attempt.rejoinDistanceMeters,
                 )
-                if (DetourPlanner.isDistinctProposal(candidate.detourTrack, found.map { it.detourTrack })) {
+                if (DetourPlanner.isDistinctProposal(candidate, found)) {
                     found += candidate
                 }
             }.onFailure { lastError = it }

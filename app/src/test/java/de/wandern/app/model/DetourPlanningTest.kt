@@ -11,6 +11,8 @@ class DetourPlanningTest {
         segments = listOf((0..30).map { index -> TrackPoint(48.0, 8.0 + index * 0.001) }),
         activityType = ActivityType.HIKING,
     )
+    private val routePath = RoutePath(route)
+    private val plannedCorridor = DetourPlanner.corridor(route, DEPARTURE_METERS, 250.0)
 
     @Test
     fun corridorStartsAheadAndProvidesNoGoSamples() {
@@ -132,49 +134,99 @@ class DetourPlanningTest {
     }
 
     @Test
-    fun proposalsAlongTheSameStreetCountAsOneSuggestion() {
-        val first = straightTrack("A", latitude = 48.0, points = 21, longitudeStep = 0.0005)
-        val nearlyTheSame = straightTrack("B", latitude = 48.0001, points = 11, longitudeStep = 0.001)
+    fun theSameWayWithALaterRejoinIsNotASecondProposal() {
+        val earlier = detourVia(NORTH_STREET_LATITUDE, NEAR_REJOIN_METERS)
+        val later = sameWayWithLaterRejoin(NORTH_STREET_LATITUDE, NEAR_REJOIN_METERS, FAR_REJOIN_METERS)
 
-        assertTrue(DetourPlanner.tracksOverlap(first, nearlyTheSame))
-        assertFalse(DetourPlanner.isDistinctProposal(nearlyTheSame, listOf(first)))
+        assertTrue(DetourPlanner.trackFollows(earlier.detourTrack, later.track))
+        assertTrue(DetourPlanner.trackFollows(later.detourTrack, earlier.track))
+        assertTrue(DetourPlanner.takesSameWay(earlier, later))
+        assertFalse(DetourPlanner.isDistinctProposal(later, listOf(earlier)))
+        assertFalse(DetourPlanner.isDistinctProposal(earlier, listOf(later)))
     }
 
     @Test
-    fun proposalsOnParallelStreetsStayDistinct() {
-        val first = straightTrack("A", latitude = 48.0, points = 21, longitudeStep = 0.0005)
-        val parallel = straightTrack("B", latitude = 48.0009, points = 21, longitudeStep = 0.0005)
+    fun proposalsOnDifferentStreetsStayDistinct() {
+        val north = detourVia(NORTH_STREET_LATITUDE, NEAR_REJOIN_METERS)
+        val south = detourVia(SOUTH_STREET_LATITUDE, NEAR_REJOIN_METERS)
 
-        assertFalse(DetourPlanner.tracksOverlap(first, parallel))
-        assertTrue(DetourPlanner.isDistinctProposal(parallel, listOf(first)))
+        assertFalse(DetourPlanner.takesSameWay(north, south))
+        assertTrue(DetourPlanner.isDistinctProposal(south, listOf(north)))
     }
 
     @Test
-    fun clearlyLongerProposalsStayDistinctEvenOnTheSameLine() {
-        val first = straightTrack("A", latitude = 48.0, points = 21, longitudeStep = 0.0005)
-        val longer = straightTrack("B", latitude = 48.0, points = 31, longitudeStep = 0.0005)
+    fun runningStraightToTheDestinationStaysDistinctFromARejoiningWay() {
+        val direct = directToDestinationVia(NORTH_STREET_LATITUDE)
+        val rejoining = detourVia(SOUTH_STREET_LATITUDE, NEAR_REJOIN_METERS)
 
-        assertFalse(DetourPlanner.tracksOverlap(first, longer))
-        assertTrue(DetourPlanner.isDistinctProposal(longer, listOf(first)))
+        assertTrue(direct.directToDestination)
+        assertFalse(DetourPlanner.takesSameWay(direct, rejoining))
+        assertTrue(DetourPlanner.isDistinctProposal(rejoining, listOf(direct)))
+        assertTrue(DetourPlanner.isDistinctProposal(direct, listOf(rejoining)))
     }
 
     @Test
     fun distinctnessComparesAgainstEveryProposalFoundSoFar() {
-        val first = straightTrack("A", latitude = 48.0, points = 21, longitudeStep = 0.0005)
-        val parallel = straightTrack("B", latitude = 48.0009, points = 21, longitudeStep = 0.0005)
-        val nearlyTheSecond = straightTrack("C", latitude = 48.001, points = 21, longitudeStep = 0.0005)
+        val north = detourVia(NORTH_STREET_LATITUDE, NEAR_REJOIN_METERS)
+        val south = detourVia(SOUTH_STREET_LATITUDE, NEAR_REJOIN_METERS)
+        val southAgain = sameWayWithLaterRejoin(SOUTH_STREET_LATITUDE, NEAR_REJOIN_METERS, FAR_REJOIN_METERS)
 
-        assertFalse(DetourPlanner.isDistinctProposal(nearlyTheSecond, listOf(first, parallel)))
+        assertTrue(DetourPlanner.isDistinctProposal(south, listOf(north)))
+        assertFalse(DetourPlanner.isDistinctProposal(southAgain, listOf(north, south)))
     }
 
-    private fun straightTrack(
-        name: String,
+    /** Detour that leaves the route at [DEPARTURE_METERS], follows a parallel street and rejoins. */
+    private fun detourVia(latitude: Double, rejoinDistanceMeters: Double): DetourRouteCandidate =
+        DetourPlanner.combine(
+            route = route,
+            currentProgressMeters = DEPARTURE_METERS,
+            corridor = plannedCorridor,
+            detour = detourTrack(parallelStreet(latitude, rejoinDistanceMeters)),
+            rejoinDistanceMeters = rejoinDistanceMeters,
+        )
+
+    /**
+     * The answer the router typically gives for a later rejoin point: the same parallel street plus
+     * a stretch along the original route.
+     */
+    private fun sameWayWithLaterRejoin(
         latitude: Double,
-        points: Int,
-        longitudeStep: Double,
-    ) = GpxTrack(
-        name = name,
-        segments = listOf((0 until points).map { index -> TrackPoint(latitude, 8.0 + index * longitudeStep) }),
+        rejoinDistanceMeters: Double,
+        laterRejoinDistanceMeters: Double,
+    ): DetourRouteCandidate = DetourPlanner.combine(
+        route = route,
+        currentProgressMeters = DEPARTURE_METERS,
+        corridor = plannedCorridor,
+        detour = detourTrack(
+            parallelStreet(latitude, rejoinDistanceMeters) +
+                routePath.slice(rejoinDistanceMeters, laterRejoinDistanceMeters),
+        ),
+        rejoinDistanceMeters = laterRejoinDistanceMeters,
+    )
+
+    private fun directToDestinationVia(latitude: Double): DetourRouteCandidate = DetourPlanner.combine(
+        route = route,
+        currentProgressMeters = DEPARTURE_METERS,
+        corridor = plannedCorridor,
+        detour = detourTrack(parallelStreet(latitude, routePath.totalDistanceMeters)),
+        rejoinDistanceMeters = routePath.totalDistanceMeters,
+        directToDestination = true,
+    )
+
+    private fun parallelStreet(latitude: Double, rejoinDistanceMeters: Double): List<TrackPoint> {
+        val departure = routePath.pointAt(DEPARTURE_METERS)
+        val rejoin = routePath.pointAt(rejoinDistanceMeters)
+        return listOf(
+            departure,
+            TrackPoint(latitude, departure.longitude),
+            TrackPoint(latitude, rejoin.longitude),
+            rejoin,
+        )
+    }
+
+    private fun detourTrack(points: List<TrackPoint>) = GpxTrack(
+        name = "Umleitung",
+        segments = listOf(points),
         activityType = ActivityType.HIKING,
     )
 
@@ -196,5 +248,17 @@ class DetourPlanningTest {
         assertEquals(route.points.last(), result.track.points.last())
         assertEquals(rejoin - progress, result.skippedRouteMeters, 0.001)
         assertEquals(2, result.track.segments.size)
+    }
+
+    private companion object {
+        const val DEPARTURE_METERS = 300.0
+        const val NEAR_REJOIN_METERS = 710.0
+        const val FAR_REJOIN_METERS = 860.0
+
+        /** Roughly 130 m north of the route, well beyond the 30 m the comparison tolerates. */
+        const val NORTH_STREET_LATITUDE = 48.0012
+
+        /** Roughly 65 m south of the route, so both parallel streets are clearly different ways. */
+        const val SOUTH_STREET_LATITUDE = 47.9994
     }
 }
