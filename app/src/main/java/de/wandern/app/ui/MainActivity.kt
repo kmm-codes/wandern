@@ -100,9 +100,14 @@ import org.maplibre.android.annotations.Icon
 import org.maplibre.android.annotations.IconFactory
 import org.maplibre.android.annotations.Marker
 import org.maplibre.android.annotations.MarkerOptions
+import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.geometry.LatLngBounds
+import org.maplibre.android.gestures.MoveGestureDetector
+import org.maplibre.android.gestures.RotateGestureDetector
+import org.maplibre.android.gestures.ShoveGestureDetector
+import org.maplibre.android.gestures.StandardScaleGestureDetector
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.layers.CircleLayer
@@ -378,12 +383,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
                 uiSettings.isCompassEnabled = true
                 uiSettings.isAttributionEnabled = true
                 uiSettings.isLogoEnabled = true
-                addOnCameraMoveStartedListener { reason ->
-                    if (reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE) {
-                        followLocation = false
-                        initialRegionFramingComplete = true
-                    }
-                }
+                installCameraGestureListeners(this)
                 addOnMapClickListener(::showMapPoi)
             }
             readyMap.setStyle(Style.Builder().fromUri(MAP_STYLE_URL)) { style ->
@@ -395,6 +395,50 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
                 if (debugSnapshotOverride) importedTrack?.let(::fitTrack)
             }
         }
+    }
+
+    /**
+     * Only panning hands the camera back to the hiker. Zoom, rotation and tilt keep following the
+     * position, so a pinch does not silently freeze the viewport somewhere behind the hiker.
+     */
+    private fun installCameraGestureListeners(readyMap: MapLibreMap) {
+        readyMap.addOnMoveListener(object : MapLibreMap.OnMoveListener {
+            override fun onMoveBegin(detector: MoveGestureDetector) {
+                followLocation = false
+                initialRegionFramingComplete = true
+            }
+
+            override fun onMove(detector: MoveGestureDetector) = Unit
+
+            override fun onMoveEnd(detector: MoveGestureDetector) = Unit
+        })
+        readyMap.addOnScaleListener(object : MapLibreMap.OnScaleListener {
+            override fun onScaleBegin(detector: StandardScaleGestureDetector) {
+                initialRegionFramingComplete = true
+            }
+
+            override fun onScale(detector: StandardScaleGestureDetector) = Unit
+
+            override fun onScaleEnd(detector: StandardScaleGestureDetector) = Unit
+        })
+        readyMap.addOnRotateListener(object : MapLibreMap.OnRotateListener {
+            override fun onRotateBegin(detector: RotateGestureDetector) {
+                initialRegionFramingComplete = true
+            }
+
+            override fun onRotate(detector: RotateGestureDetector) = Unit
+
+            override fun onRotateEnd(detector: RotateGestureDetector) = Unit
+        })
+        readyMap.addOnShoveListener(object : MapLibreMap.OnShoveListener {
+            override fun onShoveBegin(detector: ShoveGestureDetector) {
+                initialRegionFramingComplete = true
+            }
+
+            override fun onShove(detector: ShoveGestureDetector) = Unit
+
+            override fun onShoveEnd(detector: ShoveGestureDetector) = Unit
+        })
     }
 
     private fun applyDebugScenario(rawScenario: String) {
@@ -1249,7 +1293,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
                 point.longitude != previousPoint.longitude
             ) {
             }
-            if (followLocation && snapshot.state == RecordingState.RECORDING) centerOn(point, USER_FOCUS_ZOOM)
+            if (snapshot.state == RecordingState.RECORDING) updateFollowCamera(point)
         }
         val observedPoint = snapshot.latestObservedPoint ?: snapshot.latestPoint
         observedPoint?.let(::renderGpsStatus)
@@ -2348,7 +2392,6 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
                     }
                     MENU_FIT_ROUTE -> {
                         importedTrack?.let(::fitTrack)
-                        followLocation = false
                         true
                     }
                     MENU_REVERSE_ROUTE -> {
@@ -2420,6 +2463,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
 
     private fun fitTrack(track: GpxTrack) {
         initialRegionFramingComplete = true
+        // The framed route must stay in view; the next fix would otherwise pull the camera away.
+        followLocation = false
         val points = track.points
         val readyMap = map ?: return
         if (points.isEmpty()) return
@@ -2464,7 +2509,27 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         )
     }
 
-    private fun frameInitialRegionIfNeeded(point: TrackPoint?) {
+    /**
+     * Keeps the camera on the hiker while following. The zoom stays untouched, so a manually
+     * chosen zoom level survives every position update.
+     */
+    private fun updateFollowCamera(point: TrackPoint) {
+        if (!followLocation) return
+        val readyMap = map ?: return
+        val target = LatLng(point.latitude, point.longitude)
+        // Without this guard every fix restarts the animation and the map never settles.
+        if (cameraTargetDistanceMeters(readyMap.cameraPosition, target) <= FOLLOW_RECENTER_METERS) return
+        readyMap.easeCamera(CameraUpdateFactory.newLatLng(target), FOLLOW_CAMERA_MILLIS)
+    }
+
+    private fun cameraTargetDistanceMeters(camera: CameraPosition, target: LatLng): Double =
+        distanceBetweenMeters(camera.target, target)
+
+    private fun distanceBetweenMeters(from: LatLng?, to: LatLng): Double =
+        if (from == null) Double.MAX_VALUE else from.distanceTo(to)
+
+    /** Returns true when this call framed the initial region. */
+    private fun frameInitialRegionIfNeeded(point: TrackPoint?): Boolean {
         if (
             initialRegionFramingComplete ||
             point == null ||
@@ -2473,10 +2538,11 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             latestSnapshot.state == RecordingState.PAUSED ||
             map == null
         ) {
-            return
+            return false
         }
         initialRegionFramingComplete = true
         centerOn(point, INITIAL_REGION_ZOOM)
+        return true
     }
 
     private fun requestCenterOnUser() {
@@ -2557,8 +2623,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         if (centerAfterFix) {
             initialRegionFramingComplete = true
             centerOn(point, USER_FOCUS_ZOOM)
-        } else {
-            frameInitialRegionIfNeeded(point)
+        } else if (!frameInitialRegionIfNeeded(point)) {
+            updateFollowCamera(point)
         }
     }
 
@@ -3023,6 +3089,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         private const val SIGNIFICANT_LOCATION_TIME_MILLIS = 120_000L
         private const val INITIAL_REGION_ZOOM = 4.0
         private const val USER_FOCUS_ZOOM = 16.0
+        private const val FOLLOW_RECENTER_METERS = 2.0
+        private const val FOLLOW_CAMERA_MILLIS = 400
         private const val MIN_DIRECTION_SPEED_METERS_PER_SECOND = 0.6f
         private const val MIN_HEADING_UPDATE_DEGREES = 1f
         private const val CIRCULAR_ROUTE_ENDPOINT_DISTANCE_METERS = 50.0
