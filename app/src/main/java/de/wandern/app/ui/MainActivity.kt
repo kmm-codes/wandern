@@ -1631,7 +1631,14 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             binding.actionsCard.y.roundToInt()
         }
         if (binding.root.height > 0 && overlayTop > 0 && binding.centerButton.height > 0) {
-            val minimumTop = binding.root.paddingTop + dp(12)
+            // The stack grows upwards into the compass FAB's corner, so it may not start higher
+            // than a full gap below the compass. Before the compass is laid out its bounds say
+            // nothing, and the window's top padding is the only bound left.
+            val minimumTop = if (binding.compassFab.height > 0) {
+                maxOf(binding.root.paddingTop + dp(12), binding.compassFab.bottom + dp(16))
+            } else {
+                binding.root.paddingTop + dp(12)
+            }
             val centerTop = (overlayTop - binding.centerButton.height - dp(16))
                 .coerceAtLeast(minimumTop)
             binding.centerButton.y = centerTop.toFloat()
