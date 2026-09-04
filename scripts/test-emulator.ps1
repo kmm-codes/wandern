@@ -147,7 +147,10 @@ try {
             'route-elevation-expanded',
             'route-paused-expanded',
             'route-detour-collapsed',
-            'route-detour-round-collapsed'
+            'route-detour-round-collapsed',
+            'route-navigation-collapsed',
+            'route-arrived-collapsed',
+            'free-expanded'
         )
         for ($sceneIndex = 0; $sceneIndex -lt $debugScenes.Count; $sceneIndex++) {
             $scene = $debugScenes[$sceneIndex]
