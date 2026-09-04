@@ -480,6 +480,7 @@
     <string name="gpx_load_error">GPX konnte nicht geladen werden: %1$s</string>
     <string name="hide_route">Route ausblenden</string>
     <string name="no_more_actions">Keine weiteren Aktionen</string>
+    <string name="map_orientation">Kartenausrichtung</string>
     <string name="map_settings">Karteneinstellungen</string>
     <string name="voice_guidance">Sprachansagen</string>
     <string name="voice_guidance_on">Sprachansagen an</string>

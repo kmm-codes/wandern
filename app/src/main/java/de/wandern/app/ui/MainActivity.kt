@@ -171,6 +171,9 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     private var pendingCenterRequest = false
     private var selectedActivityType = ActivityType.HIKING
     private var followLocation = true
+    private var mapOrientationMode = MapOrientationMode.NORTH_UP
+    private var lastHeadingUpEaseMillis = 0L
+    private var renderedCompassHeadingUp: Boolean? = null
     private var initialRegionFramingComplete = false
     private var offlineDownloadInProgress = false
     private var latestLocatedPoint: TrackPoint? = null
@@ -277,6 +280,10 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         arrivalPromptShownForSessionId = savedInstanceState
             ?.takeIf { it.containsKey(KEY_ARRIVAL_PROMPT_SESSION) }
             ?.getLong(KEY_ARRIVAL_PROMPT_SESSION)
+        mapOrientationMode = savedInstanceState
+            ?.getString(KEY_MAP_ORIENTATION_MODE)
+            ?.let { stored -> runCatching { MapOrientationMode.valueOf(stored) }.getOrNull() }
+            ?: MapOrientationMode.NORTH_UP
         MapLibre.getInstance(this)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
@@ -327,6 +334,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         setupRecordingDrawer()
         setupMap()
         setupActions()
+        renderCompassFab()
         observeTracking()
         restoreActiveRecording()
         if (savedInstanceState == null) handleIncomingIntent(intent)
@@ -380,15 +388,18 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     private fun setupMap() {
         binding.mapView.getMapAsync { readyMap ->
             map = readyMap.apply {
-                uiSettings.isCompassEnabled = true
+                uiSettings.isCompassEnabled = false
                 uiSettings.isAttributionEnabled = true
                 uiSettings.isLogoEnabled = true
                 installCameraGestureListeners(this)
+                addOnCameraMoveListener(::renderCompassFab)
+                addOnCameraIdleListener(::renderCompassFab)
                 addOnMapClickListener(::showMapPoi)
             }
             readyMap.setStyle(Style.Builder().fromUri(MAP_STYLE_URL)) { style ->
                 MapStyleLocalizer.localize(style, AppLanguage.forContext(this))
                 mapStyle = style
+                renderCompassFab()
                 installTrackLayers(style)
                 redrawTracks()
                 frameInitialRegionIfNeeded(displayedPosition())
@@ -404,8 +415,10 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     private fun installCameraGestureListeners(readyMap: MapLibreMap) {
         readyMap.addOnMoveListener(object : MapLibreMap.OnMoveListener {
             override fun onMoveBegin(detector: MoveGestureDetector) {
+                // Panning also pauses heading-up steering; the mode itself survives.
                 followLocation = false
                 initialRegionFramingComplete = true
+                renderCompassFab()
             }
 
             override fun onMove(detector: MoveGestureDetector) = Unit
@@ -819,6 +832,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         binding.recordingUndoDetourButton.setOnClickListener { undoActiveDetour() }
         binding.moreButton.setOnClickListener { showMoreMenu() }
         binding.mapSettingsFab.setOnClickListener { showMapSettingsMenu() }
+        binding.compassFab.setOnClickListener { switchMapOrientation() }
         binding.centerButton.setOnClickListener {
             requestCenterOnUser()
             maybeShowCompassCalibrationHint()
@@ -2516,10 +2530,84 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     private fun updateFollowCamera(point: TrackPoint) {
         if (!followLocation) return
         val readyMap = map ?: return
+        val camera = readyMap.cameraPosition
         val target = LatLng(point.latitude, point.longitude)
+        val movedMeters = cameraTargetDistanceMeters(camera, target)
+        val heading = steeringHeadingDegrees(point)
+            ?.takeIf { mapOrientationMode == MapOrientationMode.HEADING_UP }
+        if (heading != null) {
+            val turnedDegrees = HeadingSmoother.angularDistance(camera.bearing.toFloat(), heading)
+            val now = SystemClock.elapsedRealtime()
+            val worthTurning = turnedDegrees > HEADING_UP_MIN_TURN_DEGREES ||
+                movedMeters > FOLLOW_RECENTER_METERS
+            if (!worthTurning || now - lastHeadingUpEaseMillis < HEADING_UP_MIN_INTERVAL_MILLIS) return
+            lastHeadingUpEaseMillis = now
+            readyMap.easeCamera(
+                CameraUpdateFactory.newCameraPosition(
+                    CameraPosition.Builder(camera)
+                        .target(target)
+                        .bearing(heading.toDouble())
+                        .build(),
+                ),
+                FOLLOW_CAMERA_MILLIS,
+            )
+            return
+        }
         // Without this guard every fix restarts the animation and the map never settles.
-        if (cameraTargetDistanceMeters(readyMap.cameraPosition, target) <= FOLLOW_RECENTER_METERS) return
+        if (movedMeters <= FOLLOW_RECENTER_METERS) return
         readyMap.easeCamera(CameraUpdateFactory.newLatLng(target), FOLLOW_CAMERA_MILLIS)
+    }
+
+    /**
+     * The first tap straightens a map the hiker turned by hand, the next one switches between
+     * north-up and heading-up.
+     */
+    private fun switchMapOrientation() {
+        val readyMap = map ?: return
+        val action = MapOrientationController.nextAction(
+            mode = mapOrientationMode,
+            bearingDegrees = readyMap.cameraPosition.bearing,
+            following = followLocation,
+        )
+        mapOrientationMode = MapOrientationController.modeAfter(action)
+        when (action) {
+            MapOrientationAction.START_HEADING_UP -> {
+                followLocation = true
+                initialRegionFramingComplete = true
+                lastHeadingUpEaseMillis = 0L
+                displayedPosition()?.let(::updateFollowCamera)
+            }
+            MapOrientationAction.ALIGN_NORTH, MapOrientationAction.STOP_HEADING_UP -> {
+                readyMap.animateCamera(CameraUpdateFactory.bearingTo(0.0), COMPASS_ALIGN_MILLIS)
+            }
+        }
+        renderCompassFab()
+    }
+
+    /** Keeps the needle pointing at true north and shows whether heading-up is steering. */
+    private fun renderCompassFab() {
+        if (!::binding.isInitialized) return
+        binding.compassFab.rotation = -(map?.cameraPosition?.bearing ?: 0.0).toFloat()
+        val headingUp = mapOrientationMode == MapOrientationMode.HEADING_UP && followLocation
+        if (renderedCompassHeadingUp == headingUp) return
+        renderedCompassHeadingUp = headingUp
+        binding.compassFab.setImageResource(
+            if (headingUp) R.drawable.ic_compass_needle_active else R.drawable.ic_compass_needle,
+        )
+        binding.compassFab.backgroundTintList = ContextCompat.getColorStateList(
+            this,
+            if (headingUp) R.color.forest_700 else R.color.sand_50,
+        )
+    }
+
+    /**
+     * Steers the camera in heading-up mode. The satellite course is the calmer source while
+     * walking; standing still it would be noise, so the compass takes over there.
+     */
+    private fun steeringHeadingDegrees(point: TrackPoint): Float? {
+        val moving = (point.speedMetersPerSecond ?: 0f) >= HEADING_UP_MIN_SPEED_METERS_PER_SECOND
+        val course = point.bearingDegrees?.takeIf { moving }
+        return (course ?: latestCompassHeadingDegrees)?.let(HeadingSmoother::normalize)
     }
 
     private fun cameraTargetDistanceMeters(camera: CameraPosition, target: LatLng): Double =
@@ -2562,6 +2650,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     private fun focusOnUser() {
         initialRegionFramingComplete = true
         followLocation = true
+        renderCompassFab()
         displayedPosition()?.let { centerOn(it, USER_FOCUS_ZOOM) }
         startVisibleLocationUpdates()
         locateUser(centerAfterFix = true)
@@ -2952,6 +3041,9 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             return
         }
         latestCompassHeadingDegrees = smoothed
+        if (mapOrientationMode == MapOrientationMode.HEADING_UP) {
+            displayedPosition()?.let(::updateFollowCamera)
+        }
         renderUserPosition()
         renderRouteRejoinGuidance(latestSnapshot.latestPoint ?: latestLocatedPoint)
     }
@@ -3045,6 +3137,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         binding.mapView.onSaveInstanceState(outState)
+        outState.putString(KEY_MAP_ORIENTATION_MODE, mapOrientationMode.name)
         arrivalPromptShownForSessionId?.let { outState.putLong(KEY_ARRIVAL_PROMPT_SESSION, it) }
     }
 
@@ -3060,6 +3153,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         private const val LOG_TAG = "WandernImport"
         private const val RECORDING_TIME_TICK_MILLIS = 1_000L
         private const val KEY_ARRIVAL_PROMPT_SESSION = "arrival_prompt_session"
+        private const val KEY_MAP_ORIENTATION_MODE = "map_orientation_mode"
         private const val DEBUG_SNAPSHOT_SESSION_ID = -1L
         private const val COMPLETION_PRESENTATION_PREFERENCES = "completion_presentation"
         private const val KEY_LAST_PRESENTED_RECORDING = "last_presented_recording"
@@ -3091,6 +3185,10 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         private const val USER_FOCUS_ZOOM = 16.0
         private const val FOLLOW_RECENTER_METERS = 2.0
         private const val FOLLOW_CAMERA_MILLIS = 400
+        private const val COMPASS_ALIGN_MILLIS = 400
+        private const val HEADING_UP_MIN_TURN_DEGREES = 3f
+        private const val HEADING_UP_MIN_INTERVAL_MILLIS = 300L
+        private const val HEADING_UP_MIN_SPEED_METERS_PER_SECOND = 1f
         private const val MIN_DIRECTION_SPEED_METERS_PER_SECOND = 0.6f
         private const val MIN_HEADING_UPDATE_DEGREES = 1f
         private const val CIRCULAR_ROUTE_ENDPOINT_DISTANCE_METERS = 50.0

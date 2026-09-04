@@ -479,6 +479,7 @@
     <string name="gpx_load_error">Could not load GPX: %1$s</string>
     <string name="hide_route">Hide route</string>
     <string name="no_more_actions">No more actions</string>
+    <string name="map_orientation">Map orientation</string>
     <string name="map_settings">Map settings</string>
     <string name="voice_guidance">Voice guidance</string>
     <string name="voice_guidance_on">Voice guidance on</string>
