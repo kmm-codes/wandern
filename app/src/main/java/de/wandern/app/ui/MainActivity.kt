@@ -769,7 +769,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             startActivity(Intent(this, CompassCalibrationActivity::class.java))
             true
         }
-        renderMoreButtonVisibility()
+        renderRouteDependentActions()
     }
 
     private fun setupRecordingDrawer() {
@@ -1212,9 +1212,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             startVisibleLocationUpdates()
         }
         renderRecordingPanelState(snapshot)
-        binding.recordButton.text = getString(R.string.record)
         binding.recordButton.setIconResource(R.drawable.ic_record)
-        renderMoreButtonVisibility()
+        renderRouteDependentActions()
         val currentSpeed = snapshot.latestPoint
             ?.takeIf {
                 snapshot.state == RecordingState.RECORDING &&
@@ -1604,7 +1603,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         importedTrackReference = reference
         routeProgressTracker = RouteProgressTracker(track)
         routeRejoinAdvisor = RouteRejoinAdvisor(track)
-        renderMoreButtonVisibility()
+        renderRouteDependentActions()
         if (announce) {
             showRouteStatus(
                 getString(R.string.route_points_loaded, track.points.size),
@@ -2301,7 +2300,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         routeRejoinAdvisor = null
         binding.recordingRouteProgressGroup.visibility = View.GONE
         binding.routeRejoinBanner.visibility = View.GONE
-        renderMoreButtonVisibility()
+        renderRouteDependentActions()
         hideRouteStatus()
         redrawTracks()
     }
@@ -2388,12 +2387,19 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         }
     }
 
-    private fun renderMoreButtonVisibility() {
+    private fun renderRouteDependentActions() {
         binding.moreButton.visibility = if (importedTrack != null) {
             View.VISIBLE
         } else {
             View.GONE
         }
+        renderRecordButtonLabel()
+    }
+
+    private fun renderRecordButtonLabel() {
+        binding.recordButton.text = getString(
+            if (importedTrack != null) R.string.start_tour else R.string.record,
+        )
     }
 
     private fun fitTrack(track: GpxTrack) {
