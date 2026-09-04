@@ -22,7 +22,12 @@ object MapLayerOrder {
         return symbolLayers.firstOrNull { !it.textField.isNull }?.id ?: symbolLayers.firstOrNull()?.id
     }
 
-    /** Adds [layer] below [belowLayerId], or on top when the style has no label layer. */
+    /**
+     * Adds [layer] below [belowLayerId], or on top when the style has no label layer.
+     *
+     * Every layer is inserted directly below the same reference layer, so a later call lands
+     * above the layers added before it: consecutive calls read as a stack from bottom to top.
+     */
     fun addLayerBelowLabels(style: Style, layer: Layer, belowLayerId: String?) {
         if (belowLayerId == null) style.addLayer(layer) else style.addLayerBelow(layer, belowLayerId)
     }

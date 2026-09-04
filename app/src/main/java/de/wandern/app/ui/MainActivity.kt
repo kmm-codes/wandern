@@ -707,8 +707,24 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     private fun installTrackLayers(style: Style) {
         // Lines go below the map labels so street names stay readable; markers, position circles
         // and the direction arrows are added afterwards and stay on top.
+        //
+        // Every addLineLayer call stacks above the previous one, so the call order below is the
+        // stacking order from bottom to top: the loaded route first, then the recorded live track
+        // on top of it - the walked part has to read orange instead of showing through the route's
+        // translucent blue - and finally the closure and detour overlays, which must stay visible
+        // wherever they cross the track.
         val labelLayerId = MapLayerOrder.firstLabelLayerId(style)
         fun addLineLayer(layer: LineLayer) = MapLayerOrder.addLayerBelowLabels(style, layer, labelLayerId)
+        style.addSource(GeoJsonSource(ROUTE_SOURCE, EMPTY_FEATURE_COLLECTION))
+        addLineLayer(
+            LineLayer(ROUTE_LAYER, ROUTE_SOURCE).withProperties(
+                lineColor(Color.parseColor("#1677FF")),
+                lineWidth(6f),
+                lineOpacity(0.7f),
+                lineCap(LINE_CAP_ROUND),
+                lineJoin(LINE_JOIN_ROUND),
+            ),
+        )
         style.addSource(GeoJsonSource(LIVE_TRACK_SOURCE, EMPTY_FEATURE_COLLECTION))
         addLineLayer(
             LineLayer(LIVE_TRACK_LAYER, LIVE_TRACK_SOURCE).withProperties(
@@ -726,16 +742,6 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
                 lineWidth(5f),
                 lineOpacity(0.95f),
                 lineDasharray(arrayOf(1.4f, 1.4f)),
-                lineCap(LINE_CAP_ROUND),
-                lineJoin(LINE_JOIN_ROUND),
-            ),
-        )
-        style.addSource(GeoJsonSource(ROUTE_SOURCE, EMPTY_FEATURE_COLLECTION))
-        addLineLayer(
-            LineLayer(ROUTE_LAYER, ROUTE_SOURCE).withProperties(
-                lineColor(Color.parseColor("#1677FF")),
-                lineWidth(6f),
-                lineOpacity(0.7f),
                 lineCap(LINE_CAP_ROUND),
                 lineJoin(LINE_JOIN_ROUND),
             ),
