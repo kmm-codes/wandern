@@ -28,6 +28,9 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 @RunWith(AndroidJUnit4::class)
 class RoutePlannerFlowTest {
@@ -403,34 +406,47 @@ class RoutePlannerFlowTest {
     fun plannerDrawerHeightChangesWaitForTheSheetToStopMoving() {
         ActivityScenario.launch(RoutePlannerActivity::class.java).use { scenario ->
             SystemClock.sleep(500)
+            // Polling for a moving state loses the race whenever a loaded machine lets the whole
+            // settle pass between two samples. The sheet's own callback cannot be missed, so the
+            // shrink is requested from inside it - on the main thread, while the sheet moves.
+            val movingStateReached = CountDownLatch(1)
+            val heightBeforeShrink = AtomicInteger(0)
+            val heightAfterShrink = AtomicInteger(0)
+            lateinit var movingCallback: BottomSheetBehavior.BottomSheetCallback
+
             scenario.onActivity { activity ->
                 val drawer = activity.findViewById<MaterialCardView>(R.id.plannerCard)
                 val behavior = BottomSheetBehavior.from(drawer)
                 assertEquals(BottomSheetBehavior.STATE_EXPANDED, behavior.state)
+                movingCallback = object : BottomSheetBehavior.BottomSheetCallback() {
+                    override fun onSlide(bottomSheet: View, slideOffset: Float) = Unit
+
+                    override fun onStateChanged(bottomSheet: View, newState: Int) {
+                        val moving = newState == BottomSheetBehavior.STATE_SETTLING ||
+                            newState == BottomSheetBehavior.STATE_DRAGGING
+                        if (!moving || movingStateReached.count == 0L) return
+                        heightBeforeShrink.set(bottomSheet.layoutParams.height)
+                        // Shrinking the content mid-settle must not resize the card: the drag
+                        // helper is animating towards the top offset derived from the current
+                        // height.
+                        activity.findViewById<View>(R.id.instructionRow).visibility = View.GONE
+                        activity.invokePrivate("updatePlannerExtent")
+                        heightAfterShrink.set(bottomSheet.layoutParams.height)
+                        movingStateReached.countDown()
+                    }
+                }
+                // Registered before the request so the sheet cannot leave the expanded state
+                // unobserved.
+                behavior.addBottomSheetCallback(movingCallback)
                 behavior.state = BottomSheetBehavior.STATE_COLLAPSED
             }
 
-            var heightWhileSettling = 0
-            var sawSettling = false
-            for (attempt in 0 until 40) {
-                scenario.onActivity { activity ->
-                    val drawer = activity.findViewById<MaterialCardView>(R.id.plannerCard)
-                    val behavior = BottomSheetBehavior.from(drawer)
-                    if (sawSettling || behavior.state != BottomSheetBehavior.STATE_SETTLING) {
-                        return@onActivity
-                    }
-                    sawSettling = true
-                    heightWhileSettling = drawer.layoutParams.height
-                    // Shrinking the content mid-settle must not resize the card: the drag helper
-                    // is animating towards the top offset derived from the current height.
-                    activity.findViewById<View>(R.id.instructionRow).visibility = View.GONE
-                    activity.invokePrivate("updatePlannerExtent")
-                    assertEquals(heightWhileSettling, drawer.layoutParams.height)
-                }
-                if (sawSettling) break
-                SystemClock.sleep(5)
-            }
-            assertTrue("planner drawer never reported STATE_SETTLING", sawSettling)
+            assertTrue(
+                "planner drawer never reported STATE_SETTLING",
+                movingStateReached.await(5, TimeUnit.SECONDS),
+            )
+            val heightWhileSettling = heightBeforeShrink.get()
+            assertEquals(heightWhileSettling, heightAfterShrink.get())
 
             var collapsed = false
             var height = heightWhileSettling
@@ -456,6 +472,7 @@ class RoutePlannerFlowTest {
                 val drawer = activity.findViewById<MaterialCardView>(R.id.plannerCard)
                 val behavior = BottomSheetBehavior.from(drawer)
                 assertEquals(root.height - behavior.peekHeight, drawer.top)
+                behavior.removeBottomSheetCallback(movingCallback)
                 activity.findViewById<View>(R.id.instructionRow).visibility = View.VISIBLE
             }
         }
