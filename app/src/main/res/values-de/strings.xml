@@ -476,6 +476,10 @@
     <string name="gpx_load_error">GPX konnte nicht geladen werden: %1$s</string>
     <string name="hide_route">Route ausblenden</string>
     <string name="no_more_actions">Keine weiteren Aktionen</string>
+    <string name="map_settings">Karteneinstellungen</string>
+    <string name="voice_guidance">Sprachansagen</string>
+    <string name="voice_guidance_on">Sprachansagen an</string>
+    <string name="voice_guidance_off">Sprachansagen aus</string>
     <string name="location_services_disabled">Standortdienste sind deaktiviert.</string>
     <string name="recording_location_permission_denied">Ohne Standortberechtigung kann keine Tour aufgezeichnet werden.</string>
     <string name="map_location_permission_denied">Ohne Standortberechtigung kann dein Standort nicht angezeigt werden.</string>

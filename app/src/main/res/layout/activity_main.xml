@@ -128,12 +128,26 @@
         app:tint="@color/forest_900" />
 
     <com.google.android.material.floatingactionbutton.FloatingActionButton
-        android:id="@+id/recordingDetourFab"
+        android:id="@+id/mapSettingsFab"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="end|bottom"
         android:layout_marginEnd="18dp"
         android:layout_marginBottom="174dp"
+        android:contentDescription="@string/map_settings"
+        android:src="@drawable/ic_more_vertical"
+        android:translationZ="12dp"
+        app:backgroundTint="@color/sand_50"
+        app:fabSize="mini"
+        app:tint="@color/forest_900" />
+
+    <com.google.android.material.floatingactionbutton.FloatingActionButton
+        android:id="@+id/recordingDetourFab"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="end|bottom"
+        android:layout_marginEnd="18dp"
+        android:layout_marginBottom="238dp"
         android:contentDescription="@string/detour_action"
         android:src="@drawable/ic_warning_triangle"
         android:translationZ="12dp"

@@ -475,6 +475,10 @@
     <string name="gpx_load_error">Could not load GPX: %1$s</string>
     <string name="hide_route">Hide route</string>
     <string name="no_more_actions">No more actions</string>
+    <string name="map_settings">Map settings</string>
+    <string name="voice_guidance">Voice guidance</string>
+    <string name="voice_guidance_on">Voice guidance on</string>
+    <string name="voice_guidance_off">Voice guidance off</string>
     <string name="location_services_disabled">Location services are disabled.</string>
     <string name="recording_location_permission_denied">A tour cannot be recorded without location permission.</string>
     <string name="map_location_permission_denied">Your location cannot be shown without location permission.</string>

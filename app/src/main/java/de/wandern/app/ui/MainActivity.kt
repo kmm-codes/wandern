@@ -51,6 +51,7 @@ import de.wandern.app.data.ActivityPreferences
 import de.wandern.app.data.ElevationEnricher
 import de.wandern.app.data.DetourSessionStore
 import de.wandern.app.data.FitnessPreferences
+import de.wandern.app.data.NavigationPreferences
 import de.wandern.app.data.OfflineMapAvailability
 import de.wandern.app.data.OfflineMapDownloadState
 import de.wandern.app.data.OfflineMapDownloader
@@ -145,6 +146,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     private lateinit var offlineMapDownloader: OfflineMapDownloader
     private lateinit var fitnessPreferences: FitnessPreferences
     private lateinit var activityPreferences: ActivityPreferences
+    private lateinit var navigationPreferences: NavigationPreferences
     private lateinit var locationManager: LocationManager
     private lateinit var sensorManager: SensorManager
     private var rotationVectorSensor: Sensor? = null
@@ -287,6 +289,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         offlineMapDownloader = OfflineMapDownloader(this, MAP_STYLE_URL)
         fitnessPreferences = FitnessPreferences(this)
         activityPreferences = ActivityPreferences(this)
+        navigationPreferences = NavigationPreferences(this)
         clearLegacyCompassCorrection()
         selectedActivityType = activityPreferences.defaultType
         locationManager = getSystemService(LOCATION_SERVICE) as LocationManager
@@ -757,6 +760,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         binding.recordingDetourFab.setOnClickListener { openDetourPlanner() }
         binding.recordingUndoDetourButton.setOnClickListener { undoActiveDetour() }
         binding.moreButton.setOnClickListener { showMoreMenu() }
+        binding.mapSettingsFab.setOnClickListener { showMapSettingsMenu() }
         binding.centerButton.setOnClickListener {
             requestCenterOnUser()
             maybeShowCompassCalibrationHint()
@@ -1509,9 +1513,15 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             val centerTop = (overlayTop - binding.centerButton.height - dp(16))
                 .coerceAtLeast(minimumTop)
             binding.centerButton.y = centerTop.toFloat()
+            var stackTop = centerTop
+            if (binding.mapSettingsFab.height > 0) {
+                stackTop = (stackTop - binding.mapSettingsFab.height - dp(8))
+                    .coerceAtLeast(minimumTop)
+                binding.mapSettingsFab.y = stackTop.toFloat()
+            }
             if (binding.recordingDetourFab.height > 0) {
                 binding.recordingDetourFab.y = (
-                    centerTop - binding.recordingDetourFab.height - dp(8)
+                    stackTop - binding.recordingDetourFab.height - dp(8)
                 ).coerceAtLeast(minimumTop).toFloat()
             }
         }
@@ -2349,6 +2359,35 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         }
     }
 
+    private fun showMapSettingsMenu() {
+        PopupMenu(this, binding.mapSettingsFab).apply {
+            menu.add(0, MENU_VOICE_GUIDANCE, 1, getString(R.string.voice_guidance)).apply {
+                isCheckable = true
+                isChecked = navigationPreferences.voiceGuidanceEnabled
+            }
+            menu.setGroupCheckable(0, true, false)
+            setOnMenuItemClickListener { item ->
+                when (item.itemId) {
+                    MENU_VOICE_GUIDANCE -> {
+                        val enabled = !navigationPreferences.voiceGuidanceEnabled
+                        navigationPreferences.voiceGuidanceEnabled = enabled
+                        item.isChecked = enabled
+                        showRouteStatus(
+                            getString(
+                                if (enabled) R.string.voice_guidance_on else R.string.voice_guidance_off,
+                            ),
+                            R.color.forest_900,
+                            INFO_BADGE_MILLIS,
+                        )
+                        true
+                    }
+                    else -> false
+                }
+            }
+            show()
+        }
+    }
+
     private fun renderMoreButtonVisibility() {
         binding.moreButton.visibility = if (importedTrack != null) {
             View.VISIBLE
@@ -2929,6 +2968,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         private const val MENU_CLEAR_ROUTE = 3
         private const val MENU_FIT_ROUTE = 5
         private const val MENU_REVERSE_ROUTE = 6
+        private const val MENU_VOICE_GUIDANCE = 7
         private const val EMPTY_FEATURE_COLLECTION = "{\"type\":\"FeatureCollection\",\"features\":[]}"
         private const val RECORDING_PAGE_STATS = 0
         private const val RECORDING_PAGE_ELEVATION = 1

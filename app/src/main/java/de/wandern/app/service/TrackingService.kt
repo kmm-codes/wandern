@@ -7,6 +7,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
+import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.location.Location
 import android.location.LocationListener
@@ -24,6 +25,7 @@ import de.wandern.app.BuildConfig
 import de.wandern.app.R
 import de.wandern.app.data.TrackStore
 import de.wandern.app.data.DetourSessionStore
+import de.wandern.app.data.NavigationPreferences
 import de.wandern.app.data.RecordingRouteStore
 import de.wandern.app.localization.AppLanguage
 import de.wandern.app.model.AutoPauseDetector
@@ -64,6 +66,7 @@ class TrackingService : Service(), LocationListener {
     private lateinit var trackStore: TrackStore
     private lateinit var detourStore: DetourSessionStore
     private lateinit var recordingRouteStore: RecordingRouteStore
+    private lateinit var navigationPreferences: NavigationPreferences
     private var sessionId: Long? = null
     private var segmentIndex = 0
     private var lastAcceptedPoint: TrackPoint? = null
@@ -86,6 +89,13 @@ class TrackingService : Service(), LocationListener {
     private var textToSpeech: TextToSpeech? = null
     private var textToSpeechReady = false
     private var pendingSpokenInstruction: String? = null
+    private val voiceGuidanceListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key != NavigationPreferences.KEY_VOICE_GUIDANCE_ENABLED) return@OnSharedPreferenceChangeListener
+        if (!navigationPreferences.voiceGuidanceEnabled) {
+            pendingSpokenInstruction = null
+            textToSpeech?.stop()
+        }
+    }
     private val recordingClock = RecordingClock()
     private var lastFullSnapshotElapsedRealtime = 0L
     private var lastNotificationElapsedRealtime = 0L
@@ -99,6 +109,8 @@ class TrackingService : Service(), LocationListener {
         trackStore = TrackStore(this)
         detourStore = DetourSessionStore(this)
         recordingRouteStore = RecordingRouteStore(this)
+        navigationPreferences = NavigationPreferences(this)
+        navigationPreferences.registerChangeListener(voiceGuidanceListener)
         bootEpochOffsetMillis = System.currentTimeMillis() - SystemClock.elapsedRealtime()
         initializeTextToSpeech()
         createNotificationChannel()
@@ -275,6 +287,7 @@ class TrackingService : Service(), LocationListener {
 
     override fun onDestroy() {
         removeLocationUpdates()
+        navigationPreferences.unregisterChangeListener(voiceGuidanceListener)
         textToSpeech?.stop()
         textToSpeech?.shutdown()
         textToSpeech = null
@@ -672,6 +685,7 @@ class TrackingService : Service(), LocationListener {
     }
 
     private fun speakNavigationGuidance(guidance: NavigationGuidance) {
+        if (!navigationPreferences.voiceGuidanceEnabled) return
         val instruction = when (guidance.announcement) {
             NavigationAnnouncementStage.APPROACH -> getString(
                 R.string.navigation_in_distance,

@@ -92,17 +92,15 @@ class DebugRecordingScenarioFlowTest {
                     View.VISIBLE,
                     activity.findViewById<View>(de.wandern.app.R.id.recordingDetourFab).visibility,
                 )
-                assertMapFabAboveSheet(
-                    activity.findViewById(de.wandern.app.R.id.centerButton),
-                    card,
-                    "centerButton",
-                    maxGapDp = 32,
-                )
-                assertMapFabAboveSheet(
-                    activity.findViewById(de.wandern.app.R.id.recordingDetourFab),
-                    card,
-                    "recordingDetourFab",
-                )
+                val center = activity.findViewById<View>(de.wandern.app.R.id.centerButton)
+                val settings = activity.findViewById<View>(de.wandern.app.R.id.mapSettingsFab)
+                val detour = activity.findViewById<View>(de.wandern.app.R.id.recordingDetourFab)
+                assertEquals(View.VISIBLE, settings.visibility)
+                assertMapFabAboveSheet(center, card, "centerButton", maxGapDp = 32)
+                assertMapFabAboveSheet(settings, card, "mapSettingsFab")
+                assertMapFabAboveSheet(detour, card, "recordingDetourFab")
+                assertStackedAbove(settings, center, "mapSettingsFab", "centerButton")
+                assertStackedAbove(detour, settings, "recordingDetourFab", "mapSettingsFab")
             }
         }
     }
@@ -344,6 +342,18 @@ class DebugRecordingScenarioFlowTest {
                 )
             }
         }
+    }
+
+    private fun assertStackedAbove(upper: View, lower: View, upperLabel: String, lowerLabel: String) {
+        val upperBounds = Rect()
+        val lowerBounds = Rect()
+        assertTrue("$upperLabel has no visible bounds", upper.getGlobalVisibleRect(upperBounds))
+        assertTrue("$lowerLabel has no visible bounds", lower.getGlobalVisibleRect(lowerBounds))
+        assertTrue(
+            "$upperLabel must sit above $lowerLabel without overlap: " +
+                "upper=$upperBounds lower=$lowerBounds",
+            upperBounds.bottom <= lowerBounds.top,
+        )
     }
 
     private fun assertMapFabAboveSheet(
