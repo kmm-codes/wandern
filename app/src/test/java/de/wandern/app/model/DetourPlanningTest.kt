@@ -22,6 +22,35 @@ class DetourPlanningTest {
     }
 
     @Test
+    fun noGoSamplingKeepsBlockedLineCoveredEvenWithFarApartPoints() {
+        val blocked = listOf(TrackPoint(48.0, 8.0), TrackPoint(48.0, 8.005))
+
+        val noGoPoints = DetourPlanner.noGoPointsAlong(blocked, widthMeters = 30)
+
+        val spacing = noGoPoints.map { it.point }.zipWithNext { a, b -> GeoMath.distanceMeters(a, b) }
+        assertTrue(noGoPoints.size >= 10)
+        assertTrue(spacing.all { it <= 36.0 })
+        assertTrue(noGoPoints.all { it.radiusMeters == 30 })
+        assertEquals(blocked.first().longitude, noGoPoints.first().point.longitude, 0.000001)
+        assertEquals(blocked.last().longitude, noGoPoints.last().point.longitude, 0.000001)
+    }
+
+    @Test
+    fun noGoSamplingMatchesTheCorridorItWasExtractedFrom() {
+        val corridor = DetourPlanner.corridor(route, 300.0, 250.0)
+
+        val resampled = DetourPlanner.noGoPointsAlong(corridor.points, corridor.widthMeters)
+
+        assertEquals(corridor.noGoPoints, resampled)
+    }
+
+    @Test
+    fun noGoSamplingIgnoresDegenerateInput() {
+        assertTrue(DetourPlanner.noGoPointsAlong(emptyList()).isEmpty())
+        assertEquals(1, DetourPlanner.noGoPointsAlong(listOf(TrackPoint(48.0, 8.0))).size)
+    }
+
+    @Test
     fun mapPointCanBeProjectedOntoAllowedPartOfRoute() {
         val path = RoutePath(route)
         val distance = path.nearestDistanceAlongRoute(TrackPoint(48.0, 8.012), 500.0)

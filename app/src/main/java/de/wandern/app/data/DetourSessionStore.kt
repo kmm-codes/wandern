@@ -5,6 +5,9 @@ import de.wandern.app.localization.localizedSystemText
 import de.wandern.app.model.DetourRouteCandidate
 import de.wandern.app.model.GpxTrack
 import de.wandern.app.model.RouteAdjustmentKind
+import de.wandern.app.model.RouteClosure
+import de.wandern.app.model.TrackPoint
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 
@@ -112,12 +115,97 @@ class DetourSessionStore(context: Context) {
         )
     }
 
+    /** Sections the hiker reported as blocked during this recording, oldest first. */
+    @Synchronized
+    fun closures(sessionId: Long): List<RouteClosure> {
+        val file = closureFile(sessionId).takeIf(File::isFile) ?: return emptyList()
+        return runCatching { decodeClosures(file.readText(Charsets.UTF_8)) }.getOrDefault(emptyList())
+    }
+
+    /** Adds a closure that stays active for the rest of the recording. */
+    @Synchronized
+    fun addClosure(sessionId: Long, closure: RouteClosure): List<RouteClosure> {
+        if (closure.points.size < 2) return closures(sessionId)
+        val updated = (closures(sessionId).filterNot { it.id == closure.id } + closure)
+            .takeLast(MAX_CLOSURES)
+        val target = closureFile(sessionId)
+        val temporary = File(directory, "${target.name}.tmp")
+        temporary.writeText(encodeClosures(updated), Charsets.UTF_8)
+        replace(temporary, target)
+        return updated
+    }
+
     @Synchronized
     fun clear(sessionId: Long) {
         preferences.edit().remove(key(sessionId)).commit()
-        listOf(routeFile(sessionId), detourFile(sessionId)).forEach { target ->
+        listOf(routeFile(sessionId), detourFile(sessionId), closureFile(sessionId)).forEach { target ->
             target.delete()
             File(directory, "${target.name}.tmp").delete()
+        }
+    }
+
+    private fun encodeClosures(closures: List<RouteClosure>): String = JSONObject().apply {
+        put(
+            "closures",
+            JSONArray().apply {
+                closures.forEach { closure ->
+                    put(
+                        JSONObject().apply {
+                            put("id", closure.id)
+                            put("created_at", closure.createdAtMillis)
+                            put("width_meters", closure.widthMeters)
+                            put(
+                                "points",
+                                JSONArray().apply {
+                                    closure.points.forEach { point ->
+                                        put(
+                                            JSONObject().apply {
+                                                put("lat", point.latitude)
+                                                put("lon", point.longitude)
+                                                point.elevationMeters?.let { put("ele", it) }
+                                            },
+                                        )
+                                    }
+                                },
+                            )
+                        },
+                    )
+                }
+            },
+        )
+    }.toString()
+
+    private fun decodeClosures(encoded: String): List<RouteClosure> {
+        val entries = JSONObject(encoded).optJSONArray("closures") ?: return emptyList()
+        return buildList {
+            for (index in 0 until entries.length()) {
+                val entry = entries.optJSONObject(index) ?: continue
+                val encodedPoints = entry.optJSONArray("points") ?: continue
+                val points = buildList {
+                    for (pointIndex in 0 until encodedPoints.length()) {
+                        val point = encodedPoints.optJSONObject(pointIndex) ?: continue
+                        val latitude = point.optDouble("lat", Double.NaN)
+                        val longitude = point.optDouble("lon", Double.NaN)
+                        if (!latitude.isFinite() || !longitude.isFinite()) continue
+                        add(
+                            TrackPoint(
+                                latitude = latitude,
+                                longitude = longitude,
+                                elevationMeters = point.optDouble("ele", Double.NaN).takeIf(Double::isFinite),
+                            ),
+                        )
+                    }
+                }
+                if (points.size < 2) continue
+                add(
+                    RouteClosure(
+                        id = entry.optLong("id"),
+                        createdAtMillis = entry.optLong("created_at"),
+                        widthMeters = entry.optInt("width_meters", DEFAULT_CLOSURE_WIDTH_METERS),
+                        points = points,
+                    ),
+                )
+            }
         }
     }
 
@@ -133,9 +221,12 @@ class DetourSessionStore(context: Context) {
 
     private fun routeFile(sessionId: Long) = File(directory, "detour-$sessionId.gpx")
     private fun detourFile(sessionId: Long) = File(directory, "detour-segment-$sessionId.gpx")
+    private fun closureFile(sessionId: Long) = File(directory, "closures-$sessionId.json")
     private fun key(sessionId: Long) = "session_$sessionId"
 
     private companion object {
         const val PREFERENCES = "active_navigation_detours"
+        const val MAX_CLOSURES = 20
+        const val DEFAULT_CLOSURE_WIDTH_METERS = 30
     }
 }

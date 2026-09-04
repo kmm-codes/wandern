@@ -14,6 +14,24 @@ data class DetourCorridor(
     val noGoPoints: List<RoutingNoGoPoint>,
 )
 
+/**
+ * A section the hiker marked as blocked during the running recording.
+ *
+ * Closures outlive the detour they were planned for: every later routing request of the same
+ * session avoids them again, so a round trip cannot be sent back through a barrier the hiker
+ * already reported on the way out.
+ */
+data class RouteClosure(
+    val id: Long,
+    val createdAtMillis: Long,
+    val widthMeters: Int,
+    val points: List<TrackPoint>,
+) {
+    val noGoPoints: List<RoutingNoGoPoint> by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        DetourPlanner.noGoPointsAlong(points, widthMeters)
+    }
+}
+
 data class DetourRouteCandidate(
     val track: GpxTrack,
     val detourTrack: GpxTrack,
@@ -156,23 +174,37 @@ object DetourPlanner {
             )
         }
         val corridorPoints = path.slice(start, end)
-        val sampledDistances = buildList {
-            var distance = start
-            while (distance < end) {
-                add(distance)
-                distance += NO_GO_SAMPLE_SPACING_METERS
-            }
-            add(end)
-        }.distinct().take(MAX_NO_GO_POINTS)
         return DetourCorridor(
             startDistanceMeters = start,
             endDistanceMeters = end,
             widthMeters = widthMeters,
             points = corridorPoints,
-            noGoPoints = sampledDistances.map { distance ->
-                RoutingNoGoPoint(path.pointAt(distance), widthMeters)
-            },
+            noGoPoints = noGoPointsAlong(corridorPoints, widthMeters),
         )
+    }
+
+    /**
+     * Samples a blocked line evenly so the router receives overlapping no-go circles instead of
+     * a few far apart vertices. Used for the corridor being planned and for stored closures.
+     */
+    fun noGoPointsAlong(
+        points: List<TrackPoint>,
+        widthMeters: Int = DEFAULT_WIDTH_METERS,
+    ): List<RoutingNoGoPoint> {
+        val radius = widthMeters.coerceAtLeast(1)
+        val cleaned = points.distinctAdjacent()
+        if (cleaned.isEmpty()) return emptyList()
+        if (cleaned.size == 1) return listOf(RoutingNoGoPoint(cleaned.first(), radius))
+        val path = RoutePath(GpxTrack(NO_GO_TRACK_NAME, listOf(cleaned)))
+        val sampledDistances = buildList {
+            var distance = 0.0
+            while (distance < path.totalDistanceMeters) {
+                add(distance)
+                distance += NO_GO_SAMPLE_SPACING_METERS
+            }
+            add(path.totalDistanceMeters)
+        }.distinct().take(MAX_NO_GO_POINTS)
+        return sampledDistances.map { distance -> RoutingNoGoPoint(path.pointAt(distance), radius) }
     }
 
     fun rejoinDistances(route: GpxTrack, corridor: DetourCorridor): List<Double> {
@@ -301,6 +333,7 @@ object DetourPlanner {
     const val DEFAULT_WIDTH_METERS = 30
     private const val START_AHEAD_METERS = 60.0
     private const val MIN_ROUTE_REMAINDER_METERS = 80.0
+    private const val NO_GO_TRACK_NAME = "no-go"
     private const val NO_GO_SAMPLE_SPACING_METERS = 35.0
     private const val MAX_NO_GO_POINTS = 60
     private val REJOIN_OFFSETS_METERS = listOf(100.0, 250.0, 500.0, 1_000.0, 2_000.0, 3_500.0)

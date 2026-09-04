@@ -18,6 +18,7 @@ import de.wandern.app.R
 import de.wandern.app.data.DetourSessionStore
 import de.wandern.app.data.OnlineRoutingClient
 import de.wandern.app.data.RecordingRouteStore
+import de.wandern.app.data.RoutingNoGoPoint
 import de.wandern.app.data.TrackStore
 import de.wandern.app.localization.AppLanguage
 import de.wandern.app.databinding.ActivityDetourPlannerBinding
@@ -29,6 +30,7 @@ import de.wandern.app.model.GeoMath
 import de.wandern.app.model.GpxTrack
 import de.wandern.app.model.RoutePath
 import de.wandern.app.model.RouteAdjustmentKind
+import de.wandern.app.model.RouteClosure
 import de.wandern.app.model.TrackAnalyzer
 import de.wandern.app.model.TrackPoint
 import kotlinx.coroutines.Dispatchers
@@ -79,6 +81,7 @@ class DetourPlannerActivity : AppCompatActivity() {
     private var currentProgressMeters = 0.0
     private var corridorLengthMeters = DetourPlanner.DEFAULT_CORRIDOR_LENGTH_METERS
     private var corridor: DetourCorridor? = null
+    private var storedClosures: List<RouteClosure> = emptyList()
     private var candidates: List<DetourRouteCandidate> = emptyList()
     private var selectedCandidateIndex = 0
     private var routing = false
@@ -125,6 +128,7 @@ class DetourPlannerActivity : AppCompatActivity() {
         sessionId = intent.getLongExtra(EXTRA_SESSION_ID, -1L)
         val session = trackStore.activeSession()?.takeIf { it.id == sessionId } ?: return false
         val existingDetour = detourStore.load(sessionId)
+        storedClosures = detourStore.closures(sessionId)
         val recordingRoute = recordingRouteStore.load(sessionId)
         originalRouteReference = existingDetour?.originalRouteReference ?: session.routeReference
         restoresRecordingRoute = existingDetour?.restoresRecordingRoute ?: (recordingRoute != null)
@@ -193,12 +197,15 @@ class DetourPlannerActivity : AppCompatActivity() {
                 mapStyle = style
                 addLineLayer(style, ROUTE_SOURCE, ROUTE_LAYER, "#1677FF", 6f, 0.72f)
                 addLineLayer(style, PREVIEW_SOURCE, PREVIEW_LAYER, "#F28C28", 7f, 0.95f)
+                addLineLayer(style, CLOSURE_SOURCE, CLOSURE_HALO_LAYER, "#FFFFFF", 11f, 0.7f)
+                addLineLayer(style, CLOSURE_SOURCE, CLOSURE_LAYER, "#C44431", 6f, 0.75f)
                 addLineLayer(style, CORRIDOR_SOURCE, CORRIDOR_HALO_LAYER, "#FFFFFF", 14f, 0.9f)
                 addLineLayer(style, CORRIDOR_SOURCE, CORRIDOR_LAYER, "#C44431", 9f, 0.98f)
                 addPointLayer(style, POSITION_SOURCE, POSITION_LAYER, "#1677FF")
                 addPointLayer(style, CORRIDOR_END_SOURCE, CORRIDOR_END_LAYER, "#C44431")
                 updateLineSource(ROUTE_SOURCE, route)
                 updatePointSource(POSITION_SOURCE, currentPosition)
+                updateClosureSource()
                 updateCorridorSource()
                 if (plannerMode == PlannerMode.DETOUR) {
                     frameCorridor()
@@ -373,6 +380,7 @@ class DetourPlannerActivity : AppCompatActivity() {
                     waypoints = listOf(currentPosition, rejoinPoint),
                     activityType = activityType,
                     routeName = getString(R.string.route_rejoin_title),
+                    noGoPoints = routingNoGoPoints(null),
                 )
             }.onSuccess { connector ->
                 found += DetourPlanner.combineRejoin(
@@ -402,7 +410,7 @@ class DetourPlannerActivity : AppCompatActivity() {
                     waypoints = listOf(currentPosition, rejoinPoint),
                     activityType = activityType,
                     routeName = getString(R.string.detour_route_short_name),
-                    noGoPoints = selectedCorridor.noGoPoints,
+                    noGoPoints = routingNoGoPoints(selectedCorridor),
                 )
             }.onSuccess { detour ->
                 found += DetourPlanner.combine(
@@ -421,7 +429,7 @@ class DetourPlannerActivity : AppCompatActivity() {
                 waypoints = listOf(currentPosition, destination),
                 activityType = activityType,
                 routeName = getString(R.string.detour_route_name),
-                noGoPoints = selectedCorridor.noGoPoints,
+                noGoPoints = routingNoGoPoints(selectedCorridor),
             )
         }.getOrElse { throw lastError ?: it }
         listOf(
@@ -537,9 +545,52 @@ class DetourPlannerActivity : AppCompatActivity() {
                 },
             )
         }.onSuccess {
+            rememberClosure()
             setResult(Activity.RESULT_OK, Intent().putExtra(EXTRA_SESSION_ID, sessionId))
             finish()
         }.onFailure { toast(it.localizedMessage ?: getString(R.string.detour_no_route)) }
+    }
+
+    /**
+     * Blocked sections for a routing request: the corridor being planned plus every closure the
+     * hiker already reported in this recording, newest first so the freshest ones survive the cap.
+     */
+    private fun routingNoGoPoints(activeCorridor: DetourCorridor?): List<RoutingNoGoPoint> = buildList {
+        activeCorridor?.let { addAll(it.noGoPoints) }
+        storedClosures.sortedByDescending { it.createdAtMillis }.forEach { addAll(it.noGoPoints) }
+    }.take(MAX_ROUTING_NO_GO_POINTS)
+
+    private fun updateClosureSource() {
+        val source = mapStyle?.getSourceAs<GeoJsonSource>(CLOSURE_SOURCE) ?: return
+        source.setGeoJson(
+            FeatureCollection.fromFeatures(
+                storedClosures.mapNotNull { closure ->
+                    if (closure.points.size < 2) null else Feature.fromGeometry(
+                        LineString.fromLngLats(
+                            closure.points.map { Point.fromLngLat(it.longitude, it.latitude) },
+                        ),
+                    )
+                },
+            ),
+        )
+    }
+
+    /** Keeps the blocked corridor for the rest of the recording, not just for this detour. */
+    private fun rememberClosure() {
+        if (plannerMode != PlannerMode.DETOUR) return
+        val blocked = corridor ?: return
+        val now = System.currentTimeMillis()
+        runCatching {
+            storedClosures = detourStore.addClosure(
+                sessionId,
+                RouteClosure(
+                    id = now,
+                    createdAtMillis = now,
+                    widthMeters = blocked.widthMeters,
+                    points = blocked.points,
+                ),
+            )
+        }
     }
 
     private fun updateCorridorSource() {
@@ -640,6 +691,9 @@ class DetourPlannerActivity : AppCompatActivity() {
         private const val ROUTE_LAYER = "detour-original-layer"
         private const val PREVIEW_SOURCE = "detour-preview-source"
         private const val PREVIEW_LAYER = "detour-preview-layer"
+        private const val CLOSURE_SOURCE = "detour-closure-source"
+        private const val CLOSURE_HALO_LAYER = "detour-closure-halo-layer"
+        private const val CLOSURE_LAYER = "detour-closure-layer"
         private const val CORRIDOR_SOURCE = "detour-corridor-source"
         private const val CORRIDOR_HALO_LAYER = "detour-corridor-halo-layer"
         private const val CORRIDOR_LAYER = "detour-corridor-layer"
@@ -649,6 +703,7 @@ class DetourPlannerActivity : AppCompatActivity() {
         private const val CORRIDOR_END_LAYER = "detour-corridor-end-layer"
         private const val EMPTY_FEATURE_COLLECTION = "{\"type\":\"FeatureCollection\",\"features\":[]}"
         private const val MAX_DETOUR_CANDIDATES = 3
+        private const val MAX_ROUTING_NO_GO_POINTS = 150
         private const val REJOIN_SKIP_PENALTY = 0.35
     }
 

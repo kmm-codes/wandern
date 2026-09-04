@@ -6,10 +6,12 @@ import de.wandern.app.model.ActivityType
 import de.wandern.app.model.DetourRouteCandidate
 import de.wandern.app.model.GpxTrack
 import de.wandern.app.model.RouteAdjustmentKind
+import de.wandern.app.model.RouteClosure
 import de.wandern.app.model.TrackPoint
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -100,6 +102,53 @@ class DetourSessionStoreTest {
         assertNull(restored?.originalRouteReference)
         assertEquals(true, restored?.restoresRecordingRoute)
         assertEquals(track.points.size, restored?.route?.points?.size)
+    }
+
+    @Test
+    fun keepsClosuresForTheWholeSessionAndClearsThemWithTheDetour() {
+        val firstClosure = RouteClosure(
+            id = 1L,
+            createdAtMillis = 1_700_000_000_000L,
+            widthMeters = 30,
+            points = listOf(TrackPoint(48.0, 8.0), TrackPoint(48.0, 8.002)),
+        )
+        val secondClosure = RouteClosure(
+            id = 2L,
+            createdAtMillis = 1_700_000_060_000L,
+            widthMeters = 45,
+            points = listOf(TrackPoint(48.01, 8.01, elevationMeters = 320.0), TrackPoint(48.012, 8.012)),
+        )
+
+        store.addClosure(SESSION_ID, firstClosure)
+        store.addClosure(SESSION_ID, secondClosure)
+        val restored = store.closures(SESSION_ID)
+
+        assertEquals(2, restored.size)
+        assertEquals(listOf(1L, 2L), restored.map { it.id })
+        assertEquals(1_700_000_060_000L, restored.last().createdAtMillis)
+        assertEquals(45, restored.last().widthMeters)
+        assertEquals(320.0, restored.last().points.first().elevationMeters ?: 0.0, 0.001)
+        assertEquals(8.002, restored.first().points.last().longitude, 0.000001)
+        assertTrue(restored.first().noGoPoints.isNotEmpty())
+
+        store.clear(SESSION_ID)
+        assertTrue(store.closures(SESSION_ID).isEmpty())
+    }
+
+    @Test
+    fun replacesAClosureThatIsAddedTwice() {
+        val closure = RouteClosure(
+            id = 7L,
+            createdAtMillis = 1_700_000_000_000L,
+            widthMeters = 30,
+            points = listOf(TrackPoint(48.0, 8.0), TrackPoint(48.0, 8.002)),
+        )
+
+        store.addClosure(SESSION_ID, closure)
+        val updated = store.addClosure(SESSION_ID, closure.copy(widthMeters = 60))
+
+        assertEquals(1, updated.size)
+        assertEquals(60, store.closures(SESSION_ID).single().widthMeters)
     }
 
     private companion object {
