@@ -145,7 +145,11 @@ class RoutePlannerFlowTest {
                 activity.findViewById<View>(R.id.closePointSearchButton).performClick()
             }
 
-            SystemClock.sleep(500)
+            // The collapse requested above is queued behind a layout pass, so the expand that
+            // closePointSearch posts re-targets a settle that has already started moving. The
+            // sheet therefore comes back over an animation whose length ViewDragHelper derives
+            // from the distance it still has to travel; wait for it to rest instead of guessing.
+            awaitSettledPlannerDrawer(scenario)
 
             scenario.onActivity { activity ->
                 val root = activity.findViewById<View>(R.id.root)
@@ -181,11 +185,18 @@ class RoutePlannerFlowTest {
                 val behavior = BottomSheetBehavior.from(drawer)
                 assertEquals(BottomSheetBehavior.STATE_EXPANDED, behavior.state)
                 assertTrue(behavior.isDraggable)
-                assertEquals(0, (drawer.layoutParams as android.view.ViewGroup.MarginLayoutParams).topMargin)
+                val root = activity.findViewById<View>(R.id.root)
+                // The sheet cancels the root's top padding: BottomSheetBehavior measures its
+                // offsets against the parent's full height while CoordinatorLayout lays the
+                // child out inside the padding box, so an uncompensated padding would push the
+                // drawer down by exactly that amount on every layout pass.
+                assertEquals(
+                    -root.paddingTop,
+                    (drawer.layoutParams as android.view.ViewGroup.MarginLayoutParams).topMargin,
+                )
                 assertTrue(
                     behavior.peekHeight >= (56 * activity.resources.displayMetrics.density).toInt(),
                 )
-                val root = activity.findViewById<View>(R.id.root)
                 val toolbar = activity.findViewById<View>(R.id.toolbar)
                 val content = activity.findViewById<android.view.ViewGroup>(R.id.plannerContent)
                 val header = activity.findViewById<View>(R.id.drawerCompactHeader)
@@ -797,6 +808,26 @@ class RoutePlannerFlowTest {
                 .menu
                 .findItem(R.id.action_save_route),
         )
+
+    /** Blocks until the planner drawer rests in a stable state, or gives up after two seconds. */
+    private fun awaitSettledPlannerDrawer(scenario: ActivityScenario<RoutePlannerActivity>) {
+        SystemClock.sleep(500)
+        var state = BottomSheetBehavior.STATE_SETTLING
+        for (attempt in 0 until 40) {
+            scenario.onActivity { activity ->
+                state = BottomSheetBehavior.from(
+                    activity.findViewById<MaterialCardView>(R.id.plannerCard),
+                ).state
+            }
+            if (
+                state != BottomSheetBehavior.STATE_SETTLING &&
+                state != BottomSheetBehavior.STATE_DRAGGING
+            ) {
+                return
+            }
+            SystemClock.sleep(50)
+        }
+    }
 
     private fun RoutePlannerActivity.setPrivateField(name: String, value: Any?) {
         RoutePlannerActivity::class.java.getDeclaredField(name)
