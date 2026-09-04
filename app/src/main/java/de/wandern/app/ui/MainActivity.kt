@@ -153,6 +153,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     private var importedTrack: GpxTrack? = null
     private var displayedRouteTrack: GpxTrack? = null
     private var detourOverlayTrack: GpxTrack? = null
+    private var closureSegments: List<List<TrackPoint>> = emptyList()
     private var offlineMapIdentityTrack: GpxTrack? = null
     private var importedTrackReference: String? = null
     private var activeDetour = false
@@ -410,6 +411,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
             importedTrack = null
             displayedRouteTrack = null
             detourOverlayTrack = null
+            closureSegments = emptyList()
             offlineMapIdentityTrack = null
             importedTrackReference = null
             routeProgressTracker = null
@@ -451,6 +453,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
                 detour = detour,
                 rejoinDistanceMeters = rejoinDistance,
             )
+            closureSegments = listOf(corridor.points)
             displayTrack(
                 track = candidate.track,
                 reference = null,
@@ -639,6 +642,25 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
                 lineColor(Color.parseColor("#1677FF")),
                 lineWidth(6f),
                 lineOpacity(0.88f),
+                lineCap(LINE_CAP_ROUND),
+                lineJoin(LINE_JOIN_ROUND),
+            ),
+        )
+        style.addSource(GeoJsonSource(CLOSURE_SOURCE, EMPTY_FEATURE_COLLECTION))
+        style.addLayer(
+            LineLayer(CLOSURE_HALO_LAYER, CLOSURE_SOURCE).withProperties(
+                lineColor(Color.WHITE),
+                lineWidth(12f),
+                lineOpacity(0.75f),
+                lineCap(LINE_CAP_ROUND),
+                lineJoin(LINE_JOIN_ROUND),
+            ),
+        )
+        style.addLayer(
+            LineLayer(CLOSURE_LAYER, CLOSURE_SOURCE).withProperties(
+                lineColor(Color.parseColor("#C44431")),
+                lineWidth(7f),
+                lineOpacity(0.85f),
                 lineCap(LINE_CAP_ROUND),
                 lineJoin(LINE_JOIN_ROUND),
             ),
@@ -936,6 +958,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
 
     private fun restoreActiveRecording() {
         val activeSession = trackStore.activeSession() ?: return
+        refreshSessionClosures()
         if (detourStore.load(activeSession.id) != null) {
             applyPersistedDetour(announce = false)
         } else if (recordingRouteStore.load(activeSession.id) != null) {
@@ -983,9 +1006,18 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         }
     }
 
+    /** Sections reported as blocked in this recording stay visible while the detour is active. */
+    private fun refreshSessionClosures() {
+        val activeSession = trackStore.activeSession()
+        closureSegments = activeSession
+            ?.let { session -> detourStore.closures(session.id).map { it.points } }
+            .orEmpty()
+    }
+
     private fun applyPersistedDetour(announce: Boolean) {
         val activeSession = trackStore.activeSession() ?: return
         val detour = detourStore.load(activeSession.id) ?: return
+        refreshSessionClosures()
         lifecycleScope.launch {
             val originalRoute = withContext(Dispatchers.IO) {
                 if (detour.restoresRecordingRoute) {
@@ -1136,6 +1168,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         val session = trackStore.activeSession() ?: return
         val detour = detourStore.load(session.id) ?: return
         detourStore.clear(session.id)
+        closureSegments = emptyList()
         activeDetour = false
         val removedKind = activeRouteAdjustmentKind
         activeRouteAdjustmentKind = null
@@ -1660,6 +1693,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     private fun redrawTracks() {
         val style = mapStyle ?: return
         updateLineSource(style, ROUTE_SOURCE, displayedRouteTrack ?: importedTrack)
+        updateLineSource(style, CLOSURE_SOURCE, closureSegments)
         updateLineSource(style, DETOUR_SOURCE, detourOverlayTrack)
         updateRouteEndpointMarkers(displayedRouteTrack ?: importedTrack)
         updateLiveTrackSources(style, latestSnapshot.track)
@@ -1819,8 +1853,12 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
     }
 
     private fun updateLineSource(style: Style, sourceId: String, track: GpxTrack?) {
+        updateLineSource(style, sourceId, track?.segments.orEmpty())
+    }
+
+    private fun updateLineSource(style: Style, sourceId: String, segments: List<List<TrackPoint>>) {
         val source = style.getSourceAs<GeoJsonSource>(sourceId) ?: return
-        val features = track?.segments.orEmpty().filter { it.size >= 2 }.map { segment ->
+        val features = segments.filter { it.size >= 2 }.map { segment ->
             Feature.fromGeometry(
                 LineString.fromLngLats(segment.map { Point.fromLngLat(it.longitude, it.latitude) }),
             )
@@ -2240,6 +2278,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         importedTrack = null
         displayedRouteTrack = null
         detourOverlayTrack = null
+        closureSegments = emptyList()
         offlineMapIdentityTrack = null
         importedTrackReference = null
         activeDetour = false
@@ -2287,6 +2326,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
                         importedTrack = importedTrack?.reversed()
                         displayedRouteTrack = importedTrack
                         detourOverlayTrack = null
+                        closureSegments = emptyList()
                         routeProgressTracker = importedTrack?.let(::RouteProgressTracker)
                         routeRejoinAdvisor = importedTrack?.let(::RouteRejoinAdvisor)
                         renderRouteProgress(latestSnapshot.latestPoint ?: latestLocatedPoint)
@@ -2850,6 +2890,9 @@ class MainActivity : AppCompatActivity(), SensorEventListener, LocationListener 
         private const val ROUTE_LAYER = "imported-route-layer"
         private const val ROUTE_DIRECTION_LAYER = "imported-route-direction-layer"
         private const val ROUTE_DIRECTION_ICON = "imported-route-direction-icon"
+        private const val CLOSURE_SOURCE = "route-closure-source"
+        private const val CLOSURE_HALO_LAYER = "route-closure-halo-layer"
+        private const val CLOSURE_LAYER = "route-closure-layer"
         private const val DETOUR_SOURCE = "active-detour-source"
         private const val DETOUR_LAYER = "active-detour-layer"
         private const val LIVE_TRACK_SOURCE = "live-track-source"
